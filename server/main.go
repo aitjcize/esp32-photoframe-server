@@ -39,6 +39,8 @@ func main() {
 	// Initialize Overlay
 	weatherClient := weather.NewClient()
 	overlayService := service.NewOverlayService(weatherClient, settingsService)
+	// Initialize Synology Photos Service
+	synologyService := service.NewSynologyService(database, settingsService)
 
 	// Initialize Picker Service
 	dataDir := os.Getenv("DATA_DIR")
@@ -57,9 +59,12 @@ func main() {
 	}
 
 	// Initialize Handlers
-	h := handler.NewHandler(settingsService, telegramService)
-	gh := handler.NewGoogleHandler(googleClient, pickerService)
-	ih := handler.NewImageHandler(settingsService, overlayService, processorService, googleClient, database, dataDir)
+	// Initialize Handlers
+	h := handler.NewHandler(settingsService, telegramService, googleClient)
+	gh := handler.NewGoogleHandler(googleClient, pickerService, database, dataDir)
+
+	sh := handler.NewSynologyHandler(synologyService)
+	ih := handler.NewImageHandler(settingsService, overlayService, processorService, googleClient, synologyService, database, dataDir)
 
 	// Echo instance
 	e := echo.New()
@@ -79,12 +84,13 @@ func main() {
 	api.POST("/settings", h.UpdateSettings)
 
 	// Image Route
-	e.GET("/image", ih.ServeImage)
+	e.GET("/image/:source", ih.ServeImage)
+	e.GET("/served-image-thumbnail/:id", ih.GetServedImageThumbnail)
 
 	// Google Routes
 	api.GET("/auth/google/login", gh.Login)
 	api.GET("/auth/google/callback", gh.Callback)
-	// api.GET("/google/albums", gh.ListAlbums) // Deprecated
+	api.POST("/auth/google/logout", gh.Logout)
 
 	// Picker Routes
 	api.GET("/google/picker/session", gh.CreatePickerSession)
@@ -92,11 +98,19 @@ func main() {
 	api.GET("/google/picker/progress/:id", gh.PollPickerProgress)
 	api.POST("/google/picker/process/:id", gh.ProcessPickerSession)
 
-	// Gallery Routes
-	api.GET("/photos", ih.ListPhotos)
-	api.DELETE("/photos/:id", ih.DeletePhoto)
-	api.GET("/photos/:id/thumbnail", ih.GetThumbnail)
-	api.GET("/served-image-thumbnail/:id", ih.GetServedImageThumbnail)
+	// Gallery Routes (Google Photos only - locally stored)
+	api.GET("/google-photos", ih.ListGooglePhotos)
+	api.DELETE("/google-photos", gh.DeleteAllGooglePhotos)
+	api.DELETE("/google-photos/:id", gh.DeleteGooglePhoto)
+	api.GET("/google-photos/:id/thumbnail", gh.GetGooglePhotoThumbnail)
+
+	// Synology Routes
+	api.POST("/synology/test", sh.TestConnection)
+	api.POST("/synology/sync", sh.Sync)
+	api.POST("/synology/clear", sh.Clear)
+	api.GET("/synology/albums", sh.ListAlbums)
+	api.GET("/synology/count", sh.GetPhotoCount)
+	api.POST("/synology/logout", sh.Logout)
 
 	// Static Files (Frontend)
 	staticDir := os.Getenv("STATIC_DIR")

@@ -115,34 +115,20 @@ func (c CurrentWeather) Description() string {
 func (c CurrentWeather) Icon() string {
 	switch c.WeatherCode {
 	case 0:
-		return "\ue81a" // clear_day
-	case 1:
-		return "\ue81b" // partly_cloudy_day
-	case 2:
-		return "\ue81b" // partly_cloudy_day
-	case 3:
-		return "\ue818" // cloud
-	case 45, 48:
-		return "\ue818" // cloud (fog)
-	case 51, 53, 55:
-		return "\ue81c" // rainy_light
-	case 56, 57:
-		return "\ue810" // weather_mix
-	case 61, 63, 65:
-		return "\ue81c" // rainy
-	case 66, 67:
-		return "\ue810" // weather_mix
-	case 71, 73, 75, 77:
-		return "\ue80f" // ac_unit (snow)
-	case 80, 81, 82:
-		return "\ue81c" // rainy
-	case 85, 86:
-		return "\ue80f" // ac_unit (snow)
-	case 95:
-		return "\ue81d" // thunderstorm
-	case 96, 99:
-		return "\ue81d" // thunderstorm
+		return "\uf157" // clear_day
+	case 1, 2:
+		return "\uf172" // partly_cloudy_day
+	case 3, 45, 48:
+		return "\uf15c" // cloud
+	case 51, 53, 55, 61, 63, 65, 80, 81, 82:
+		return "\uf176" // rainy
+	case 56, 57, 66, 67:
+		return "\uf176" // weather_mix -> fallback to rainy or similar symbols symbol
+	case 71, 73, 75, 77, 85, 86:
+		return "\ueb3b" // ac_unit (snow)
+	case 95, 96, 99:
+		return "\uebdb" // thunderstorm
 	default:
-		return "\ue81a" // clear_day (default)
+		return "\uf157" // clear_day (default)
 	}
 }

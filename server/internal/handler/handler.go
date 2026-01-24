@@ -4,16 +4,18 @@ import (
 	"net/http"
 
 	"github.com/aitjcize/photoframe-server/server/internal/service"
+	"github.com/aitjcize/photoframe-server/server/pkg/googlephotos"
 	"github.com/labstack/echo/v4"
 )
 
 type Handler struct {
 	settings *service.SettingsService
 	telegram *service.TelegramService
+	google   *googlephotos.Client
 }
 
-func NewHandler(s *service.SettingsService, t *service.TelegramService) *Handler {
-	return &Handler{settings: s, telegram: t}
+func NewHandler(s *service.SettingsService, t *service.TelegramService, g *googlephotos.Client) *Handler {
+	return &Handler{settings: s, telegram: t, google: g}
 }
 
 func (h *Handler) HealthCheck(c echo.Context) error {
@@ -25,6 +27,13 @@ func (h *Handler) GetSettings(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
+
+	if h.google.IsConnected() {
+		settings["google_connected"] = "true"
+	} else {
+		settings["google_connected"] = "false"
+	}
+
 	return c.JSON(http.StatusOK, settings)
 }
 

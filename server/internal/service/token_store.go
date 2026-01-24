@@ -60,3 +60,7 @@ func (s *DBTokenStore) SaveToken(token *oauth2.Token) error {
 	// Upsert
 	return s.db.Save(&auth).Error
 }
+
+func (s *DBTokenStore) ClearToken() error {
+	return s.db.Delete(&model.GoogleAuth{}, 1).Error
+}

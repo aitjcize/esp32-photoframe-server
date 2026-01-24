@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/draw"
-	"image/jpeg"
+	"strconv"
+
+	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
 	"os"
@@ -16,7 +19,6 @@ import (
 	"github.com/aitjcize/photoframe-server/server/internal/service"
 	"github.com/aitjcize/photoframe-server/server/pkg/googlephotos"
 	"github.com/labstack/echo/v4"
-	xdraw "golang.org/x/image/draw"
 	"gorm.io/gorm"
 )
 
@@ -25,6 +27,7 @@ type ImageHandler struct {
 	overlay   *service.OverlayService
 	processor *service.ProcessorService
 	google    *googlephotos.Client
+	synology  *service.SynologyService
 	db        *gorm.DB
 	dataDir   string
 }
@@ -34,6 +37,7 @@ func NewImageHandler(
 	o *service.OverlayService,
 	p *service.ProcessorService,
 	g *googlephotos.Client,
+	synology *service.SynologyService,
 	db *gorm.DB,
 	dataDir string,
 ) *ImageHandler {
@@ -42,19 +46,38 @@ func NewImageHandler(
 		overlay:   o,
 		processor: p,
 		google:    g,
+		synology:  synology,
 		db:        db,
 		dataDir:   dataDir,
 	}
 }
 
 func (h *ImageHandler) ServeImage(c echo.Context) error {
-	// 1. Fetch Image
+	// Determine Source (Route param overrides setting)
+	forcedSource := c.Param("source")
+	source, _ := h.settings.Get("source")
+	if forcedSource != "" {
+		source = forcedSource
+	}
+	if source == "" {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	// 1. Fetch Random Photo (or pair if collage)
+	collageMode, _ := h.settings.Get("collage_mode")
+
 	var img image.Image
 	var err error
 
-	source, _ := h.settings.Get("source")
+	// Get target dimensions for the device
+	orientation := h.getOrientation()
+	targetW, targetH := 800, 480
+	if orientation == "portrait" {
+		targetW, targetH = 480, 800
+	}
+
 	if source == "telegram" {
-		// Serve Telegram Photo
+		// Serve Telegram Photo (always single, no collage)
 		imgPath := filepath.Join(h.dataDir, "photos", "telegram_last.jpg")
 		f, fsErr := os.Open(imgPath)
 		if fsErr != nil {
@@ -64,9 +87,10 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			defer f.Close()
 			img, _, err = image.Decode(f)
 		}
+	} else if collageMode == "true" {
+		img, _, err = h.fetchSmartCollage(targetW, targetH, source)
 	} else {
-		// Serve Google Photos (Smart Collage)
-		img, _, err = h.fetchSmartPhoto(c)
+		img, _, err = h.fetchRandomPhoto(source)
 	}
 
 	if err != nil {
@@ -75,12 +99,6 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 	// 1.5. Resize/Crop to Target Dimensions
 	// This ensures the overlay is drawn on the FINAL visible area and not cropped later.
-	orientation := h.getOrientation()
-	targetW, targetH := 800, 480
-	if orientation == "portrait" {
-		targetW, targetH = 480, 800
-	}
-
 	dst := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
 	h.drawCover(dst, dst.Bounds(), img)
 	img = dst
@@ -104,7 +122,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		thumbPath := filepath.Join(h.dataDir, fmt.Sprintf("thumb_%s.jpg", thumbID))
 
 		if err := os.WriteFile(thumbPath, thumbBytes, 0644); err == nil {
-			thumbnailUrl := fmt.Sprintf("http://%s/api/served-image-thumbnail/%s", c.Request().Host, thumbID)
+			thumbnailUrl := fmt.Sprintf("http://%s/served-image-thumbnail/%s", c.Request().Host, thumbID)
 			c.Response().Header().Set("X-Thumbnail-URL", thumbnailUrl)
 		} else {
 			fmt.Printf("Failed to save served thumbnail: %v\n", err)
@@ -139,71 +157,32 @@ func (h *ImageHandler) GetServedImageThumbnail(c echo.Context) error {
 	return c.Blob(http.StatusOK, "image/jpeg", data)
 }
 
-func (h *ImageHandler) GetThumbnail(c echo.Context) error {
-	id := c.Param("id")
-	var item model.Image
-	if err := h.db.First(&item, id).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
+func (h *ImageHandler) ListGooglePhotos(c echo.Context) error {
+	// Parse pagination parameters
+	limit := 50 // default
+	offset := 0
+
+	if limitStr := c.QueryParam("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
 	}
 
-	// 1. Check Cache
-	// 1. Check Cache
-	thumbPath := filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%s.jpg", id))
-	if _, err := os.Stat(thumbPath); err == nil {
-		return c.File(thumbPath)
+	if offsetStr := c.QueryParam("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
 	}
 
-	// 2. Generate
-	// Ensure directory exists
-	thumbsDir := filepath.Join(h.dataDir, "thumbnails")
-	if err := os.MkdirAll(thumbsDir, 0755); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create thumb dir"})
+	// Get total count of Google Photos only
+	var total int64
+	if err := h.db.Model(&model.Image{}).Where("source = ?", "google").Count(&total).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to count photos"})
 	}
 
-	f, err := os.Open(item.FilePath)
-	if err != nil {
-		fmt.Printf("Failed to open image for thumbnail: path=%s, error=%v\n", item.FilePath, err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to open image"})
-	}
-	defer f.Close()
-
-	img, _, err := image.Decode(f)
-	if err != nil {
-		// If decoding fails (e.g. DNL issue that Go can't handle?), we might fail here.
-		// But new Google Photos downloads are fixed.
-		// For legacy corrupt files, this will error out, which is expected/acceptable now.
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to decode image: " + err.Error()})
-	}
-
-	// Calculate 400x240 fit
-	bounds := img.Bounds()
-	ratio := float64(bounds.Dx()) / float64(bounds.Dy())
-	targetH := 240
-	targetW := int(float64(targetH) * ratio)
-	if targetW > 400 {
-		targetW = 400
-		targetH = int(float64(targetW) / ratio)
-	}
-
-	dst := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
-	xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
-
-	// Save
-	out, err := os.Create(thumbPath)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save thumb"})
-	}
-	defer out.Close()
-	jpeg.Encode(out, dst, &jpeg.Options{Quality: 80})
-
-	// 3. Serve
-	return c.File(thumbPath)
-}
-
-func (h *ImageHandler) ListPhotos(c echo.Context) error {
+	// Get paginated Google Photos only
 	var items []model.Image
-	// Sort by CreatedAt desc
-	if err := h.db.Order("created_at desc").Find(&items).Error; err != nil {
+	if err := h.db.Where("source = ?", "google").Order("created_at desc").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list photos"})
 	}
 
@@ -217,12 +196,12 @@ func (h *ImageHandler) ListPhotos(c echo.Context) error {
 		Orientation  string    `json:"orientation"`
 	}
 
-	var response []PhotoResponse
+	var photos []PhotoResponse
 	host := c.Request().Host
 	for _, item := range items {
-		response = append(response, PhotoResponse{
+		photos = append(photos, PhotoResponse{
 			ID:           item.ID,
-			ThumbnailURL: fmt.Sprintf("http://%s/api/photos/%d/thumbnail", host, item.ID),
+			ThumbnailURL: fmt.Sprintf("http://%s/api/google-photos/%d/thumbnail", host, item.ID),
 			CreatedAt:    item.CreatedAt,
 			Caption:      item.Caption,
 			Width:        item.Width,
@@ -231,25 +210,13 @@ func (h *ImageHandler) ListPhotos(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, response)
-}
-
-func (h *ImageHandler) DeletePhoto(c echo.Context) error {
-	id := c.Param("id")
-	var item model.Image
-	if err := h.db.First(&item, id).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
-	}
-
-	// Delete file
-	os.Remove(item.FilePath)
-
-	// Delete from DB
-	if err := h.db.Delete(&item).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete photo from db"})
-	}
-
-	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+	// Return paginated response with metadata
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"photos": photos,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
 }
 
 // Helper to retrieve settings safely
@@ -262,27 +229,19 @@ func (h *ImageHandler) getOrientation() string {
 }
 
 // Fetch smart photo (Single or Collage)
-func (h *ImageHandler) fetchSmartPhoto(c echo.Context) (image.Image, uint, error) {
-	orientation := h.getOrientation()
+func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter string) (image.Image, uint, error) {
+	// Decide if Device is Landscape or Portrait
+	devicePortrait := screenH > screenW
 
-	// Strategy:
-	// 1. Pick a random photo.
-	// 2. Check its orientation vs device orientation.
-	// 3. If match -> Return.
-	// 4. If mismatch (e.g. device Portrait, photo Landscape):
-	//    - Pick another random photo of same type (Landscape).
-	//    - Combine them.
-
-	img1, id1, err := h.fetchRandomPhoto()
+	// Fetch first image
+	img1, id1, err := h.fetchRandomPhoto(sourceFilter)
 	if err != nil {
-		return img1, id1, err
+		return nil, 0, err
 	}
 
 	bounds := img1.Bounds()
 	w, h_img := bounds.Dx(), bounds.Dy()
 	isPhotoPortrait := h_img > w
-
-	devicePortrait := orientation == "portrait"
 
 	// Case 1: Match
 	if isPhotoPortrait == devicePortrait {
@@ -294,13 +253,13 @@ func (h *ImageHandler) fetchSmartPhoto(c echo.Context) (image.Image, uint, error
 	if devicePortrait && !isPhotoPortrait {
 		// Try fetch second landscape
 		// 1. Try DB first
-		img2, id2, err := h.fetchRandomPhotoWithType("landscape")
+		img2, id2, err := h.fetchRandomPhotoWithType("landscape", sourceFilter)
 		if err == nil && id2 != id1 {
 			return h.createVerticalCollage(img1, img2), 0, nil
 		}
 		// 2. Fallback: Try random loop
 		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto()
+			cand, candID, err := h.fetchRandomPhoto(sourceFilter)
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dx() > b.Dy() { // Is Landscape
@@ -315,13 +274,13 @@ func (h *ImageHandler) fetchSmartPhoto(c echo.Context) (image.Image, uint, error
 	// Device Landscape, Photo Portrait -> Horizontal Side-by-Side
 	if !devicePortrait && isPhotoPortrait {
 		// Try fetch second portrait
-		img2, id2, err := h.fetchRandomPhotoWithType("portrait")
+		img2, id2, err := h.fetchRandomPhotoWithType("portrait", sourceFilter)
 		if err == nil && id2 != id1 {
 			return h.createHorizontalCollage(img1, img2), 0, nil
 		}
 		// 2. Fallback
 		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto()
+			cand, candID, err := h.fetchRandomPhoto(sourceFilter)
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dy() > b.Dx() { // Is Portrait
@@ -336,9 +295,18 @@ func (h *ImageHandler) fetchSmartPhoto(c echo.Context) (image.Image, uint, error
 	return img1, id1, nil
 }
 
-func (h *ImageHandler) fetchRandomPhotoWithType(targetType string) (image.Image, uint, error) {
+func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter string) (image.Image, uint, error) {
 	var item model.Image
 	query := h.db.Order("RANDOM()").Where("orientation = ?", targetType)
+
+	if sourceFilter == "google_photos" || sourceFilter == "" {
+		query = query.Where("source = ? OR source = ?", "google", "")
+	} else if sourceFilter == "synology" {
+		query = query.Where("source = ?", "synology")
+	} else if sourceFilter == "telegram" {
+		query = query.Where("source = ?", "telegram")
+	}
+
 	if err := query.First(&item).Error; err != nil {
 		return nil, 0, err
 	}
@@ -450,6 +418,21 @@ func maxFloat(a, b float64) float64 {
 	return b
 }
 
+// fetchSynologyPhoto retrieves the photo from Synology Service
+func (h *ImageHandler) fetchSynologyPhoto(item model.Image) (image.Image, uint, error) {
+	// Try fetching cache first? Or direct from Service which handles fetching
+	data, err := h.synology.GetPhoto(item.SynologyPhotoID, item.ThumbnailKey, "large")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, err
+	}
+	return img, item.ID, nil
+}
+
 // resolvePath handles path differences between Docker (/data/...) and local dev
 func (h *ImageHandler) resolvePath(path string) string {
 	// 1. If path exists as is, return it
@@ -479,12 +462,41 @@ func (h *ImageHandler) resolvePath(path string) string {
 	return path
 }
 
-func (h *ImageHandler) fetchRandomPhoto() (image.Image, uint, error) {
+func (h *ImageHandler) fetchRandomPhoto(sourceFilter string) (image.Image, uint, error) {
+	// Source logic: if "google_photos" (default), we include source="google" OR source="" (legacy)
+	// If "synology", source="synology"
+	// If "telegram", source="telegram"
+
+	// Note: settings uses "google_photos" but DB uses "google"? Or "local"?
+	// Legacy: empty source is usually local or google.
+	// We need to check data model.
+
 	var item model.Image
-	result := h.db.Order("RANDOM()").First(&item)
+	query := h.db.Order("RANDOM()")
+
+	if sourceFilter == "google_photos" {
+		query = query.Where("source = ? OR source = ?", "google", "")
+	} else if sourceFilter == "synology" {
+		query = query.Where("source = ?", "synology")
+	} else if sourceFilter == "telegram" {
+		query = query.Where("source = ?", "telegram")
+	}
+	// If empty filter passed (unlikely if ServeImage handles it), fallback?
+
+	result := query.First(&item)
 	if result.Error != nil {
 		img, err := h.fetchPlaceholder()
 		return img, 0, err
+	}
+
+	if item.Source == "synology" {
+		img, _, err := h.fetchSynologyPhoto(item)
+		if err != nil {
+			fmt.Printf("Warning: Failed to fetch Synology photo: %v\n", err)
+			img, err := h.fetchPlaceholder()
+			return img, 0, err
+		}
+		return img, item.ID, nil
 	}
 
 	resolvedPath := h.resolvePath(item.FilePath)

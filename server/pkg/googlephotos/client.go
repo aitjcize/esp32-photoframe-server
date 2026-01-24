@@ -20,6 +20,7 @@ type ConfigProvider interface {
 type TokenStore interface {
 	GetToken() (*oauth2.Token, error)
 	SaveToken(*oauth2.Token) error
+	ClearToken() error
 }
 
 type Client struct {
@@ -108,6 +109,45 @@ func (c *Client) GetClient() (*http.Client, error) {
 		return nil, err
 	}
 
-	c.client = conf.Client(context.Background(), token)
+	// Use a TokenSource that saves the token whenever it's refreshed
+	source := conf.TokenSource(context.Background(), token)
+	saveSource := &SavingTokenSource{
+		source: source,
+		store:  c.store,
+	}
+	c.client = oauth2.NewClient(context.Background(), oauth2.ReuseTokenSource(token, saveSource))
 	return c.client, nil
+}
+
+// SavingTokenSource is a wrapper around oauth2.TokenSource that saves refreshed tokens
+type SavingTokenSource struct {
+	source oauth2.TokenSource
+	store  TokenStore
+}
+
+func (s *SavingTokenSource) Token() (*oauth2.Token, error) {
+	token, err := s.source.Token()
+	if err != nil {
+		return nil, err
+	}
+	// Always save the token back to the store. The store implementation
+	// should handle deduping if it's the same token.
+	if err := s.store.SaveToken(token); err != nil {
+		return nil, err
+	}
+	return token, nil
+}
+
+func (c *Client) Logout() error {
+	c.client = nil
+	return c.store.ClearToken()
+}
+
+func (c *Client) IsConnected() bool {
+	token, err := c.store.GetToken()
+	if err != nil || token == nil {
+		return false
+	}
+	// Connected if it's still valid, or if we have a refresh token to fix it
+	return token.Valid() || token.RefreshToken != ""
 }

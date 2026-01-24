@@ -4,8 +4,9 @@ A middleware server for the [ESP32 PhotoFrame](https://github.com/aitjcize/esp32
 
 ## Features
 
--   **Dual Data Sources**:
+-   **Multiple Data Sources**:
     -   **Google Photos**: Uses the Picker API to securely select albums and photos.
+    -   **Synology Photos**: Connect directly to your Synology NAS (supports DSM 7 Personal and Shared spaces).
     -   **Telegram Bot**: Send photos directly to your frame via a Telegram bot.
 -   **Smart Image Processing**:
     -   Automatic cropping to device aspect ratio (800x480 or 480x800).
@@ -94,6 +95,14 @@ Access the dashboard at `http://localhost:9607` (or your server IP).
     -   Access the server normally via `http://homeassistant.local:9607` or your regular URL
     -   Re-authentication is only needed if you revoke access or want to add more photos
 
+### Synology Setup
+1.  Go to **Settings** in the dashboard.
+2.  Enable **Synology Photos**.
+3.  Enter your **NAS URL** (e.g., `https://192.168.1.10:5001`), **Account**, and **Password**.
+4.  If using 2FA, enter the **OTP Code** when testing the connection.
+5.  Select the **Photo Space** (Personal or Shared) and optionally a specific **Album**.
+6.  Click **Sync Now** to import metadata.
+
 ### Telegram Setup
 1.  Create a new bot via [@BotFather](https://t.me/botfather) on Telegram.
 2.  Get the **Bot Token**.
@@ -104,9 +113,15 @@ Access the dashboard at `http://localhost:9607` (or your server IP).
 
 ## API Endpoints (For ESP32)
 
--   `GET /image`: Returns the processed, dithered image ready for display.
-    -   The ESP32 firmware's auto rotate URL should point to this endpoint.
-    -   Headers: `X-Thumbnail-URL` (optional link to thumbnail).
+-   **`GET /image/google`**: Returns a random image specifically from **Google Photos**.
+-   **`GET /image/synology`**: Returns a random image specifically from **Synology Photos**.
+-   **`GET /image/telegram`**: Returns the last photo sent via **Telegram Bot**.
+
+### Technical Details:
+-   **Output Format**: Processed 7-color PNG, optimized with Floyd-Steinberg dithering.
+-   **Automatic Scaling**: Images are automatically cropped and resized to your frame's dimensions.
+-   **Headers**: 
+    -   `X-Thumbnail-URL`: Link to a temporary JPEG thumbnail for fast preview in the firmware if supported.
 
 ## Development
 
