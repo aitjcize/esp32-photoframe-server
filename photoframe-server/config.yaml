@@ -1,5 +1,5 @@
 name: "ESP32 PhotoFrame Server"
-version: "1.0.0"
+version: "v1.0.1"
 slug: "photoframe-server"
 description: "Middleware server for ESP32 PhotoFrame (Google Photos & Telegram)"
 url: "https://github.com/aitjcize/esp32-photoframe-server"
