@@ -30,11 +30,9 @@ FROM $BUILD_FROM
 WORKDIR /app
 
 # Install runtime dependencies
-# Node.js and NPM are needed for the processor script
+# Install runtime dependencies
 # Canvas dependencies: cairo, pango, jpeg, giflib, librsvg
 RUN apk add --no-cache \
-    nodejs \
-    npm \
     cairo-dev \
     pango-dev \
     jpeg-dev \
@@ -44,10 +42,17 @@ RUN apk add --no-cache \
     ffmpeg \
     build-base \
     python3 \
-    font-inter
+    font-noto \
+    font-noto-emoji
 
 # Create directories
 RUN mkdir -p /app/bin /app/static /app/data
+
+# Download and install Material Symbols font
+RUN wget -O /tmp/MaterialSymbolsOutlined.ttf https://github.com/google/material-design-icons/raw/master/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf && \
+    mkdir -p /usr/share/fonts/material && \
+    mv /tmp/MaterialSymbolsOutlined.ttf /usr/share/fonts/material/ && \
+    fc-cache -f
 
 # Copy Binary
 COPY --from=builder /app/photoframe-server /app/photoframe-server
@@ -55,17 +60,17 @@ COPY --from=builder /app/photoframe-server /app/photoframe-server
 # Copy Frontend Build
 COPY --from=frontend-builder /app/dist /app/static
 
-# Copy Processor Scripts
-# Download process-cli files from GitHub
-ADD https://raw.githubusercontent.com/aitjcize/esp32-photoframe/main/process-cli/image-processor.js /app/bin/image-processor.js
-ADD https://raw.githubusercontent.com/aitjcize/esp32-photoframe/main/process-cli/cli.js /app/bin/cli.js
-ADD https://raw.githubusercontent.com/aitjcize/esp32-photoframe/main/process-cli/utils.js /app/bin/utils.js
-ADD https://raw.githubusercontent.com/aitjcize/esp32-photoframe/main/process-cli/server.js /app/bin/server.js
-
-# Install dependencies for Processor Script
-WORKDIR /app/bin
-# Install dependencies required by process-cli (commander, node-fetch, form-data, etc)
-RUN npm install canvas exif-parser heic-convert form-data commander node-fetch
+# Clone and install processor scripts
+RUN apk add --no-cache git && \
+    git clone --depth 1 https://github.com/aitjcize/esp32-photoframe.git /tmp/esp32-photoframe && \
+    mkdir -p /app/process-cli && \
+    cp -r /tmp/esp32-photoframe/process-cli/* /app/process-cli/ && \
+    cd /app/process-cli && \
+    npm install && \
+    npm install -g . && \
+    ln -s /usr/local/bin/photoframe-process /usr/bin/photoframe-process || true && \
+    rm -rf /tmp/esp32-photoframe && \
+    apk del git
 
 WORKDIR /app
 

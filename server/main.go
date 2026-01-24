@@ -34,8 +34,8 @@ func main() {
 	googleClient := googlephotos.NewClient(settingsService, tokenStore)
 
 	// Initialize Processor
-	// Copy cli.js to ./bin first
-	processorService := service.NewProcessorService("/app/bin/cli.js")
+	// We use global photoframe-process command
+	processorService := service.NewProcessorService()
 	// Initialize Overlay
 	weatherClient := weather.NewClient()
 	overlayService := service.NewOverlayService(weatherClient, settingsService)

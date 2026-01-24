@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aitjcize/photoframe-server/server/internal/model"
@@ -291,7 +292,6 @@ func (h *ImageHandler) fetchSmartPhoto(c echo.Context) (image.Image, uint, error
 	// Case 2: Mismatch
 	// Device Portrait, Photo Landscape -> Vertical Stack
 	if devicePortrait && !isPhotoPortrait {
-		fmt.Printf("SmartCollage: Attempting Vertical Stack (Portrait Mode, Photo Landscape)\n")
 		// Try fetch second landscape
 		// 1. Try DB first
 		img2, id2, err := h.fetchRandomPhotoWithType("landscape")
@@ -299,41 +299,38 @@ func (h *ImageHandler) fetchSmartPhoto(c echo.Context) (image.Image, uint, error
 			return h.createVerticalCollage(img1, img2), 0, nil
 		}
 		// 2. Fallback: Try random loop
-		fmt.Printf("SmartCollage: DB fetch failed, trying random fallback...\n")
 		for i := 0; i < 5; i++ {
 			cand, candID, err := h.fetchRandomPhoto()
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dx() > b.Dy() { // Is Landscape
-					fmt.Printf("SmartCollage: Found match via random!\n")
+					// fmt.Printf("SmartCollage: Found match via random!\n")
 					return h.createVerticalCollage(img1, cand), 0, nil
 				}
 			}
 		}
-		fmt.Printf("SmartCollage: Failed to find partner, returning single.\n")
+		// fmt.Printf("SmartCollage: Failed to find partner, returning single.\n")
 	}
 
 	// Device Landscape, Photo Portrait -> Horizontal Side-by-Side
 	if !devicePortrait && isPhotoPortrait {
-		fmt.Printf("SmartCollage: Attempting Horizontal Side-by-Side (Landscape Mode, Photo Portrait)\n")
 		// Try fetch second portrait
 		img2, id2, err := h.fetchRandomPhotoWithType("portrait")
 		if err == nil && id2 != id1 {
 			return h.createHorizontalCollage(img1, img2), 0, nil
 		}
 		// 2. Fallback
-		fmt.Printf("SmartCollage: DB fetch failed, trying random fallback...\n")
 		for i := 0; i < 5; i++ {
 			cand, candID, err := h.fetchRandomPhoto()
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dy() > b.Dx() { // Is Portrait
-					fmt.Printf("SmartCollage: Found match via random!\n")
+					// fmt.Printf("SmartCollage: Found match via random!\n")
 					return h.createHorizontalCollage(img1, cand), 0, nil
 				}
 			}
 		}
-		fmt.Printf("SmartCollage: Failed to find partner, returning single.\n")
+		// fmt.Printf("SmartCollage: Failed to find partner, returning single.\n")
 	}
 
 	return img1, id1, nil
@@ -346,7 +343,8 @@ func (h *ImageHandler) fetchRandomPhotoWithType(targetType string) (image.Image,
 		return nil, 0, err
 	}
 
-	f, err := os.Open(item.FilePath)
+	resolvedPath := h.resolvePath(item.FilePath)
+	f, err := os.Open(resolvedPath)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -452,6 +450,35 @@ func maxFloat(a, b float64) float64 {
 	return b
 }
 
+// resolvePath handles path differences between Docker (/data/...) and local dev
+func (h *ImageHandler) resolvePath(path string) string {
+	// 1. If path exists as is, return it
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+
+	// 2. If path starts with /data/, try replacing it with h.dataDir
+	// Docker uses /data, local uses whatever DATA_DIR is (e.g. ./data)
+	if strings.HasPrefix(path, "/data/") {
+		relPath := strings.TrimPrefix(path, "/data/")
+		newPath := filepath.Join(h.dataDir, relPath)
+		if _, err := os.Stat(newPath); err == nil {
+			return newPath
+		}
+	}
+
+	// 3. Similar check for /app/data/ just in case
+	if strings.HasPrefix(path, "/app/data/") {
+		relPath := strings.TrimPrefix(path, "/app/data/")
+		newPath := filepath.Join(h.dataDir, relPath)
+		if _, err := os.Stat(newPath); err == nil {
+			return newPath
+		}
+	}
+
+	return path
+}
+
 func (h *ImageHandler) fetchRandomPhoto() (image.Image, uint, error) {
 	var item model.Image
 	result := h.db.Order("RANDOM()").First(&item)
@@ -460,9 +487,12 @@ func (h *ImageHandler) fetchRandomPhoto() (image.Image, uint, error) {
 		return img, 0, err
 	}
 
-	f, err := os.Open(item.FilePath)
+	resolvedPath := h.resolvePath(item.FilePath)
+	f, err := os.Open(resolvedPath)
 	if err != nil {
-		h.db.Delete(&item)
+		// Do NOT delete the record just because file is missing locally
+		// h.db.Delete(&item)
+		fmt.Printf("Warning: Failed to open image: %s (resolved: %s): %v\n", item.FilePath, resolvedPath, err)
 		img, err := h.fetchPlaceholder()
 		return img, 0, err
 	}

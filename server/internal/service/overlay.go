@@ -24,19 +24,37 @@ func (s *OverlayService) ApplyOverlay(img image.Image) (image.Image, error) {
 	w := float64(dc.Width())
 	h := float64(dc.Height())
 
-	// Dark gradient at bottom for legibility
-	grad := gg.NewLinearGradient(0, h-100, 0, h)
-	grad.AddColorStop(0, color.RGBA{0, 0, 0, 0})   // Transparent
-	grad.AddColorStop(1, color.RGBA{0, 0, 0, 180}) // Black semi-transparent
+	// Gradient at bottom for text overlay legibility
+	// Extends higher to cover all text elements
+	gradientHeight := 150.0
+	grad := gg.NewLinearGradient(0, h-gradientHeight, 0, h)
+	grad.AddColorStop(0, color.RGBA{0, 0, 0, 0})
+	grad.AddColorStop(0.3, color.RGBA{0, 0, 0, 120})
+	grad.AddColorStop(0.6, color.RGBA{0, 0, 0, 200})
+	grad.AddColorStop(1, color.RGBA{0, 0, 0, 255})
 
 	dc.SetFillStyle(grad)
-	dc.DrawRectangle(0, h-100, w, 100)
+	dc.DrawRectangle(0, h-gradientHeight, w, gradientHeight)
 	dc.Fill()
 
-	// Load Font
-	// Using Inter Variable font
-	if err := dc.LoadFontFace("/usr/share/fonts/inter/InterVariable.ttf", 25); err != nil {
-		fmt.Printf("Could not load font: %v\n", err)
+	// Load Font - try multiple paths for cross-platform support
+	// Using Noto Sans for better E-Ink readability
+	fontPaths := []string{
+		"/usr/share/fonts/noto/NotoSans-Regular.ttf",   // Linux (Docker)
+		"../bin/fonts/NotoSans-Regular.ttf",            // Local dev
+		"/System/Library/Fonts/Supplemental/Arial.ttf", // macOS fallback
+		"/Library/Fonts/Arial.ttf",                     // macOS alternative
+	}
+	var validFontPath string
+	for _, fontPath := range fontPaths {
+		if err := dc.LoadFontFace(fontPath, 25); err == nil {
+			validFontPath = fontPath
+			break
+		}
+	}
+	if validFontPath == "" {
+		fmt.Printf("Warning: Could not load any font, text overlay will not work\n")
+		return img, nil // Return original image without overlay
 	}
 
 	// Draw Overlays based on Settings
@@ -44,6 +62,9 @@ func (s *OverlayService) ApplyOverlay(img image.Image) (image.Image, error) {
 	if showDate == "" {
 		showDate = "true"
 	} // Default to true
+
+	// Configuration for text positioning
+	marginBottom := 50.0
 
 	showWeather, _ := s.settings.Get("show_weather")
 	if showWeather == "" {
@@ -54,12 +75,13 @@ func (s *OverlayService) ApplyOverlay(img image.Image) (image.Image, error) {
 	if showDate == "true" {
 		now := time.Now()
 		dateStr := now.Format("Mon, Jan 02")
-		// Draw Shadow
-		dc.SetRGB(0, 0, 0)
-		dc.DrawStringAnchored(dateStr, 22, h-52, 0, 0.5)
-		// Draw Text
+
+		x := 20.0
+		y := h - marginBottom
+
+		// Draw text
 		dc.SetRGB(1, 1, 1)
-		dc.DrawStringAnchored(dateStr, 20, h-50, 0, 0.5)
+		dc.DrawStringAnchored(dateStr, x, y, 0, 0.5)
 	}
 
 	// Weather
@@ -70,13 +92,43 @@ func (s *OverlayService) ApplyOverlay(img image.Image) (image.Image, error) {
 		if lat != "" && lon != "" {
 			weather, err := s.weatherClient.GetWeather(lat, lon)
 			if err == nil {
-				weatherStr := fmt.Sprintf("%.1f°C %s", weather.Temperature, weather.Description())
-				// Draw Shadow
-				dc.SetRGB(0, 0, 0)
-				dc.DrawStringAnchored(weatherStr, w-18, h-52, 1, 0.5)
-				// Draw Text
-				dc.SetRGB(1, 1, 1)
-				dc.DrawStringAnchored(weatherStr, w-20, h-50, 1, 0.5)
+				// Draw large weather icon using Material Symbols font
+				iconFontPaths := []string{
+					"/usr/share/fonts/material/MaterialSymbolsOutlined.ttf",
+					"../bin/fonts/MaterialSymbolsOutlined.ttf",
+				}
+				iconFontLoaded := false
+				for _, p := range iconFontPaths {
+					if err := dc.LoadFontFace(p, 72); err == nil {
+						iconFontLoaded = true
+						break
+					}
+				}
+
+				if iconFontLoaded {
+					icon := weather.Icon()
+					iconX := w - 20
+					// Icon sits above the text.
+					// Text is at h - marginBottom.
+					// Icon center previously at h - 60 (diff 35).
+					iconY := h - marginBottom - 35
+
+					// Draw icon
+					dc.SetRGB(1, 1, 1)
+					dc.DrawStringAnchored(icon, iconX, iconY, 1, 0.5)
+				}
+				// If Material Symbols font not available, skip weather icon (text will still show)
+
+				// Draw temperature and humidity below in smaller text using detected font
+				if err := dc.LoadFontFace(validFontPath, 18); err == nil {
+					weatherStr := fmt.Sprintf("%.1f°C  %d%%", weather.Temperature, weather.Humidity)
+					textX := w - 20
+					textY := h - marginBottom
+
+					// Draw text
+					dc.SetRGB(1, 1, 1)
+					dc.DrawStringAnchored(weatherStr, textX, textY, 1, 0.5)
+				}
 			} else {
 				// If weather fails, silently skip or maybe log
 				fmt.Printf("Weather fetch failed: %v\n", err)

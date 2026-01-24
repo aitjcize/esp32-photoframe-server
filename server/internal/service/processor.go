@@ -12,13 +12,10 @@ import (
 )
 
 type ProcessorService struct {
-	cliPath string
 }
 
-func NewProcessorService(cliPath string) *ProcessorService {
-	return &ProcessorService{
-		cliPath: cliPath,
-	}
+func NewProcessorService() *ProcessorService {
+	return &ProcessorService{}
 }
 
 func (s *ProcessorService) ProcessImage(img image.Image, options map[string]string) ([]byte, []byte, error) {
@@ -44,15 +41,12 @@ func (s *ProcessorService) ProcessImage(img image.Image, options map[string]stri
 	f.Close()
 
 	// 3. Prepare CLI arguments
-	// node cli.js <input> -o <outputDir>
-	args := []string{s.cliPath, inputPath, "-o", tmpDir}
-
-	// Add options if needed (mapping map to CLI args)
+	// Use photoframe-process binary
+	args := []string{inputPath, "-o", tmpDir}
 	for k, v := range options {
 		args = append(args, "--"+k, v)
 	}
-
-	cmd := exec.Command("node", args...)
+	cmd := exec.Command("photoframe-process", args...)
 
 	// Capture output for debugging
 	output, err := cmd.CombinedOutput()
