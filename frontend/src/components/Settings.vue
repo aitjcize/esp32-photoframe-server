@@ -304,9 +304,9 @@
           <div class="bg-green-100 text-green-700 p-3 rounded-lg mb-5">
             ✅ Connected to Synology Photos ({{ form.synology_account }} @
             {{ form.synology_url }})
-            <div v-if="synologyPhotoCount !== null" class="text-sm mt-1">
-              {{ synologyPhotoCount }} photo{{
-                synologyPhotoCount !== 1 ? 's' : ''
+            <div v-if="synologyStore.count !== null" class="text-sm mt-1">
+              {{ synologyStore.count }} photo{{
+                synologyStore.count !== 1 ? 's' : ''
               }}
               synced
             </div>
@@ -601,6 +601,179 @@
       </div>
     </section>
 
+    <!-- Security & Access Card -->
+    <section class="bg-white rounded-xl p-6 shadow-xl">
+      <h2
+        class="text-2xl font-semibold text-gray-800 mb-5 pb-3 border-b-2 border-primary-500"
+      >
+        Security & Access
+      </h2>
+
+      <!-- Change Password Section -->
+      <div class="mb-8">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-medium text-gray-800">Change Password</h3>
+          <button
+            @click="showPasswordForm = !showPasswordForm"
+            class="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition"
+          >
+            {{ showPasswordForm ? 'Cancel' : 'Change Password' }}
+          </button>
+        </div>
+        <div
+          v-if="showPasswordForm"
+          class="bg-gray-50 p-4 rounded-lg border border-gray-200"
+        >
+          <div class="space-y-4 max-w-md">
+            <div>
+              <label class="block mb-1 text-sm text-gray-600"
+                >Current Password</label
+              >
+              <input
+                v-model="passwordForm.oldPassword"
+                type="password"
+                class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition"
+              />
+            </div>
+            <div>
+              <label class="block mb-1 text-sm text-gray-600"
+                >New Password</label
+              >
+              <input
+                v-model="passwordForm.newPassword"
+                type="password"
+                class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition"
+              />
+            </div>
+            <div>
+              <label class="block mb-1 text-sm text-gray-600"
+                >Confirm New Password</label
+              >
+              <input
+                v-model="passwordForm.confirmPassword"
+                type="password"
+                class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition"
+              />
+            </div>
+            <button
+              @click="changePassword"
+              class="px-5 py-2.5 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition"
+            >
+              Update Password
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Access Tokens Section -->
+      <div>
+        <h3 class="text-lg font-medium text-gray-800 mb-4">
+          Device Access Tokens
+        </h3>
+
+        <!-- Generated Token Alert -->
+        <div
+          v-if="generatedToken"
+          class="bg-green-100 border-l-4 border-green-500 p-4 mb-5"
+        >
+          <div class="flex justify-between items-start">
+            <div>
+              <h4 class="font-bold text-green-900 mb-1">Token Generated!</h4>
+              <p class="text-green-800 text-sm mb-2">
+                Copy this token securely. It will not be shown again.
+              </p>
+            </div>
+            <button
+              @click="generatedToken = ''"
+              class="text-green-800 hover:text-green-900 text-xl"
+            >
+              ×
+          </button>
+          </div>
+          <div class="bg-white p-2 rounded border border-green-200 relative">
+            <code class="break-all text-sm font-mono text-gray-800 block pr-20">{{
+              generatedToken
+            }}</code>
+            <button
+              @click="copyToken"
+              class="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded transition-colors"
+            >
+              {{ tokenCopied ? '✓ Copied!' : 'Copy' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Generate Form -->
+        <div class="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
+          <h4 class="text-md font-medium text-gray-800 mb-3">
+            Generate New Token
+          </h4>
+          <div class="flex gap-3 items-end max-w-2xl">
+            <div class="flex-1">
+              <label class="block mb-1 text-sm text-gray-600"
+                >Token Name (e.g. Living Room Frame)</label
+              >
+              <input
+                v-model="newTokenName"
+                type="text"
+                placeholder="Device Name"
+                class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition"
+              />
+            </div>
+            <button
+              @click="generateToken"
+              class="px-5 py-2.5 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition"
+            >
+              Generate
+            </button>
+          </div>
+        </div>
+
+        <!-- Tokens Table -->
+        <h4 class="text-md font-medium text-gray-800 mb-3">Active Tokens</h4>
+        <div class="overflow-x-auto border border-gray-200 rounded-lg">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-gray-50 border-b border-gray-200">
+                <th class="p-3 text-sm font-semibold text-gray-600">Name</th>
+                <th class="p-3 text-sm font-semibold text-gray-600">
+                  Created At
+                </th>
+                <th class="p-3 text-sm font-semibold text-gray-600 text-right">
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="token in authStore.tokens"
+                :key="token.id"
+                class="border-b border-gray-100 hover:bg-gray-50"
+              >
+                <td class="p-3 font-medium text-gray-800">{{ token.name }}</td>
+                <td class="p-3 text-sm text-gray-500">
+                  {{ new Date(token.created_at).toLocaleString() }}
+                </td>
+                <td class="p-3 text-right">
+                  <button
+                    @click="revokeToken(token.id)"
+                    class="text-red-600 hover:text-red-800 hover:underline text-sm font-medium"
+                  >
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="authStore.tokens.length === 0">
+                <td colspan="3" class="p-10 text-center text-gray-500">
+                  No active tokens found. Create one above to connect a device.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- Global Save Message -->
     <div
       v-if="saveMessage"
@@ -619,11 +792,15 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
+import { useSynologyStore } from '../stores/synology';
+import { useAuthStore } from '../stores/auth';
+import { api } from '../api';
 import Gallery from './Gallery.vue';
 
 const store = useSettingsStore();
+const synologyStore = useSynologyStore();
+const authStore = useAuthStore();
 const activeTab = ref('google');
-const synologyPhotoCount = ref<number | null>(null);
 
 const form = reactive({
   Orientation: 'landscape',
@@ -688,22 +865,11 @@ onMounted(async () => {
 
   // Fetch Synology photo count if connected
   if (form.synology_sid) {
-    await fetchSynologyCount();
+    await synologyStore.fetchCount();
   }
-});
 
-// Fetch Synology photo count
-const fetchSynologyCount = async () => {
-  try {
-    const res = await fetch('/api/synology/count');
-    if (res.ok) {
-      const data = await res.json();
-      synologyPhotoCount.value = data.count || 0;
-    }
-  } catch (e) {
-    console.error('Failed to fetch Synology photo count', e);
-  }
-};
+  await authStore.fetchTokens();
+});
 
 const saveSettingsInternal = async () => {
   await store.saveSettings({
@@ -760,7 +926,7 @@ const connectGoogle = async () => {
 const logoutGoogle = async () => {
   if (!confirm('Are you sure you want to disconnect Google Photos?')) return;
   try {
-    await fetch('/api/auth/google/logout', { method: 'POST' });
+    await api.post('/auth/google/logout');
     form.google_connected = 'false';
     showToast('Disconnected Google Photos.');
     await store.fetchSettings();
@@ -772,37 +938,28 @@ const logoutGoogle = async () => {
 const testSynology = async () => {
   await saveSettingsInternal();
   try {
-    const res = await fetch('/api/synology/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ otp_code: form.synology_otp_code }),
-    });
-    if (res.ok) {
-      showToast('Connection Successful!');
-      form.synology_otp_code = '';
-      await store.fetchSettings();
-      form.synology_sid = store.settings.synology_sid;
+    await synologyStore.testConnection(form.synology_otp_code);
+    showToast('Connection Successful!');
+    form.synology_otp_code = '';
+    // Store updates settings internally, but we need to update form
+    form.synology_sid = store.settings.synology_sid;
+  } catch (e: any) {
+    const err = e.response?.data?.error || 'Unknown error';
+    if (err.includes('code: 403')) {
+      showToast(
+        '2FA Required! Please enter OTP code and Test Connection again.',
+        5000
+      );
     } else {
-      const data = await res.json();
-      const err = data.error || 'Unknown error';
-      if (err.includes('code: 403')) {
-        showToast(
-          '2FA Required! Please enter OTP code and Test Connection again.',
-          5000
-        );
-      } else {
-        showToast('Connection Failed: ' + err);
-      }
+      showToast('Connection Failed: ' + err);
     }
-  } catch (e) {
-    showToast('Connection Error: ' + e);
   }
 };
 
 const logoutSynology = async () => {
   if (!confirm('Are you sure you want to disconnect Synology?')) return;
   try {
-    await fetch('/api/synology/logout', { method: 'POST' });
+    await synologyStore.logout();
     form.synology_sid = '';
     showToast('Logged out from Synology.');
   } catch (e) {
@@ -813,41 +970,37 @@ const logoutSynology = async () => {
 const loadAlbums = async () => {
   await saveSettingsInternal();
   try {
-    const res = await fetch('/api/synology/albums');
-    if (res.ok) {
-      form.albums = await res.json();
-      showToast('Albums loaded!');
-    } else if (res.status === 401) {
-      // Session expired - auto logout
-      form.synology_sid = '';
-      await store.fetchSettings();
-      showToast('Session expired. Please reconnect to Synology.', 5000);
+    await synologyStore.fetchAlbums();
+    form.albums = synologyStore.albums;
+    showToast('Albums loaded!');
+  } catch (e: any) {
+    if (
+      e.message === 'Session expired' ||
+      (e.response && e.response.status === 401)
+    ) {
+      showToast(
+        'Session expired or Unauthorized. Please check login/settings.',
+        5000
+      );
     } else {
-      showToast('Failed to load albums.');
+      showToast(
+        'Failed to load albums: ' + (e.response?.data?.error || e.message)
+      );
     }
-  } catch (e) {
-    showToast('Error loading albums: ' + e);
   }
 };
 
 const syncSynology = async () => {
   await saveSettingsInternal();
   try {
-    const res = await fetch('/api/synology/sync', { method: 'POST' });
-    if (res.ok) {
-      showToast('Sync started/completed successfully!');
-      await fetchSynologyCount(); // Update count after sync
-    } else if (res.status === 401) {
-      // Session expired - auto logout
-      form.synology_sid = '';
-      await store.fetchSettings();
-      showToast('Session expired. Please reconnect to Synology.', 5000);
+    await synologyStore.sync();
+    showToast('Sync started/completed successfully!');
+  } catch (e: any) {
+    if (e.response && e.response.status === 401) {
+      showToast('Session expired. Please reconnect.', 5000);
     } else {
-      const data = await res.json();
-      showToast('Sync Failed: ' + (data.error || 'Unknown error'));
+      showToast('Sync Failed: ' + (e.response?.data?.error || 'Unknown error'));
     }
-  } catch (e) {
-    showToast('Sync Error: ' + e);
   }
 };
 
@@ -860,16 +1013,91 @@ const clearSynology = async () => {
     return;
 
   try {
-    const res = await fetch('/api/synology/clear', { method: 'POST' });
-    if (res.ok) {
-      showToast('All Synology photos cleared from database.');
-      await fetchSynologyCount();
-    } else {
-      const data = await res.json();
-      showToast('Clear Failed: ' + (data.error || 'Unknown error'));
-    }
+    await api.post('/synology/clear');
+    showToast('All Synology photos cleared from database.');
+    await synologyStore.fetchCount();
+  } catch (e: any) {
+    showToast('Clear Failed: ' + (e.response?.data?.error || e.message));
+  }
+};
+
+// Token Management
+const generatedToken = ref('');
+const newTokenName = ref('');
+const tokenCopied = ref(false);
+
+const copyToken = async () => {
+  try {
+    await navigator.clipboard.writeText(generatedToken.value);
+    tokenCopied.value = true;
+    setTimeout(() => {
+      tokenCopied.value = false;
+    }, 2000);
   } catch (e) {
-    showToast('Clear Error: ' + e);
+    showToast('Failed to copy token');
+  }
+};
+
+
+// Password Change
+const showPasswordForm = ref(false);
+const passwordForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+});
+
+const generateToken = async () => {
+  if (!newTokenName.value) {
+    showToast('Please enter a name for the token.');
+    return;
+  }
+  try {
+    const token = await authStore.generateToken(newTokenName.value);
+    generatedToken.value = token;
+    newTokenName.value = '';
+    showToast('Token generated!');
+  } catch (e: any) {
+    showToast(
+      'Failed to generate token: ' + (e.response?.data?.error || e.message)
+    );
+  }
+};
+
+const revokeToken = async (id: number) => {
+  if (!confirm('Revoke this token? Device will lose access.')) return;
+  try {
+    await authStore.revokeToken(id);
+    showToast('Token revoked.');
+  } catch (e: any) {
+    showToast('Failed: ' + e.message);
+  }
+};
+
+const changePassword = async () => {
+  if (!passwordForm.oldPassword || !passwordForm.newPassword) {
+    showToast('Please fill in all password fields.');
+    return;
+  }
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    showToast('New passwords do not match.');
+    return;
+  }
+  if (passwordForm.newPassword.length < 6) {
+    showToast('New password must be at least 6 characters.');
+    return;
+  }
+  try {
+    await api.post('/auth/password', {
+      old_password: passwordForm.oldPassword,
+      new_password: passwordForm.newPassword,
+    });
+    passwordForm.oldPassword = '';
+    passwordForm.newPassword = '';
+    passwordForm.confirmPassword = '';
+    showToast('Password updated successfully!');
+  } catch (e: any) {
+    showToast('Failed: ' + (e.response?.data?.error || e.message));
   }
 };
 
