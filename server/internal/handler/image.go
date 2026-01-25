@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	"strconv"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -53,13 +52,11 @@ func NewImageHandler(
 }
 
 func (h *ImageHandler) ServeImage(c echo.Context) error {
-	// Determine Source (Route param overrides setting)
-	forcedSource := c.Param("source")
-	source, _ := h.settings.Get("source")
-	if forcedSource != "" {
-		source = forcedSource
-	}
-	if source == "" {
+	// Get source from route parameter
+	source := c.Param("source")
+
+	// Validate source is one of the allowed values
+	if source != "google_photos" && source != "synology" && source != "telegram" {
 		return c.NoContent(http.StatusNotFound)
 	}
 
@@ -157,68 +154,6 @@ func (h *ImageHandler) GetServedImageThumbnail(c echo.Context) error {
 	return c.Blob(http.StatusOK, "image/jpeg", data)
 }
 
-func (h *ImageHandler) ListGooglePhotos(c echo.Context) error {
-	// Parse pagination parameters
-	limit := 50 // default
-	offset := 0
-
-	if limitStr := c.QueryParam("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-		}
-	}
-
-	if offsetStr := c.QueryParam("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-			offset = o
-		}
-	}
-
-	// Get total count of Google Photos only
-	var total int64
-	if err := h.db.Model(&model.Image{}).Where("source = ?", "google").Count(&total).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to count photos"})
-	}
-
-	// Get paginated Google Photos only
-	var items []model.Image
-	if err := h.db.Where("source = ?", "google").Order("created_at desc").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list photos"})
-	}
-
-	type PhotoResponse struct {
-		ID           uint      `json:"id"`
-		ThumbnailURL string    `json:"thumbnail_url"`
-		CreatedAt    time.Time `json:"created_at"`
-		Caption      string    `json:"caption"`
-		Width        int       `json:"width"`
-		Height       int       `json:"height"`
-		Orientation  string    `json:"orientation"`
-	}
-
-	var photos []PhotoResponse
-	host := c.Request().Host
-	for _, item := range items {
-		photos = append(photos, PhotoResponse{
-			ID:           item.ID,
-			ThumbnailURL: fmt.Sprintf("http://%s/api/google-photos/%d/thumbnail", host, item.ID),
-			CreatedAt:    item.CreatedAt,
-			Caption:      item.Caption,
-			Width:        item.Width,
-			Height:       item.Height,
-			Orientation:  item.Orientation,
-		})
-	}
-
-	// Return paginated response with metadata
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"photos": photos,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	})
-}
-
 // Helper to retrieve settings safely
 func (h *ImageHandler) getOrientation() string {
 	val, err := h.settings.Get("orientation")
@@ -268,7 +203,8 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 				}
 			}
 		}
-		// fmt.Printf("SmartCollage: Failed to find partner, returning single.\n")
+		// Fallback: Use same photo twice
+		return h.createVerticalCollage(img1, img1), 0, nil
 	}
 
 	// Device Landscape, Photo Portrait -> Horizontal Side-by-Side
@@ -289,7 +225,8 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 				}
 			}
 		}
-		// fmt.Printf("SmartCollage: Failed to find partner, returning single.\n")
+		// Fallback: Use same photo twice
+		return h.createHorizontalCollage(img1, img1), 0, nil
 	}
 
 	return img1, id1, nil
@@ -299,12 +236,14 @@ func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter 
 	var item model.Image
 	query := h.db.Order("RANDOM()").Where("orientation = ?", targetType)
 
-	if sourceFilter == "google_photos" || sourceFilter == "" {
-		query = query.Where("source = ? OR source = ?", "google", "")
+	if sourceFilter == "google_photos" {
+		query = query.Where("source = ?", "google")
 	} else if sourceFilter == "synology" {
 		query = query.Where("source = ?", "synology")
 	} else if sourceFilter == "telegram" {
 		query = query.Where("source = ?", "telegram")
+	} else {
+		return nil, 0, fmt.Errorf("invalid source filter: %s", sourceFilter)
 	}
 
 	if err := query.First(&item).Error; err != nil {
@@ -418,13 +357,14 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string) (image.Image, uint,
 	query := h.db.Order("RANDOM()")
 
 	if sourceFilter == "google_photos" {
-		query = query.Where("source = ? OR source = ?", "google", "")
+		query = query.Where("source = ?", "google")
 	} else if sourceFilter == "synology" {
 		query = query.Where("source = ?", "synology")
 	} else if sourceFilter == "telegram" {
 		query = query.Where("source = ?", "telegram")
+	} else {
+		return nil, 0, fmt.Errorf("invalid source filter: %s", sourceFilter)
 	}
-	// If empty filter passed (unlikely if ServeImage handles it), fallback?
 
 	result := query.First(&item)
 	if result.Error != nil {

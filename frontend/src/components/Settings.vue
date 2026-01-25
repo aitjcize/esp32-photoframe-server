@@ -197,6 +197,26 @@
             ✅ Connected to Google Photos
           </div>
 
+          <!-- Image Endpoint URL -->
+          <div class="mb-5">
+            <label class="block mb-2 text-gray-700 font-medium"
+              >Image Endpoint URL (for firmware config)</label
+            >
+            <div class="flex gap-2">
+              <input
+                :value="getImageUrl('google_photos')"
+                readonly
+                class="flex-1 px-3 py-2 border-2 border-gray-300 rounded-lg bg-gray-50 text-gray-700 font-mono text-sm"
+              />
+              <button
+                @click="copyToClipboard(getImageUrl('google_photos'))"
+                class="px-4 py-2 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
           <!-- Embed Gallery Component -->
           <div class="mt-5">
             <Gallery />
@@ -289,6 +309,26 @@
                 synologyPhotoCount !== 1 ? 's' : ''
               }}
               synced
+            </div>
+          </div>
+
+          <!-- Image Endpoint URL -->
+          <div class="mb-5">
+            <label class="block mb-2 text-gray-700 font-medium"
+              >Image Endpoint URL (for firmware config)</label
+            >
+            <div class="flex gap-2">
+              <input
+                :value="getImageUrl('synology')"
+                readonly
+                class="flex-1 px-3 py-2 border-2 border-gray-300 rounded-lg bg-gray-50 text-gray-700 font-mono text-sm"
+              />
+              <button
+                @click="copyToClipboard(getImageUrl('synology'))"
+                class="px-4 py-2 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition"
+              >
+                Copy
+              </button>
             </div>
           </div>
 
@@ -457,6 +497,27 @@
           <div class="bg-green-100 text-green-700 p-3 rounded-lg mb-5">
             ✅ Telegram Bot Configured
           </div>
+
+          <!-- Image Endpoint URL -->
+          <div class="mb-5">
+            <label class="block mb-2 text-gray-700 font-medium"
+              >Image Endpoint URL (for firmware config)</label
+            >
+            <div class="flex gap-2">
+              <input
+                :value="getImageUrl('telegram')"
+                readonly
+                class="flex-1 px-3 py-2 border-2 border-gray-300 rounded-lg bg-gray-50 text-gray-700 font-mono text-sm"
+              />
+              <button
+                @click="copyToClipboard(getImageUrl('telegram'))"
+                class="px-4 py-2 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
           <div class="space-y-4">
             <div>
               <label class="block mb-2 text-gray-700 font-medium"
@@ -809,6 +870,23 @@ const clearSynology = async () => {
     }
   } catch (e) {
     showToast('Clear Error: ' + e);
+  }
+};
+
+// Get image endpoint URL
+const getImageUrl = (source: string) => {
+  const host = window.location.host;
+  const protocol = window.location.protocol;
+  return `${protocol}//${host}/image/${source}`;
+};
+
+// Copy to clipboard
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('URL copied to clipboard!');
+  } catch (e) {
+    showToast('Failed to copy to clipboard');
   }
 };
 </script>

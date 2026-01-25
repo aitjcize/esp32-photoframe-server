@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/aitjcize/photoframe-server/server/internal/model"
 	"github.com/aitjcize/photoframe-server/server/internal/service"
@@ -227,4 +229,66 @@ func (h *GoogleHandler) GetGooglePhotoThumbnail(c echo.Context) error {
 
 	// 3. Serve
 	return c.File(thumbPath)
+}
+
+func (h *GoogleHandler) ListGooglePhotos(c echo.Context) error {
+	// Parse pagination parameters
+	limit := 50 // default
+	offset := 0
+
+	if limitStr := c.QueryParam("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	if offsetStr := c.QueryParam("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	// Get total count of Google Photos only
+	var total int64
+	if err := h.db.Model(&model.Image{}).Where("source = ?", "google").Count(&total).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to count photos"})
+	}
+
+	// Get paginated Google Photos only
+	var items []model.Image
+	if err := h.db.Where("source = ?", "google").Order("created_at desc").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list photos"})
+	}
+
+	type PhotoResponse struct {
+		ID           uint      `json:"id"`
+		ThumbnailURL string    `json:"thumbnail_url"`
+		CreatedAt    time.Time `json:"created_at"`
+		Caption      string    `json:"caption"`
+		Width        int       `json:"width"`
+		Height       int       `json:"height"`
+		Orientation  string    `json:"orientation"`
+	}
+
+	var photos []PhotoResponse
+	host := c.Request().Host
+	for _, item := range items {
+		photos = append(photos, PhotoResponse{
+			ID:           item.ID,
+			ThumbnailURL: fmt.Sprintf("http://%s/api/google-photos/%d/thumbnail", host, item.ID),
+			CreatedAt:    item.CreatedAt,
+			Caption:      item.Caption,
+			Width:        item.Width,
+			Height:       item.Height,
+			Orientation:  item.Orientation,
+		})
+	}
+
+	// Return paginated response with metadata
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"photos": photos,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
 }

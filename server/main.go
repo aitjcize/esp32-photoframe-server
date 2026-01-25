@@ -114,7 +114,7 @@ func main() {
 	api.POST("/google/picker/process/:id", gh.ProcessPickerSession)
 
 	// Gallery Routes (Google Photos only - locally stored)
-	api.GET("/google-photos", ih.ListGooglePhotos)
+	api.GET("/google-photos", gh.ListGooglePhotos)
 	api.DELETE("/google-photos", gh.DeleteAllGooglePhotos)
 	api.DELETE("/google-photos/:id", gh.DeleteGooglePhoto)
 	api.GET("/google-photos/:id/thumbnail", gh.GetGooglePhotoThumbnail)
