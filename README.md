@@ -48,6 +48,21 @@ docker run -d \
   aitjcize/esp32-photoframe-server:latest
 ```
 
+### 3. Docker Compose (tested on Synology DSM 7)
+For use in Container Manager or Portainer. Update the `volume` and `user` sections with values appropriate to your environment.
+```
+name: esp32-photoframe-server
+services:
+    esp32-photoframe-server:
+        ports:
+            - 9607:9607
+        volumes:
+            - /volume1/docker/esp32-photoframe-server:/data
+        container_name: photoframe-server
+        image: aitjcize/esp32-photoframe-server:latest
+        user: <uid>:<gid>
+```
+
 ## Configuration
 
 Access the dashboard at `http://localhost:9607` (or your server IP).
@@ -112,9 +127,13 @@ Access the dashboard at `http://localhost:9607` (or your server IP).
 6.  Send a photo to your bot on Telegram. The frame will update to show this photo immediately.
 
 ## API Endpoints (For ESP32)
+Use the endpoints below to build the URL to enter on your photo frame. The format should be:
+```
+http(s)://<hostname/IP address>/image/<integration>
+```
 
 -   **`GET /image/google`**: Returns a random image specifically from **Google Photos**.
--   **`GET /image/synology`**: Returns a random image specifically from **Synology Photos**.
+-   **`GET /image/synology`**: Returns a random image specifically from **Synology Photos**. After configuration, a box with the correct URL will appear.
 -   **`GET /image/telegram`**: Returns the last photo sent via **Telegram Bot**.
 
 ### Technical Details:
