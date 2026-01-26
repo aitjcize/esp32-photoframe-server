@@ -126,14 +126,21 @@ Access the dashboard at `http://localhost:9607` (or your server IP).
 5.  Enter your Bot Token and save.
 6.  Send a photo to your bot on Telegram. The frame will update to show this photo immediately.
 
-## API Endpoints (For ESP32)
-Use the endpoints below to build the URL to enter on your photo frame. The format should be:
+## Photo Frame Configuration
+Once you've configured a photo source, a box with the correct URL will appear on that tab. It should be in the format
 ```
 http(s)://<hostname/IP address>/image/<integration>
 ```
+1. Copy the URL.
+2. Generate an access token.
+3. Log into the photo frame web app.
+4. Go to the Auto-Rotate tab and paste the URL and the Token in the appropriate boxes.
+5. Click the 'Save Settings' button
+
+## API Endpoints (For ESP32)
 
 -   **`GET /image/google`**: Returns a random image specifically from **Google Photos**.
--   **`GET /image/synology`**: Returns a random image specifically from **Synology Photos**. After configuration, a box with the correct URL will appear.
+-   **`GET /image/synology`**: Returns a random image specifically from **Synology Photos**. 
 -   **`GET /image/telegram`**: Returns the last photo sent via **Telegram Bot**.
 
 ### Technical Details:
