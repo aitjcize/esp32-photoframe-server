@@ -19,8 +19,14 @@
         Settings
       </v-card-title>
 
-      <div v-if="store.loading" class="d-flex justify-center align-center pa-10">
-        <v-progress-circular indeterminate color="primary"></v-progress-circular>
+      <div
+        v-if="store.loading"
+        class="d-flex justify-center align-center pa-10"
+      >
+        <v-progress-circular
+          indeterminate
+          color="primary"
+        ></v-progress-circular>
       </div>
 
       <div v-else>
@@ -48,7 +54,7 @@
                 <h3 class="text-subtitle-1 font-weight-bold mb-2">
                   Device Configuration
                 </h3>
-  
+
                 <div class="mb-4">
                   <label class="text-caption text-grey-darken-1 mb-1 d-block"
                     >Display Orientation</label
@@ -71,7 +77,7 @@
                     ></v-radio>
                   </v-radio-group>
                 </div>
-  
+
                 <v-row>
                   <v-col cols="12" sm="6">
                     <v-text-field
@@ -92,7 +98,7 @@
                     ></v-text-field>
                   </v-col>
                 </v-row>
-  
+
                 <v-checkbox
                   v-model="form.CollageMode"
                   label="Enable Collage Mode (Combine 2 photos)"
@@ -100,7 +106,7 @@
                   hide-details
                   density="compact"
                 ></v-checkbox>
-  
+
                 <v-checkbox
                   v-model="form.show_date"
                   label="Show Date"
@@ -108,7 +114,7 @@
                   hide-details
                   density="compact"
                 ></v-checkbox>
-  
+
                 <v-checkbox
                   v-model="form.show_weather"
                   label="Show Weather"
@@ -116,9 +122,9 @@
                   hide-details
                   density="compact"
                 ></v-checkbox>
-  
+
                 <v-divider class="my-4"></v-divider>
-  
+
                 <h3 class="text-subtitle-1 font-weight-bold mb-2">
                   Weather Overlay
                 </h3>
@@ -140,7 +146,7 @@
                     ></v-text-field>
                   </v-col>
                 </v-row>
-  
+
                 <v-btn
                   color="primary"
                   :loading="store.loading"
@@ -152,7 +158,7 @@
               </form>
             </v-card-text>
           </v-window-item>
-  
+
           <!-- Data Sources Tab -->
           <v-window-item value="datasources">
             <v-tabs
@@ -165,7 +171,7 @@
               <v-tab value="synology">Synology</v-tab>
               <v-tab value="telegram">Telegram</v-tab>
             </v-tabs>
-  
+
             <v-window v-model="activeDataSourceTab">
               <!-- Google Photos -->
               <v-window-item value="google">
@@ -180,7 +186,7 @@
                     >
                       Connected to Google Photos
                     </v-alert>
-  
+
                     <v-text-field
                       :model-value="getImageUrl('google_photos')"
                       label="Image Endpoint URL (for firmware config)"
@@ -192,12 +198,12 @@
                         copyToClipboard(getImageUrl('google_photos'))
                       "
                     ></v-text-field>
-  
+
                     <v-btn color="error" variant="text" @click="logoutGoogle">
                       Disconnect Google Photos
                     </v-btn>
                   </div>
-  
+
                   <div v-else>
                     <v-alert type="info" variant="tonal" class="mb-4">
                       <div class="text-subtitle-2 mb-1">Setup Required</div>
@@ -215,14 +221,14 @@
                         >
                       </div>
                     </v-alert>
-  
+
                     <v-text-field
                       v-model="form.google_client_id"
                       label="Client ID"
                       variant="outlined"
                       class="mb-2"
                     ></v-text-field>
-  
+
                     <v-text-field
                       v-model="form.google_client_secret"
                       label="Client Secret"
@@ -230,13 +236,15 @@
                       variant="outlined"
                       class="mb-4"
                     ></v-text-field>
-  
+
                     <div class="d-flex ga-2">
                       <v-btn color="grey-darken-1" @click="save"
                         >Save Credentials</v-btn
                       >
                       <v-btn
-                        v-if="form.google_client_id && form.google_client_secret"
+                        v-if="
+                          form.google_client_id && form.google_client_secret
+                        "
                         color="primary"
                         @click="connectGoogle"
                       >
@@ -246,7 +254,7 @@
                   </div>
                 </v-card-text>
               </v-window-item>
-  
+
               <!-- Synology -->
               <v-window-item value="synology">
                 <v-card-text>
@@ -258,8 +266,10 @@
                       density="compact"
                       icon="mdi-check-circle"
                     >
-                      Connected to Synology Photos ({{ form.synology_account }} @
-                      {{ form.synology_url }})
+                      Connected to Synology Photos ({{
+                        form.synology_account
+                      }}
+                      @ {{ form.synology_url }})
                       <div
                         v-if="synologyStore.count !== null"
                         class="text-caption mt-1"
@@ -270,7 +280,7 @@
                         synced
                       </div>
                     </v-alert>
-  
+
                     <v-text-field
                       :model-value="getImageUrl('synology')"
                       label="Image Endpoint URL (for firmware config)"
@@ -282,7 +292,7 @@
                         copyToClipboard(getImageUrl('synology'))
                       "
                     ></v-text-field>
-  
+
                     <v-row class="mt-2">
                       <v-col cols="12" sm="8">
                         <v-select
@@ -303,7 +313,7 @@
                         >
                       </v-col>
                     </v-row>
-  
+
                     <v-select
                       v-model="form.synology_space"
                       :items="[
@@ -315,11 +325,11 @@
                       density="compact"
                       class="mt-4"
                     ></v-select>
-  
+
                     <v-btn color="grey-darken-1" class="mt-2 mb-4" @click="save"
                       >Save Album Selection</v-btn
                     >
-  
+
                     <div class="d-flex flex-wrap ga-2">
                       <v-btn color="primary" @click="syncSynology"
                         >Sync Now</v-btn
@@ -327,12 +337,15 @@
                       <v-btn color="warning" @click="clearSynology"
                         >Clear All Photos</v-btn
                       >
-                      <v-btn color="error" variant="text" @click="logoutSynology"
+                      <v-btn
+                        color="error"
+                        variant="text"
+                        @click="logoutSynology"
                         >Log Out</v-btn
                       >
                     </div>
                   </div>
-  
+
                   <div v-else>
                     <v-text-field
                       v-model="form.synology_url"
@@ -341,14 +354,14 @@
                       variant="outlined"
                       class="mb-2"
                     ></v-text-field>
-  
+
                     <v-text-field
                       v-model="form.synology_account"
                       label="Account"
                       variant="outlined"
                       class="mb-2"
                     ></v-text-field>
-  
+
                     <v-text-field
                       v-model="form.synology_password"
                       label="Password"
@@ -356,14 +369,14 @@
                       variant="outlined"
                       class="mb-2"
                     ></v-text-field>
-  
+
                     <v-checkbox
                       v-model="form.synology_skip_cert"
                       label="Skip Certificate Verification (Insecure)"
                       color="primary"
                       density="compact"
                     ></v-checkbox>
-  
+
                     <v-text-field
                       v-model="form.synology_otp_code"
                       label="OTP Code (If 2FA enabled)"
@@ -371,7 +384,7 @@
                       variant="outlined"
                       class="mb-4"
                     ></v-text-field>
-  
+
                     <v-btn
                       color="primary"
                       :disabled="
@@ -386,7 +399,7 @@
                   </div>
                 </v-card-text>
               </v-window-item>
-  
+
               <!-- Telegram -->
               <v-window-item value="telegram">
                 <v-card-text>
@@ -400,7 +413,7 @@
                     >
                       Telegram Bot Configured
                     </v-alert>
-  
+
                     <v-text-field
                       :model-value="getImageUrl('telegram')"
                       label="Image Endpoint URL (for firmware config)"
@@ -412,24 +425,24 @@
                         copyToClipboard(getImageUrl('telegram'))
                       "
                     ></v-text-field>
-  
+
                     <v-text-field
                       v-model="form.telegram_bot_token"
                       label="Telegram Bot Token"
                       variant="outlined"
                       class="mt-4"
                     ></v-text-field>
-  
+
                     <v-divider class="my-4"></v-divider>
-  
+
                     <h3 class="text-subtitle-1 font-weight-bold mb-2">
                       Push to Device
                     </h3>
                     <div class="text-caption text-grey mb-2">
-                      Enable to push generic images directly to the device display
-                      when sent to the bot.
+                      Enable to push generic images directly to the device
+                      display when sent to the bot.
                     </div>
-  
+
                     <v-checkbox
                       v-model="form.telegram_push_enabled"
                       label="Enable Push to Device"
@@ -437,7 +450,7 @@
                       hide-details
                       density="compact"
                     ></v-checkbox>
-  
+
                     <v-expand-transition>
                       <div v-if="form.telegram_push_enabled" class="mt-2">
                         <v-text-field
@@ -451,12 +464,12 @@
                         ></v-text-field>
                       </div>
                     </v-expand-transition>
-  
+
                     <v-btn color="primary" class="mt-4" @click="save"
                       >Update Settings</v-btn
                     >
                   </div>
-  
+
                   <div v-else>
                     <v-text-field
                       v-model="form.telegram_bot_token"
@@ -466,7 +479,7 @@
                       hint="Send photos to your bot to display them. Only the last photo will be shown."
                       persistent-hint
                     ></v-text-field>
-  
+
                     <v-btn color="primary" class="mt-4" @click="save"
                       >Save Token</v-btn
                     >
@@ -475,7 +488,7 @@
               </v-window-item>
             </v-window>
           </v-window-item>
-  
+
           <!-- Security Tab -->
           <v-window-item value="security">
             <v-card-text>
@@ -489,7 +502,7 @@
                   {{ showPasswordForm ? 'Cancel' : 'Change Password' }}
                 </v-btn>
               </div>
-  
+
               <v-expand-transition>
                 <v-card v-if="showPasswordForm" variant="outlined" class="mb-6">
                   <v-card-text>
@@ -523,11 +536,11 @@
                   </v-card-text>
                 </v-card>
               </v-expand-transition>
-  
+
               <v-divider class="mb-6"></v-divider>
-  
+
               <h3 class="text-h6 mb-4">Device Access Tokens</h3>
-  
+
               <v-alert
                 v-if="generatedToken"
                 type="success"
@@ -551,7 +564,7 @@
                   @click:append-inner="copyToken"
                 ></v-text-field>
               </v-alert>
-  
+
               <v-card variant="outlined" class="mb-6">
                 <v-card-title class="text-subtitle-1"
                   >Generate New Token</v-card-title
@@ -566,11 +579,13 @@
                       hide-details
                       class="flex-grow-1"
                     ></v-text-field>
-                    <v-btn color="primary" @click="generateToken">Generate</v-btn>
+                    <v-btn color="primary" @click="generateToken"
+                      >Generate</v-btn
+                    >
                   </div>
                 </v-card-text>
               </v-card>
-  
+
               <h4 class="text-subtitle-2 mb-2">Active Tokens</h4>
               <v-table density="comfortable" class="border rounded">
                 <thead>
@@ -614,7 +629,8 @@
                 class="mb-4"
                 density="compact"
               >
-                Manage your ESP32 PhotoFrame devices here. These devices will be available for direct push from the Gallery.
+                Manage your ESP32 PhotoFrame devices here. These devices will be
+                available for direct push from the Gallery.
               </v-alert>
 
               <div class="d-flex ga-2 align-center mb-6">
@@ -634,7 +650,11 @@
                   density="compact"
                   hide-details
                 ></v-text-field>
-                <v-btn color="primary" @click="addNewDevice" :loading="deviceListLoading">
+                <v-btn
+                  color="primary"
+                  @click="addNewDevice"
+                  :loading="deviceListLoading"
+                >
                   Add Device
                 </v-btn>
               </div>
@@ -644,7 +664,6 @@
                   <tr>
                     <th>Name</th>
                     <th>Host</th>
-                    <th>Last Seen</th>
                     <th class="text-right">Action</th>
                   </tr>
                 </thead>
@@ -652,7 +671,6 @@
                   <tr v-for="device in availableDevices" :key="device.id">
                     <td>{{ device.name }}</td>
                     <td>{{ device.host }}</td>
-                    <td>{{ device.last_seen || 'Never' }}</td>
                     <td class="text-right">
                       <v-btn
                         color="error"
@@ -674,7 +692,7 @@
           </v-window-item>
         </v-window>
       </div>
-  
+
       <!-- Global Snackbar for Messages -->
       <v-snackbar
         v-model="snackbar.show"
@@ -687,7 +705,7 @@
           <v-btn variant="text" @click="snackbar.show = false">Close</v-btn>
         </template>
       </v-snackbar>
-  
+
       <ConfirmDialog ref="confirmDialog" />
     </v-card>
   </div>
@@ -748,8 +766,14 @@ const addNewDevice = async () => {
 };
 
 const removeDevice = async (id: number) => {
-  if (!await confirmDialog.value.open('Remove Device', 'Are you sure you want to remove this device?')) return;
-  
+  if (
+    !(await confirmDialog.value.open(
+      'Remove Device',
+      'Are you sure you want to remove this device?'
+    ))
+  )
+    return;
+
   try {
     await deleteDevice(id);
     await loadDevices();

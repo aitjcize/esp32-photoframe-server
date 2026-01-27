@@ -50,7 +50,7 @@
             height="40"
             :loading="galleryStore.loading"
             :disabled="galleryStore.loading"
-            prepend-icon="mdi-google-photos"
+            prepend-icon="mdi-google"
             @click="galleryStore.startPicker"
           >
             Add Photos via Google
@@ -120,7 +120,7 @@
           </v-card>
         </v-col>
       </v-row>
-      
+
       <!-- Push Dialog -->
       <v-dialog v-model="pushDialog.show" max-width="400">
         <v-card>
@@ -141,7 +141,7 @@
                   :value="dev.id"
                 ></v-radio>
               </v-radio-group>
-              
+
               <v-checkbox
                 v-model="pushDialog.remember"
                 label="Remember my choice (this session)"
@@ -149,11 +149,25 @@
                 hide-details
                 class="mt-2"
               ></v-checkbox>
+
+              <v-alert
+                v-if="pushDialog.error"
+                type="error"
+                variant="tonal"
+                density="compact"
+                class="mt-4"
+                closable
+                @click:close="pushDialog.error = ''"
+              >
+                {{ pushDialog.error }}
+              </v-alert>
             </div>
           </v-card-text>
           <v-card-actions>
             <v-spacer></v-spacer>
-            <v-btn variant="text" @click="pushDialog.show = false">Cancel</v-btn>
+            <v-btn variant="text" @click="pushDialog.show = false"
+              >Cancel</v-btn
+            >
             <v-btn
               color="primary"
               :disabled="!pushDialog.selectedDevice"
@@ -211,7 +225,6 @@
 </template>
 
 <style scoped>
-
 .photo-card {
   transition: transform 0.2s;
   cursor: pointer;
@@ -225,7 +238,9 @@
   position: absolute;
   pointer-events: auto;
   opacity: 0;
-  transition: opacity 0.2s, transform 0.1s;
+  transition:
+    opacity 0.2s,
+    transform 0.1s;
   z-index: 10;
 }
 
@@ -276,6 +291,7 @@ const pushDialog = reactive({
   selectedDevice: null as number | null,
   remember: false,
   loading: false,
+  error: '',
 });
 
 // Session memory for device preference
@@ -283,42 +299,39 @@ const SESSION_KEY_PREFERRED_DEVICE = 'photoframe_preferred_device';
 
 const openPushDialog = async (imageId: number) => {
   pushDialog.imageId = imageId;
-  
+  pushDialog.error = ''; // Clear previous error
+
   // Check session preference
   const savedId = sessionStorage.getItem(SESSION_KEY_PREFERRED_DEVICE);
   if (savedId) {
     const id = parseInt(savedId);
     if (!isNaN(id)) {
-      // Auto-push if remembered? "popup will ask... and optional remember me"
-      // Usually "remember me" in this context implies skipping the prompt next time.
-      // Let's optimize: if remembered, try to push immediately? 
-      // User said "remember the preference ONLY for the current brwoser tab session".
-      // Let's update `openPushDialog` to check logic.
-      // I'll load devices first to verify the ID still exists.
+      // Auto-push could go here if implemented
     }
   }
 
   pushDialog.show = true;
   loadingDevices.value = true;
-  
+
   try {
     const list = await listDevices();
     devices.value = list;
-    
+
     // If we have a saved preference and it's in the list, pre-select it
     if (savedId) {
-      const found = list.find(d => d.id === parseInt(savedId));
+      const found = list.find((d) => d.id === parseInt(savedId));
       if (found) {
         pushDialog.selectedDevice = found.id;
       }
     }
-    
+
     // If no selection yet and only 1 device, pre-select it
     if (!pushDialog.selectedDevice && list.length === 1) {
       pushDialog.selectedDevice = list[0].id;
     }
   } catch (e) {
     console.error(e);
+    pushDialog.error = 'Failed to load devices';
   } finally {
     loadingDevices.value = false;
   }
@@ -326,23 +339,35 @@ const openPushDialog = async (imageId: number) => {
 
 const confirmPush = async () => {
   if (!pushDialog.selectedDevice) return;
-  
+
+  pushDialog.error = ''; // Clear previous error
+
   if (pushDialog.remember) {
-    sessionStorage.setItem(SESSION_KEY_PREFERRED_DEVICE, String(pushDialog.selectedDevice));
+    sessionStorage.setItem(
+      SESSION_KEY_PREFERRED_DEVICE,
+      String(pushDialog.selectedDevice)
+    );
   }
-  
+
   pushDialog.loading = true;
   try {
     await pushToDevice(pushDialog.selectedDevice, pushDialog.imageId);
     galleryStore.importMessage = 'Image pushed to device successfully';
     pushDialog.show = false;
-  } catch (e) {
-    galleryStore.importMessage = 'Failed to push image: ' + (e as any).message;
+  } catch (e: any) {
+    // Extract error message
+    let msg = 'Failed to push image';
+    if (e.response && e.response.data && e.response.data.error) {
+      msg = e.response.data.error;
+    } else if (e.message) {
+      msg = e.message;
+    }
+    pushDialog.error = msg;
+    // Keep dialog open to show error
   } finally {
     pushDialog.loading = false;
   }
 };
-
 
 const getThumbnailUrl = (url: string) => {
   const token = authStore.token;

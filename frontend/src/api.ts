@@ -56,7 +56,6 @@ export interface Device {
   id: number;
   name: string;
   host: string;
-  last_seen: string;
 }
 
 export const listDevices = async () => {
@@ -75,6 +74,8 @@ export const deleteDevice = async (id: number) => {
 };
 
 export const pushToDevice = async (deviceID: number, imageID: number) => {
-  const response = await api.post(`/devices/${deviceID}/push`, { image_id: imageID });
+  const response = await api.post(`/devices/${deviceID}/push`, {
+    image_id: imageID,
+  });
   return response.data;
 };

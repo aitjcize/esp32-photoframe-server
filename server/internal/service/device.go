@@ -6,6 +6,7 @@ import (
 	"image"
 	"log"
 	"os"
+	"time"
 
 	"github.com/aitjcize/photoframe-server/server/internal/model"
 	"github.com/aitjcize/photoframe-server/server/pkg/imageops"
@@ -43,8 +44,9 @@ func (s *DeviceService) ListDevices() ([]model.Device, error) {
 
 func (s *DeviceService) AddDevice(name, host string) (*model.Device, error) {
 	device := model.Device{
-		Name: name,
-		Host: host,
+		Name:      name,
+		Host:      host,
+		CreatedAt: time.Now(),
 	}
 	if err := s.db.Create(&device).Error; err != nil {
 		return nil, err
@@ -64,7 +66,12 @@ func (s *DeviceService) PushToDevice(deviceID uint, imagePath string) error {
 	if err := s.db.First(&device, deviceID).Error; err != nil {
 		return errors.New("device not found")
 	}
-	return s.PushToHost(device.Host, imagePath)
+
+	if err := s.PushToHost(device.Host, imagePath); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // PushToHost processes an image file and pushes it to a target host
