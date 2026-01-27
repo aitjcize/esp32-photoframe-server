@@ -14,7 +14,7 @@ run:
 	docker run -d -p 9607:9607 -v "$(PWD)/data:/data" --name photoframe-server photoframe-server
 
 dev:
-	@if ! command -v @aitjcize/epaper-image-convert >/dev/null 2>&1; then \
+	@if ! command -v epaper-image-convert >/dev/null 2>&1; then \
 		echo "Installing epaper-image-convert..."; \
 		npm install -g @aitjcize/epaper-image-convert; \
 	else \

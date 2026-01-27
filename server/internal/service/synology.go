@@ -124,7 +124,7 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 	var img model.Image
 	if err := s.db.Where("synology_photo_id = ? AND source = ?", id, "synology").First(&img).Error; err != nil {
 		// Fallback if not found in DB
-		return s.client.GetPhoto(id, cacheKeyStr, size, "personal", "photo.jpg", 0, s.client.SynoToken)
+		return s.client.GetPhoto(id, cacheKeyStr, size, "personal", 0, s.client.SynoToken)
 	}
 
 	// 2. Get albumID from settings for the request
@@ -137,8 +137,8 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 		}
 	}
 
-	// Use stored ThumbnailKey (cache_key), SynologySpace, FilePath (filename), albumID, and SynoToken
-	return s.client.GetPhoto(id, img.ThumbnailKey, size, img.SynologySpace, img.FilePath, albumID, s.client.SynoToken)
+	// Use stored ThumbnailKey (cache_key), SynologySpace, albumID, and SynoToken
+	return s.client.GetPhoto(id, img.ThumbnailKey, size, img.SynologySpace, albumID, s.client.SynoToken)
 }
 
 func (s *SynologyService) ListAlbums() ([]synology.Album, error) {
@@ -272,7 +272,7 @@ func (s *SynologyService) ImportPhotos() error {
 
 // ClearPhotos deletes all Synology photos from database
 func (s *SynologyService) ClearPhotos() error {
-	if err := s.db.Where("source = ?", "synology").Delete(&model.Image{}).Error; err != nil {
+	if err := s.db.Unscoped().Where("source = ?", "synology").Delete(&model.Image{}).Error; err != nil {
 		return err
 	}
 	log.Println("Cleared all Synology photos from database")

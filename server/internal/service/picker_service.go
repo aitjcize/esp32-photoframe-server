@@ -249,7 +249,7 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 				continue
 			}
 			// File missing, delete old record so we can re-download and strictly create new one
-			s.db.Delete(&existing)
+			s.db.Unscoped().Delete(&existing)
 		}
 
 		// Create file

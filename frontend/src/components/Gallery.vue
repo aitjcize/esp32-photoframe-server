@@ -22,7 +22,9 @@
       <!-- Header with Stats and Actions -->
       <div class="d-flex justify-space-between align-center mb-4">
         <div>
-          <h2 class="text-h6">Photo Gallery</h2>
+          <h2 class="text-h6 text-capitalize">
+            {{ galleryStore.source }} Gallery
+          </h2>
           <div class="text-caption text-grey">
             {{ galleryStore.totalPhotos }} photo{{
               galleryStore.totalPhotos !== 1 ? 's' : ''
@@ -42,6 +44,7 @@
             Delete All
           </v-btn>
           <v-btn
+            v-if="galleryStore.source === 'google'"
             color="primary"
             variant="flat"
             height="40"
@@ -139,9 +142,15 @@
         ></v-icon>
         <h3 class="text-h6 text-grey-darken-1 mb-2">No photos</h3>
         <p class="text-body-2 text-grey mb-4">
-          Get started by adding photos from Google Photos.
+          <span v-if="galleryStore.source === 'google'">
+            Get started by adding photos from Google Photos.
+          </span>
+          <span v-else>
+            Use the <b>Sync Now</b> button above to import photos from Synology.
+          </span>
         </p>
         <v-btn
+          v-if="galleryStore.source === 'google'"
           color="primary"
           prepend-icon="mdi-plus"
           @click="galleryStore.startPicker"

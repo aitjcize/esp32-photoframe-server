@@ -226,10 +226,8 @@ func (c *Client) ListPhotos(offset, limit int, albumID int, space string) ([]Ite
 
 // GetPhoto fetches a thumbnail
 // size: "small", "medium", "large"
-func (c *Client) GetPhoto(id int, cacheKey string, size string, space string, filename string, albumID int, synoToken string) ([]byte, error) {
-	// Ensure filename is escaped and path doesn't have double slashes
-	escapedFilename := url.PathEscape(filename)
-	path := fmt.Sprintf("/webapi/entry.cgi/%s", escapedFilename)
+func (c *Client) GetPhoto(id int, cacheKey string, size string, space string, albumID int, synoToken string) ([]byte, error) {
+	path := "/webapi/entry.cgi"
 	fullURL, _ := url.JoinPath(c.BaseURL, path)
 
 	api := "SYNO.Foto.Thumbnail"

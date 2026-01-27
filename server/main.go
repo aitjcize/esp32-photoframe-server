@@ -85,8 +85,11 @@ func main() {
 
 	// Initialize Handlers
 	h := handler.NewHandler(settingsService, telegramService, googleClient)
-	gh := handler.NewGoogleHandler(googleClient, pickerService, database, dataDir)
+	googleHandler := handler.NewGoogleHandler(googleClient, pickerService, database, dataDir)
 	sh := handler.NewSynologyHandler(synologyService)
+	// Reuse 'gh' variable name for GalleryHandler because I used 'gh' in routes above.
+	// Wait, 'gh' was GoogleHandler before. I should rename GoogleHandler to 'googleHandler' and 'gh' to GalleryHandler to match my routes change.
+	gh := handler.NewGalleryHandler(database, synologyService, dataDir)
 	ih := handler.NewImageHandler(settingsService, overlayService, processorService, googleClient, synologyService, database, dataDir)
 	ah := handler.NewAuthHandler(authService)
 
@@ -139,17 +142,17 @@ func main() {
 	protectedApi.DELETE("/auth/tokens/:id", ah.RevokeToken)
 	protectedApi.POST("/auth/password", ah.ChangePassword)
 
-	// Google Picker (Protected)
-	protectedApi.GET("/google/picker/session", gh.CreatePickerSession)
-	protectedApi.GET("/google/picker/poll/:id", gh.PollPickerSession)
-	protectedApi.GET("/google/picker/progress/:id", gh.PollPickerProgress)
-	protectedApi.POST("/google/picker/process/:id", gh.ProcessPickerSession)
+	// Gallery (Protected) - Unified
+	protectedApi.GET("/gallery/photos", gh.ListPhotos)
+	protectedApi.GET("/gallery/thumbnail/:id", gh.GetThumbnail)
+	protectedApi.DELETE("/gallery/photos/:id", gh.DeletePhoto)
+	protectedApi.DELETE("/gallery/photos", gh.DeletePhotos)
 
-	// Gallery (Protected)
-	protectedApi.GET("/google-photos", gh.ListGooglePhotos)
-	protectedApi.DELETE("/google-photos", gh.DeleteAllGooglePhotos)
-	protectedApi.DELETE("/google-photos/:id", gh.DeleteGooglePhoto)
-	protectedApi.GET("/google-photos/:id/thumbnail", gh.GetGooglePhotoThumbnail)
+	// Google Picker (Protected)
+	protectedApi.GET("/google/picker/session", googleHandler.CreatePickerSession)
+	protectedApi.GET("/google/picker/poll/:id", googleHandler.PollPickerSession)
+	protectedApi.GET("/google/picker/progress/:id", googleHandler.PollPickerProgress)
+	protectedApi.POST("/google/picker/process/:id", googleHandler.ProcessPickerSession)
 
 	// Synology (Protected)
 	protectedApi.POST("/synology/test", sh.TestConnection)
@@ -160,11 +163,11 @@ func main() {
 	protectedApi.POST("/synology/logout", sh.Logout)
 
 	// Google Auth: Login (Protected - User initiates), Callback (Public - Google calls)
-	protectedApi.GET("/auth/google/login", gh.Login)
-	protectedApi.POST("/auth/google/logout", gh.Logout)
+	protectedApi.GET("/auth/google/login", googleHandler.Login)
+	protectedApi.POST("/auth/google/logout", googleHandler.Logout)
 
 	// Public Callback
-	e.GET("/api/auth/google/callback", gh.Callback)
+	e.GET("/api/auth/google/callback", googleHandler.Callback)
 
 	// Static Files (Frontend)
 	staticDir := os.Getenv("STATIC_DIR")
