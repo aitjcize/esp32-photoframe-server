@@ -1,134 +1,175 @@
 <template>
   <div>
     <!-- Telegram Mode Notice -->
-    <div
+    <v-alert
       v-if="store.settings.source === 'telegram'"
-      class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-5"
+      type="info"
+      variant="tonal"
+      class="mb-4"
     >
-      <h3 class="font-semibold text-blue-900 mb-2">Telegram Mode Active</h3>
-      <p class="text-sm text-blue-800">
+      <div class="text-subtitle-1 font-weight-bold mb-1">
+        Telegram Mode Active
+      </div>
+      <div class="text-body-2">
         The frame is currently displaying photos sent to your Telegram Bot.
         <br />
         Go to <b>Settings</b> to switch back to Google Photos mode.
-      </p>
-    </div>
+      </div>
+    </v-alert>
 
     <!-- Gallery Content -->
     <div v-else>
       <!-- Header with Stats and Actions -->
-      <div class="flex justify-between items-center mb-5">
+      <div class="d-flex justify-space-between align-center mb-4">
         <div>
-          <h2 class="text-xl font-semibold text-gray-800">Photo Gallery</h2>
-          <p class="text-sm text-gray-500 mt-1">
+          <h2 class="text-h6">Photo Gallery</h2>
+          <div class="text-caption text-grey">
             {{ galleryStore.totalPhotos }} photo{{
               galleryStore.totalPhotos !== 1 ? 's' : ''
             }}
             total
-          </p>
+          </div>
         </div>
-        <div class="flex gap-3">
-          <button
+        <div class="d-flex gap-2 ga-2">
+          <v-btn
             v-if="galleryStore.totalPhotos > 0"
+            color="error"
+            variant="flat"
+            height="40"
+            prepend-icon="mdi-delete"
             @click="galleryStore.deleteAllPhotos"
-            class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition"
           >
             Delete All
-          </button>
-          <button
-            @click="galleryStore.startPicker"
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            height="40"
+            :loading="galleryStore.loading"
             :disabled="galleryStore.loading"
-            class="px-5 py-2.5 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            prepend-icon="mdi-google-photos"
+            @click="galleryStore.startPicker"
           >
-            <span v-if="galleryStore.loading">Processing...</span>
-            <span v-else>Add Photos via Google</span>
-          </button>
+            Add Photos via Google
+          </v-btn>
         </div>
       </div>
 
       <!-- Notification -->
-      <!-- Notification -->
-      <div
+      <v-alert
         v-if="galleryStore.importMessage"
-        :class="
+        :type="
           galleryStore.importMessage.includes('Error') ||
           galleryStore.importMessage.includes('Failed')
-            ? 'bg-red-100 text-red-700'
-            : 'bg-green-100 text-green-700'
+            ? 'error'
+            : 'success'
         "
-        class="p-3 rounded-lg mb-5"
+        variant="tonal"
+        class="mb-4"
+        density="compact"
+        closable
+        @click:close="galleryStore.importMessage = ''"
       >
         {{ galleryStore.importMessage }}
-      </div>
+      </v-alert>
 
       <!-- Photo Grid -->
-      <div
-        v-if="galleryStore.photos.length > 0"
-        class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"
-      >
-        <div
+      <v-row v-if="galleryStore.photos.length > 0">
+        <v-col
           v-for="photo in galleryStore.photos"
           :key="photo.id"
-          class="relative group border-2 border-gray-200 rounded-lg p-2 bg-gray-50 hover:border-primary-500 hover:-translate-y-1 hover:shadow-lg transition-all cursor-pointer"
+          class="v-col-6 v-col-sm-4 v-col-md-3 v-col-lg-custom"
         >
-          <img
-            :src="getThumbnailUrl(photo.thumbnail_url)"
-            :alt="photo.caption"
-            class="w-full h-auto object-contain rounded border border-gray-300"
-            loading="lazy"
-          />
-
-          <!-- Delete Button -->
-          <button
-            @click="galleryStore.deletePhoto(photo.id)"
-            title="Delete Photo"
-            class="absolute -top-2 -right-2 w-7 h-7 bg-white text-gray-600 border-2 border-gray-200 rounded-full flex items-center justify-center text-xl leading-none opacity-0 group-hover:opacity-100 hover:bg-white hover:text-red-500 hover:border-red-300 hover:scale-110 transition-all shadow-md"
+          <v-card
+            class="position-relative photo-card overflow-visible"
+            elevation="2"
           >
-            ×
-          </button>
-        </div>
-      </div>
+            <v-img
+              :src="getThumbnailUrl(photo.thumbnail_url)"
+              :lazy-src="getThumbnailUrl(photo.thumbnail_url)"
+              aspect-ratio="1"
+              cover
+              class="bg-grey-lighten-2 rounded"
+            >
+              <template v-slot:placeholder>
+                <div class="d-flex align-center justify-center fill-height">
+                  <v-progress-circular
+                    color="grey-lighten-4"
+                    indeterminate
+                  ></v-progress-circular>
+                </div>
+              </template>
+            </v-img>
 
-      <!-- Pagination Controls -->
+            <v-btn
+              icon="mdi-close"
+              color="error"
+              size="small"
+              variant="flat"
+              class="position-absolute delete-btn"
+              style="top: -12px; right: -12px; z-index: 10"
+              elevation="3"
+              @click="galleryStore.deletePhoto(photo.id)"
+            ></v-btn>
+          </v-card>
+        </v-col>
+      </v-row>
+
       <!-- Pagination Controls -->
       <div
         v-if="galleryStore.totalPhotos > galleryStore.limit"
-        class="flex justify-center items-center gap-4 mt-6"
+        class="d-flex justify-center mt-6"
       >
-        <button
-          @click="galleryStore.previousPage"
-          :disabled="galleryStore.page === 1"
-          class="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition"
-        >
-          Previous
-        </button>
-        <span class="text-gray-700">
-          Page {{ galleryStore.page }} of {{ galleryStore.totalPages }}
-        </span>
-        <button
-          @click="galleryStore.nextPage"
-          :disabled="galleryStore.page === galleryStore.totalPages"
-          class="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition"
-        >
-          Next
-        </button>
+        <v-pagination
+          v-model="galleryStore.page"
+          :length="galleryStore.totalPages"
+          :total-visible="5"
+          rounded="circle"
+          @update:model-value="galleryStore.fetchPhotos"
+        ></v-pagination>
       </div>
 
       <!-- Empty State -->
       <div v-if="galleryStore.totalPhotos === 0" class="text-center py-10">
-        <h3 class="text-xl font-medium text-gray-700 mb-2">No photos</h3>
-        <p class="text-gray-500 mb-5">
+        <v-icon
+          icon="mdi-image-off-outline"
+          size="64"
+          color="grey-lighten-1"
+          class="mb-4"
+        ></v-icon>
+        <h3 class="text-h6 text-grey-darken-1 mb-2">No photos</h3>
+        <p class="text-body-2 text-grey mb-4">
           Get started by adding photos from Google Photos.
         </p>
-        <button
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-plus"
           @click="galleryStore.startPicker"
-          class="px-5 py-2.5 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 hover:shadow-lg hover:-translate-y-0.5 transition-all"
         >
           Add Photos
-        </button>
+        </v-btn>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.photo-card .delete-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.photo-card:hover .delete-btn {
+  opacity: 1;
+}
+
+@media (min-width: 1280px) {
+  .v-col-lg-custom {
+    flex: 0 0 12.5%;
+    max-width: 12.5%;
+  }
+}
+</style>
 
 <script setup lang="ts">
 import { onMounted } from 'vue';
@@ -149,7 +190,8 @@ const getThumbnailUrl = (url: string) => {
 };
 
 onMounted(async () => {
-  await store.fetchSettings();
+  // store.fetchSettings() is called by parent (Settings.vue) or app init.
+  // Calling it here triggers a loading state loop if this component is mounted inside Settings.vue
   galleryStore.fetchPhotos();
 });
 </script>

@@ -1,35 +1,46 @@
 <template>
-  <div class="min-h-screen p-5">
-    <div class="max-w-6xl mx-auto">
-      <!-- Header -->
-      <header class="flex justify-between items-center text-white mb-8">
-        <h1 class="text-4xl font-bold drop-shadow-lg">PhotoFrame Server</h1>
-        <button
-          v-if="authStore.isLoggedIn"
+  <v-app>
+    <v-app-bar color="primary" density="compact">
+      <v-app-bar-title>PhotoFrame Server</v-app-bar-title>
+      <template v-if="authStore.isLoggedIn" v-slot:append>
+        <v-btn
+          variant="text"
           @click="authStore.logout"
-          class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm backdrop-blur-sm transition-colors"
+          prepend-icon="mdi-logout"
         >
           Logout
-        </button>
-      </header>
+        </v-btn>
+      </template>
+    </v-app-bar>
 
-      <!-- Main Content -->
-      <div v-if="authStore.loading && !authStore.isInitialized">
-        <div class="text-center text-white p-10">Loading...</div>
-      </div>
+    <v-main class="bg-grey-lighten-4">
+      <v-container class="py-6" style="max-width: 1200px">
+        <div
+          v-if="authStore.loading && !authStore.isInitialized"
+          class="d-flex justify-center align-center fill-height"
+        >
+          <v-progress-circular
+            indeterminate
+            color="primary"
+            size="64"
+          ></v-progress-circular>
+        </div>
 
-      <div v-else>
-        <Setup v-if="!authStore.isInitialized" />
-        <Login v-else-if="!authStore.isLoggedIn" />
-        <Settings v-else />
-      </div>
+        <div v-else>
+          <Setup v-if="!authStore.isInitialized" />
+          <Login v-else-if="!authStore.isLoggedIn" />
+          <Settings v-else />
+        </div>
+      </v-container>
+    </v-main>
 
-      <!-- Footer -->
-      <footer class="text-center text-white mt-8 py-5 text-sm opacity-80">
-        <p>ESP32-S3 PhotoFrame Server</p>
-      </footer>
-    </div>
-  </div>
+    <v-footer
+      app
+      class="text-center d-flex justify-center text-caption text-grey"
+    >
+      ESP32-S3 PhotoFrame Server
+    </v-footer>
+  </v-app>
 </template>
 
 <script setup lang="ts">

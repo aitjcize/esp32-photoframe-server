@@ -12,6 +12,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Ignore Synology endpoints as they use 401 for 2FA challenges
+      if (error.config.url && error.config.url.includes('/synology/')) {
+        return Promise.reject(error);
+      }
+
+      // Clear token and redirect to login if 401 received
+      // Avoid redirect loop if already on login page
+      if (!window.location.pathname.startsWith('/login')) {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const getSettings = async () => {
   const response = await api.get('/settings');
   return response.data;

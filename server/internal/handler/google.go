@@ -47,7 +47,7 @@ func (h *GoogleHandler) Login(c echo.Context) error {
 
 	h.client.SetRedirectURL(redirectURL)
 	url := h.client.GetAuthURL()
-	return c.Redirect(http.StatusTemporaryRedirect, url)
+	return c.JSON(http.StatusOK, map[string]string{"url": url})
 }
 
 func (h *GoogleHandler) Callback(c echo.Context) error {
@@ -61,7 +61,7 @@ func (h *GoogleHandler) Callback(c echo.Context) error {
 	}
 
 	// Redirect back to frontend
-	return c.Redirect(http.StatusTemporaryRedirect, "/")
+	return c.Redirect(http.StatusTemporaryRedirect, "/?tab=datasources&source=google")
 }
 
 func (h *GoogleHandler) Logout(c echo.Context) error {

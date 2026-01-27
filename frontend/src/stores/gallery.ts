@@ -8,7 +8,7 @@ export const useGalleryStore = defineStore('gallery', {
     totalPhotos: 0,
     loading: false,
     page: 1,
-    limit: 50,
+    limit: 48,
     importMessage: '',
     pickerTimer: null as number | null,
   }),

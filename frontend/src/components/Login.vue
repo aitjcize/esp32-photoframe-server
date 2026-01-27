@@ -1,49 +1,57 @@
 <template>
-  <div class="max-w-md mx-auto bg-white rounded-xl p-8 shadow-xl">
-    <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h2>
+  <v-row justify="center">
+    <v-col cols="12" sm="8" md="6" lg="4">
+      <v-card class="mt-8 elevation-4">
+        <v-card-title class="text-center text-h5 font-weight-bold py-6">
+          Login
+        </v-card-title>
 
-    <form @submit.prevent="handleLogin" class="space-y-6">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2"
-          >Username</label
-        >
-        <input
-          v-model="username"
-          type="text"
-          required
-          class="w-full px-4 py-3 bg-white border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-        />
-      </div>
+        <v-card-text>
+          <v-form @submit.prevent="handleLogin">
+            <v-text-field
+              v-model="username"
+              label="Username"
+              prepend-inner-icon="mdi-account"
+              variant="outlined"
+              class="mb-2"
+              required
+            ></v-text-field>
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2"
-          >Password</label
-        >
-        <input
-          v-model="password"
-          type="password"
-          required
-          class="w-full px-4 py-3 bg-white border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-        />
-      </div>
+            <v-text-field
+              v-model="password"
+              label="Password"
+              type="password"
+              prepend-inner-icon="mdi-lock"
+              variant="outlined"
+              class="mb-4"
+              required
+            ></v-text-field>
 
-      <div
-        v-if="error"
-        class="text-red-400 text-sm text-center bg-red-900/20 p-2 rounded"
-      >
-        {{ error }}
-      </div>
+            <v-alert
+              v-if="error"
+              type="error"
+              variant="tonal"
+              class="mb-4"
+              density="compact"
+            >
+              {{ error }}
+            </v-alert>
 
-      <button
-        type="submit"
-        :disabled="loading"
-        class="w-full py-3 px-4 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <span v-if="loading">Logging in...</span>
-        <span v-else>Login</span>
-      </button>
-    </form>
-  </div>
+            <v-btn
+              type="submit"
+              color="primary"
+              block
+              size="large"
+              :loading="loading"
+              class="mt-2"
+            >
+              Login
+            </v-btn>
+          </v-form>
+        </v-card-text>
+      </v-card>
+    </v-col>
+  </v-row>
 </template>
 
 <script setup lang="ts">

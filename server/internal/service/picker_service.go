@@ -208,6 +208,14 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 			s.progress[sessionID].Processed++ // Count skipped as processed? yes
 			continue
 		}
+
+		// Skip videos
+		if len(item.MediaFile.MimeType) >= 5 && item.MediaFile.MimeType[:5] == "video" {
+			fmt.Printf("Skipping video: %s (%s)\n", item.MediaFile.Filename, item.MediaFile.MimeType)
+			s.progress[sessionID].Processed++
+			continue
+		}
+
 		downloadUrl := item.MediaFile.BaseUrl + "=w1600-h1600"
 
 		resp, err := httpClient.Get(downloadUrl)
