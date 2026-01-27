@@ -61,8 +61,7 @@ COPY --from=builder /app/photoframe-server /app/photoframe-server
 COPY --from=frontend-builder /app/dist /app/static
 
 # Install epaper-image-convert
-RUN npm install -g epaper-image-convert && \
-    ln -s /usr/local/bin/epaper-image-convert /usr/bin/epaper-image-convert || true
+RUN npm install -g @aitjcize/epaper-image-convert
 
 WORKDIR /app
 
