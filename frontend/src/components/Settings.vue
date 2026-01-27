@@ -27,6 +27,7 @@
         <v-tabs v-model="activeMainTab" color="primary" grow>
           <v-tab value="general">General</v-tab>
           <v-tab value="datasources">Data Sources</v-tab>
+          <v-tab value="devices">Devices</v-tab>
           <v-tab value="security">Security</v-tab>
         </v-tabs>
 
@@ -604,6 +605,73 @@
               </v-table>
             </v-card-text>
           </v-window-item>
+          <!-- Devices Tab -->
+          <v-window-item value="devices">
+            <v-card-text>
+              <v-alert
+                type="info"
+                variant="tonal"
+                class="mb-4"
+                density="compact"
+              >
+                Manage your ESP32 PhotoFrame devices here. These devices will be available for direct push from the Gallery.
+              </v-alert>
+
+              <div class="d-flex ga-2 align-center mb-6">
+                <v-text-field
+                  v-model="newDevice.name"
+                  label="Device Name"
+                  placeholder="Living Room"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                ></v-text-field>
+                <v-text-field
+                  v-model="newDevice.host"
+                  label="IP / Hostname"
+                  placeholder="192.168.1.50"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                ></v-text-field>
+                <v-btn color="primary" @click="addNewDevice" :loading="deviceListLoading">
+                  Add Device
+                </v-btn>
+              </div>
+
+              <v-table density="comfortable" class="border rounded">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Host</th>
+                    <th>Last Seen</th>
+                    <th class="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="device in availableDevices" :key="device.id">
+                    <td>{{ device.name }}</td>
+                    <td>{{ device.host }}</td>
+                    <td>{{ device.last_seen || 'Never' }}</td>
+                    <td class="text-right">
+                      <v-btn
+                        color="error"
+                        variant="text"
+                        size="small"
+                        icon="mdi-delete"
+                        @click="removeDevice(device.id)"
+                      ></v-btn>
+                    </td>
+                  </tr>
+                  <tr v-if="availableDevices.length === 0">
+                    <td colspan="4" class="text-center text-grey py-4">
+                      No devices added.
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </v-card-text>
+          </v-window-item>
         </v-window>
       </div>
   
@@ -631,7 +699,7 @@ import { useSettingsStore } from '../stores/settings';
 import { useSynologyStore } from '../stores/synology';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
-import { api } from '../api';
+import { api, listDevices, addDevice, deleteDevice, type Device } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 
@@ -643,6 +711,53 @@ const activeMainTab = ref('general');
 const activeDataSourceTab = ref('google');
 const galleryTab = ref('google');
 const confirmDialog = ref();
+
+// Devices State
+const availableDevices = ref<Device[]>([]);
+const deviceListLoading = ref(false);
+const newDevice = reactive({
+  name: '',
+  host: '',
+});
+
+const loadDevices = async () => {
+  deviceListLoading.value = true;
+  try {
+    availableDevices.value = await listDevices();
+  } catch (e) {
+    console.error('Failed to list devices', e);
+  } finally {
+    deviceListLoading.value = false;
+  }
+};
+
+const addNewDevice = async () => {
+  if (!newDevice.name || !newDevice.host) return;
+  deviceListLoading.value = true;
+  try {
+    await addDevice(newDevice.name, newDevice.host);
+    newDevice.name = '';
+    newDevice.host = '';
+    await loadDevices();
+    showMessage('Device added successfully');
+  } catch (e) {
+    showMessage('Failed to add device', true);
+  } finally {
+    deviceListLoading.value = false;
+  }
+};
+
+const removeDevice = async (id: number) => {
+  if (!await confirmDialog.value.open('Remove Device', 'Are you sure you want to remove this device?')) return;
+  
+  try {
+    await deleteDevice(id);
+    await loadDevices();
+    showMessage('Device removed');
+  } catch (e) {
+    showMessage('Failed to remove device', true);
+  }
+};
 
 watch(galleryTab, (val) => {
   if (val === 'google') {
@@ -738,6 +853,7 @@ onMounted(async () => {
   }
 
   await authStore.fetchTokens();
+  await loadDevices();
 
   // Parse URL params for deep linking (e.g. from OAuth callback)
   const params = new URLSearchParams(window.location.search);

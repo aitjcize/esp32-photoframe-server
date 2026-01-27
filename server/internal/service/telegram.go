@@ -4,30 +4,25 @@ import (
 	"log"
 	"sync"
 
-	"github.com/aitjcize/photoframe-server/server/pkg/photoframe"
 	"github.com/aitjcize/photoframe-server/server/pkg/telegram"
 	"gorm.io/gorm"
 )
 
 type TelegramService struct {
-	bot       *telegram.Bot
-	db        *gorm.DB
-	dataDir   string
-	processor *ProcessorService
-	settings  *SettingsService
-	pfClient  *photoframe.Client
-	overlay   *OverlayService
-	mu        sync.Mutex
+	bot      *telegram.Bot
+	db       *gorm.DB
+	dataDir  string
+	settings *SettingsService
+	pusher   telegram.Pusher
+	mu       sync.Mutex
 }
 
-func NewTelegramService(db *gorm.DB, dataDir string, processor *ProcessorService, settings *SettingsService, pfClient *photoframe.Client, overlay *OverlayService) *TelegramService {
+func NewTelegramService(db *gorm.DB, dataDir string, settings *SettingsService, pusher telegram.Pusher) *TelegramService {
 	return &TelegramService{
-		db:        db,
-		dataDir:   dataDir,
-		processor: processor,
-		settings:  settings,
-		pfClient:  pfClient,
-		overlay:   overlay,
+		db:       db,
+		dataDir:  dataDir,
+		settings: settings,
+		pusher:   pusher,
 	}
 }
 
@@ -45,7 +40,7 @@ func (s *TelegramService) Restart(token string) {
 		return
 	}
 
-	bot, err := telegram.NewBot(token, s.db, s.dataDir, s.processor, s.settings, s.pfClient, s.overlay)
+	bot, err := telegram.NewBot(token, s.db, s.dataDir, s.settings, s.pusher)
 	if err != nil {
 		log.Printf("Failed to start Telegram bot: %v", err)
 		return

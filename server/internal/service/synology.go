@@ -295,3 +295,9 @@ func (s *SynologyService) GetPhotoCount() (int64, error) {
 	}
 	return count, nil
 }
+
+// DownloadPhoto fetches the large thumbnail by ID (avoiding full download/EXIF issues)
+func (s *SynologyService) DownloadPhoto(id int) ([]byte, error) {
+	// Re-use GetPhoto logic which handles DB lookup, cache keys, and space
+	return s.GetPhoto(id, "", "large")
+}

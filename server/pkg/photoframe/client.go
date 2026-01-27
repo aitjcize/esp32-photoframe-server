@@ -43,7 +43,6 @@ func NewClient() *Client {
 }
 
 // PushImage pushes a PNG image and an optional thumbnail to the device.
-// PushImage pushes a PNG image and an optional thumbnail to the device.
 func (c *Client) PushImage(host string, pngBytes []byte, thumbBytes []byte) error {
 	// Resolve Host to IP manually to bypass HTTP client resolver issues with mDNS
 	ip, err := c.resolveHost(host)

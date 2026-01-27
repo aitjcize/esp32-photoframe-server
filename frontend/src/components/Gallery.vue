@@ -86,6 +86,7 @@
           <v-card
             class="position-relative photo-card overflow-visible"
             elevation="2"
+            @click="openPushDialog(photo.id)"
           >
             <v-img
               :src="getThumbnailUrl(photo.thumbnail_url)"
@@ -104,19 +105,66 @@
               </template>
             </v-img>
 
+            <!-- Delete Badge (Top Right) -->
             <v-btn
               icon="mdi-close"
               color="error"
-              size="small"
+              size="x-small"
               variant="flat"
-              class="position-absolute delete-btn"
-              style="top: -12px; right: -12px; z-index: 10"
-              elevation="3"
-              @click="galleryStore.deletePhoto(photo.id)"
+              class="action-btn delete-btn"
+              title="Delete"
+              density="comfortable"
+              elevation="4"
+              @click.stop="galleryStore.deletePhoto(photo.id)"
             ></v-btn>
           </v-card>
         </v-col>
       </v-row>
+      
+      <!-- Push Dialog -->
+      <v-dialog v-model="pushDialog.show" max-width="400">
+        <v-card>
+          <v-card-title>Push to Device</v-card-title>
+          <v-card-text>
+            <div v-if="loadingDevices" class="d-flex justify-center pa-4">
+              <v-progress-circular indeterminate></v-progress-circular>
+            </div>
+            <div v-else-if="devices.length === 0">
+              No devices found. Please add a device in Settings.
+            </div>
+            <div v-else>
+              <v-radio-group v-model="pushDialog.selectedDevice" hide-details>
+                <v-radio
+                  v-for="dev in devices"
+                  :key="dev.id"
+                  :label="`${dev.name} (${dev.host})`"
+                  :value="dev.id"
+                ></v-radio>
+              </v-radio-group>
+              
+              <v-checkbox
+                v-model="pushDialog.remember"
+                label="Remember my choice (this session)"
+                density="compact"
+                hide-details
+                class="mt-2"
+              ></v-checkbox>
+            </div>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn variant="text" @click="pushDialog.show = false">Cancel</v-btn>
+            <v-btn
+              color="primary"
+              :disabled="!pushDialog.selectedDevice"
+              :loading="pushDialog.loading"
+              @click="confirmPush"
+            >
+              Push
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
 
       <!-- Pagination Controls -->
       <div
@@ -163,13 +211,41 @@
 </template>
 
 <style scoped>
-.photo-card .delete-btn {
-  opacity: 0;
-  transition: opacity 0.2s ease-in-out;
+
+.photo-card {
+  transition: transform 0.2s;
+  cursor: pointer;
 }
 
-.photo-card:hover .delete-btn {
+.photo-card:hover {
+  transform: translateY(-2px);
+}
+
+.action-btn {
+  position: absolute;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.1s;
+  z-index: 10;
+}
+
+.delete-btn {
+  top: -8px;
+  right: -8px;
+  border-radius: 50%;
+  min-width: 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+/* Show buttons on card hover */
+.photo-card:hover .action-btn {
   opacity: 1;
+}
+
+.action-btn:hover {
+  transform: scale(1.1);
 }
 
 @media (min-width: 1280px) {
@@ -181,14 +257,92 @@
 </style>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, ref, reactive } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
+import { listDevices, pushToDevice, type Device } from '../api';
 
 const store = useSettingsStore();
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
+
+// Push Dialog State
+const devices = ref<Device[]>([]);
+const loadingDevices = ref(false);
+const pushDialog = reactive({
+  show: false,
+  imageId: 0,
+  selectedDevice: null as number | null,
+  remember: false,
+  loading: false,
+});
+
+// Session memory for device preference
+const SESSION_KEY_PREFERRED_DEVICE = 'photoframe_preferred_device';
+
+const openPushDialog = async (imageId: number) => {
+  pushDialog.imageId = imageId;
+  
+  // Check session preference
+  const savedId = sessionStorage.getItem(SESSION_KEY_PREFERRED_DEVICE);
+  if (savedId) {
+    const id = parseInt(savedId);
+    if (!isNaN(id)) {
+      // Auto-push if remembered? "popup will ask... and optional remember me"
+      // Usually "remember me" in this context implies skipping the prompt next time.
+      // Let's optimize: if remembered, try to push immediately? 
+      // User said "remember the preference ONLY for the current brwoser tab session".
+      // Let's update `openPushDialog` to check logic.
+      // I'll load devices first to verify the ID still exists.
+    }
+  }
+
+  pushDialog.show = true;
+  loadingDevices.value = true;
+  
+  try {
+    const list = await listDevices();
+    devices.value = list;
+    
+    // If we have a saved preference and it's in the list, pre-select it
+    if (savedId) {
+      const found = list.find(d => d.id === parseInt(savedId));
+      if (found) {
+        pushDialog.selectedDevice = found.id;
+      }
+    }
+    
+    // If no selection yet and only 1 device, pre-select it
+    if (!pushDialog.selectedDevice && list.length === 1) {
+      pushDialog.selectedDevice = list[0].id;
+    }
+  } catch (e) {
+    console.error(e);
+  } finally {
+    loadingDevices.value = false;
+  }
+};
+
+const confirmPush = async () => {
+  if (!pushDialog.selectedDevice) return;
+  
+  if (pushDialog.remember) {
+    sessionStorage.setItem(SESSION_KEY_PREFERRED_DEVICE, String(pushDialog.selectedDevice));
+  }
+  
+  pushDialog.loading = true;
+  try {
+    await pushToDevice(pushDialog.selectedDevice, pushDialog.imageId);
+    galleryStore.importMessage = 'Image pushed to device successfully';
+    pushDialog.show = false;
+  } catch (e) {
+    galleryStore.importMessage = 'Failed to push image: ' + (e as any).message;
+  } finally {
+    pushDialog.loading = false;
+  }
+};
+
 
 const getThumbnailUrl = (url: string) => {
   const token = authStore.token;

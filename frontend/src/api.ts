@@ -51,3 +51,30 @@ export const getGoogleAlbums = async () => {
   const response = await api.get('/google/albums');
   return response.data;
 };
+// Devices
+export interface Device {
+  id: number;
+  name: string;
+  host: string;
+  last_seen: string;
+}
+
+export const listDevices = async () => {
+  const response = await api.get('/devices');
+  return response.data as Device[];
+};
+
+export const addDevice = async (name: string, host: string) => {
+  const response = await api.post('/devices', { name, host });
+  return response.data as Device;
+};
+
+export const deleteDevice = async (id: number) => {
+  const response = await api.delete(`/devices/${id}`);
+  return response.data;
+};
+
+export const pushToDevice = async (deviceID: number, imageID: number) => {
+  const response = await api.post(`/devices/${deviceID}/push`, { image_id: imageID });
+  return response.data;
+};

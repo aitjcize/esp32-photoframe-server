@@ -41,8 +41,15 @@ func main() {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	authService := service.NewAuthService(database, jwtSecret)
 
-	// Migrate User Model
-	if err := database.AutoMigrate(&model.User{}, &model.APIKey{}); err != nil {
+	// Migrate All Models
+	if err := database.AutoMigrate(
+		&model.User{},
+		&model.APIKey{},
+		&model.Device{},
+		&model.Setting{},
+		&model.Image{},
+		&model.GoogleAuth{},
+	); err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
@@ -76,8 +83,13 @@ func main() {
 	// Initialize PhotoFrame Client
 	photoframeClient := photoframe.NewClient()
 
+	// Initialize Device Service
+	deviceService := service.NewDeviceService(database, settingsService, processorService, overlayService, photoframeClient)
+	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, database)
+
 	// Initialize Telegram Service
-	telegramService := service.NewTelegramService(database, dataDir, processorService, settingsService, photoframeClient, overlayService)
+	// Pass deviceService as Pusher
+	telegramService := service.NewTelegramService(database, dataDir, settingsService, deviceService)
 	telegramToken, _ := settingsService.Get("telegram_bot_token")
 	if telegramToken != "" {
 		telegramService.Restart(telegramToken)
@@ -135,6 +147,12 @@ func main() {
 	protectedApi.GET("/settings", h.GetSettings)
 	protectedApi.GET("/settings", h.GetSettings)
 	protectedApi.POST("/settings", h.UpdateSettings)
+
+	// Device Management (Protected)
+	protectedApi.GET("/devices", deviceHandler.ListDevices)
+	protectedApi.POST("/devices", deviceHandler.AddDevice)
+	protectedApi.DELETE("/devices/:id", deviceHandler.DeleteDevice)
+	protectedApi.POST("/devices/:id/push", deviceHandler.PushToDevice)
 
 	// Device Tokens (Protected)
 	protectedApi.POST("/auth/tokens", ah.GenerateDeviceToken)
