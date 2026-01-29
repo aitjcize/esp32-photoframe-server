@@ -2,6 +2,7 @@ package photoframe
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -37,7 +38,7 @@ func NewClient() *Client {
 	return &Client{
 		httpClient: &http.Client{
 			Transport: transport,
-			Timeout:   30 * time.Second,
+			Timeout:   60 * time.Second,
 		},
 	}
 }
@@ -145,4 +146,169 @@ func (c *Client) checkReachability(ip string) error {
 	}
 	conn.Close()
 	return nil
+}
+
+type SystemInfo struct {
+	DeviceName string `json:"device_name"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	BoardName  string `json:"board_name"`
+}
+
+func (c *Client) FetchSystemInfo(host string) (*SystemInfo, error) {
+	ip, err := c.resolveHost(host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve device %s: %w", host, err)
+	}
+
+	url := fmt.Sprintf("http://%s/api/system-info", ip)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = host // Set Host header
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device returned status: %d", resp.StatusCode)
+	}
+
+	var info SystemInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, fmt.Errorf("failed to decode system info: %w", err)
+	}
+
+	return &info, nil
+}
+
+type ProcessingSettings struct {
+	Exposure             float64 `json:"exposure"`
+	Saturation           float64 `json:"saturation"`
+	ToneMode             string  `json:"toneMode"`
+	Contrast             float64 `json:"contrast"`
+	Strength             float64 `json:"strength"`
+	ShadowBoost          float64 `json:"shadowBoost"`
+	HighlightCompress    float64 `json:"highlightCompress"`
+	Midpoint             float64 `json:"midpoint"`
+	ColorMethod          string  `json:"colorMethod"`
+	ProcessingMode       string  `json:"processingMode"`
+	DitherAlgorithm      string  `json:"ditherAlgorithm"`
+	CompressDynamicRange bool    `json:"compressDynamicRange"`
+}
+
+type PaletteColor struct {
+	R int `json:"r"`
+	G int `json:"g"`
+	B int `json:"b"`
+}
+
+type Palette struct {
+	Black  PaletteColor `json:"black"`
+	White  PaletteColor `json:"white"`
+	Yellow PaletteColor `json:"yellow"`
+	Red    PaletteColor `json:"red"`
+	Blue   PaletteColor `json:"blue"`
+	Green  PaletteColor `json:"green"`
+}
+
+func (c *Client) FetchProcessingSettings(host string) (*ProcessingSettings, error) {
+	ip, err := c.resolveHost(host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve device %s: %w", host, err)
+	}
+
+	url := fmt.Sprintf("http://%s/api/settings/processing", ip)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = host
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device returned status: %d", resp.StatusCode)
+	}
+
+	var settings ProcessingSettings
+	if err := json.NewDecoder(resp.Body).Decode(&settings); err != nil {
+		return nil, fmt.Errorf("failed to decode settings: %w", err)
+	}
+
+	return &settings, nil
+}
+
+type DeviceConfig struct {
+	DisplayOrientation string `json:"display_orientation"`
+}
+
+func (c *Client) FetchDeviceConfig(host string) (*DeviceConfig, error) {
+	ip, err := c.resolveHost(host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve device %s: %w", host, err)
+	}
+
+	url := fmt.Sprintf("http://%s/api/config", ip)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = host
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device returned status: %d", resp.StatusCode)
+	}
+
+	var config DeviceConfig
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to decode config: %w", err)
+	}
+
+	return &config, nil
+}
+
+func (c *Client) FetchPalette(host string) (*Palette, error) {
+	ip, err := c.resolveHost(host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve device %s: %w", host, err)
+	}
+
+	url := fmt.Sprintf("http://%s/api/settings/palette", ip)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = host
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device returned status: %d", resp.StatusCode)
+	}
+
+	var palette Palette
+	if err := json.NewDecoder(resp.Body).Decode(&palette); err != nil {
+		return nil, fmt.Errorf("failed to decode palette: %w", err)
+	}
+
+	return &palette, nil
 }

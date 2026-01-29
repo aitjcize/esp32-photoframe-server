@@ -19,21 +19,17 @@ func NewOverlayService(w *weather.Client, s *SettingsService) *OverlayService {
 	return &OverlayService{weatherClient: w, settings: s}
 }
 
-func (s *OverlayService) ApplyOverlay(img image.Image) (image.Image, error) {
-	// 1. Check if we need to draw anything at all
-	showDate, _ := s.settings.Get("show_date")
-	if showDate == "" {
-		showDate = "true"
-	}
-	showWeather, _ := s.settings.Get("show_weather")
-	if showWeather == "" {
-		showWeather = "true"
-	}
-	lat, _ := s.settings.Get("weather_lat")
-	lon, _ := s.settings.Get("weather_lon")
+type OverlayOptions struct {
+	ShowDate    bool
+	ShowWeather bool
+	WeatherLat  float64
+	WeatherLon  float64
+}
 
-	hasDate := showDate == "true"
-	hasWeather := showWeather == "true" && lat != "" && lon != ""
+func (s *OverlayService) ApplyOverlay(img image.Image, opts OverlayOptions) (image.Image, error) {
+	// 1. Check if we need to draw anything at all
+	hasDate := opts.ShowDate
+	hasWeather := opts.ShowWeather && opts.WeatherLat != 0 && opts.WeatherLon != 0
 
 	if !hasDate && !hasWeather {
 		return img, nil
@@ -92,6 +88,8 @@ func (s *OverlayService) ApplyOverlay(img image.Image) (image.Image, error) {
 
 	// Weather
 	if hasWeather {
+		lat := fmt.Sprintf("%f", opts.WeatherLat)
+		lon := fmt.Sprintf("%f", opts.WeatherLon)
 		weather, err := s.weatherClient.GetWeather(lat, lon)
 		if err == nil {
 			// Draw large weather icon using Material Symbols font

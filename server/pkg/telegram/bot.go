@@ -16,7 +16,7 @@ type SettingsProvider interface {
 }
 
 type Pusher interface {
-	PushToHost(host, imagePath string) error
+	PushToHost(device *model.Device, imagePath string, extraOpts map[string]string) error
 }
 
 type Bot struct {
@@ -94,9 +94,9 @@ func (bot *Bot) handlePhoto(c tele.Context) error {
 
 	// Check if Push to Device is enabled
 	pushEnabled, _ := bot.settings.Get("telegram_push_enabled")
-	deviceHost, _ := bot.settings.Get("device_host")
+	targetDeviceIDStr, _ := bot.settings.Get("telegram_target_device_id")
 
-	if pushEnabled == "true" && deviceHost != "" {
+	if pushEnabled == "true" && targetDeviceIDStr != "" {
 		// Send initial status
 		statusMsg, err := bot.b.Send(c.Recipient(), "Connecting to device...")
 		if err != nil {
@@ -104,7 +104,15 @@ func (bot *Bot) handlePhoto(c tele.Context) error {
 			return err
 		}
 
-		err = bot.pusher.PushToHost(deviceHost, destPath)
+		// Look up device
+		var device model.Device
+		if err := bot.db.First(&device, targetDeviceIDStr).Error; err != nil {
+			log.Printf("Failed to find target device (ID: %s): %v", targetDeviceIDStr, err)
+			bot.b.Edit(statusMsg, "Error: Configured target device not found.")
+			return nil
+		}
+
+		err = bot.pusher.PushToHost(&device, destPath, nil)
 		if err != nil {
 			log.Printf("Failed to push to device: %v", err)
 			_, editErr := bot.b.Edit(statusMsg, "Photo updated! Device is offline/unreachable, so it will show up next time the device awakes.")

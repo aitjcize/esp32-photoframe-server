@@ -2,14 +2,17 @@ package handler
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"image"
+	"log"
 
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	"github.com/aitjcize/photoframe-server/server/internal/service"
 	"github.com/aitjcize/photoframe-server/server/pkg/googlephotos"
 	"github.com/aitjcize/photoframe-server/server/pkg/imageops"
+	"github.com/aitjcize/photoframe-server/server/pkg/photoframe"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -60,32 +64,103 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 
-	// 1. Fetch Random Photo (or pair if collage)
-	collageMode, _ := h.settings.Get("collage_mode")
+	// 1. Identify Device and Determine Settings
+	// Try to find device by Hostname (X-Hostname header) first, then IP
+	var device model.Device
+	var result *gorm.DB
+
+	hostname := c.Request().Header.Get("X-Hostname")
+	if hostname != "" {
+		// Try matching Host or Name? Host in DB is often hostname.
+		result = h.db.Where("host = ?", hostname).First(&device)
+	}
+
+	// If not found by hostname, try by IP
+	deviceFound := result != nil && result.Error == nil
+	if !deviceFound {
+		clientIP := c.RealIP()
+		result = h.db.Where("host = ?", clientIP).First(&device)
+		deviceFound = result.Error == nil
+	}
+
+	// Native resolution of the device panel
+	nativeW, nativeH := 800, 480
+	// Logical resolution for image generation (respects orientation)
+	logicalW, logicalH := 800, 480
+
+	enableCollage := false
+	showDate := false
+	showWeather := false
+	var lat, lon float64
+
+	if deviceFound {
+		nativeW = device.Width
+		nativeH = device.Height
+		logicalW, logicalH = nativeW, nativeH
+
+		enableCollage = device.EnableCollage
+		showDate = device.ShowDate
+		showWeather = device.ShowWeather
+		lat = device.WeatherLat
+		lon = device.WeatherLon
+	}
+
+	// ALWAYS overrides logical resolution/orientation from Headers if present
+	if wStr := c.Request().Header.Get("X-Display-Width"); wStr != "" {
+		if w, err := strconv.Atoi(wStr); err == nil && w > 0 {
+			logicalW = w
+			nativeW = w
+			if deviceFound && device.Width != w {
+				device.Width = w
+				h.db.Model(&device).Update("width", w)
+			}
+		}
+	}
+	if hStr := c.Request().Header.Get("X-Display-Height"); hStr != "" {
+		if he, err := strconv.Atoi(hStr); err == nil && he > 0 {
+			logicalH = he
+			nativeH = he
+			if deviceFound && device.Height != he {
+				device.Height = he
+				h.db.Model(&device).Update("height", he)
+			}
+		}
+	}
+	if oStr := c.Request().Header.Get("X-Display-Orientation"); oStr != "" {
+		if oStr == "portrait" && logicalW > logicalH {
+			logicalW, logicalH = logicalH, logicalW
+		} else if oStr == "landscape" && logicalW < logicalH {
+			logicalW, logicalH = logicalH, logicalW
+		}
+		// Persist orientation update to database if it changed
+		if deviceFound && device.Orientation != oStr {
+			device.Orientation = oStr
+			h.db.Model(&device).Update("orientation", oStr)
+		}
+	} else if deviceFound && device.Orientation != "" {
+		// Use device orientation preference if no header provided
+		if device.Orientation == "portrait" && logicalW > logicalH {
+			logicalW, logicalH = logicalH, logicalW
+		} else if device.Orientation == "landscape" && logicalW < logicalH {
+			logicalW, logicalH = logicalH, logicalW
+		}
+	}
 
 	var img image.Image
 	var err error
-
-	// Get target dimensions for the device
-	orientation := h.getOrientation()
-	targetW, targetH := 800, 480
-	if orientation == "portrait" {
-		targetW, targetH = 480, 800
-	}
 
 	if source == "telegram" {
 		// Serve Telegram Photo (always single, no collage)
 		imgPath := filepath.Join(h.dataDir, "photos", "telegram_last.jpg")
 		f, fsErr := os.Open(imgPath)
 		if fsErr != nil {
-			// Fallback if no telegram photo yet
 			img, err = h.fetchPlaceholder()
 		} else {
 			defer f.Close()
 			img, _, err = image.Decode(f)
 		}
-	} else if collageMode == "true" {
-		img, _, err = h.fetchSmartCollage(targetW, targetH, source)
+	} else if enableCollage {
+		img, _, err = h.fetchSmartCollage(logicalW, logicalH, source)
 	} else {
 		img, _, err = h.fetchRandomPhoto(source)
 	}
@@ -95,19 +170,57 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	}
 
 	// 1.5. Resize/Crop to Target Dimensions
-	// This ensures the overlay is drawn on the FINAL visible area and not cropped later.
-	dst := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
+	dst := image.NewRGBA(image.Rect(0, 0, logicalW, logicalH))
 	imageops.DrawCover(dst, dst.Bounds(), img)
 	img = dst
 
 	// 2. Overlay
-	imgWithOverlay, err := h.overlay.ApplyOverlay(img)
+	overlayOpts := service.OverlayOptions{
+		ShowDate:    showDate,
+		ShowWeather: showWeather,
+		WeatherLat:  lat,
+		WeatherLon:  lon,
+	}
+
+	imgWithOverlay, err := h.overlay.ApplyOverlay(img, overlayOpts)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "overlay failed: " + err.Error()})
 	}
 
 	// 3. Tone Mapping + Thumbnail (CLI)
-	processedBytes, thumbBytes, err := h.processor.ProcessImage(imgWithOverlay, nil)
+	// Pass NATIVE dimensions to CLI.
+	// The CLI will detect Source (logicalW/H) vs Target (nativeW/H) orientation mismatch and rotate if needed.
+	procOptions := map[string]string{
+		"dimension": fmt.Sprintf("%dx%d", nativeW, nativeH),
+	}
+
+	// 3.5. Parse X-Processing-Settings header if present
+	var settings *photoframe.ProcessingSettings
+	if settingsStr := c.Request().Header.Get("X-Processing-Settings"); settingsStr != "" {
+		settings = &photoframe.ProcessingSettings{}
+		if err := json.Unmarshal([]byte(settingsStr), settings); err != nil {
+			fmt.Printf("Failed to parse X-Processing-Settings header: %v\n", err)
+			settings = nil
+		}
+	}
+
+	// 3.6. Parse X-Color-Palette header if present
+	var palette *photoframe.Palette
+	if paletteStr := c.Request().Header.Get("X-Color-Palette"); paletteStr != "" {
+		palette = &photoframe.Palette{}
+		if err := json.Unmarshal([]byte(paletteStr), palette); err != nil {
+			fmt.Printf("Failed to parse X-Color-Palette header: %v\n", err)
+			palette = nil
+		}
+	}
+
+	headerOpts := h.processor.MapProcessingSettings(settings, palette)
+	for k, v := range headerOpts {
+		procOptions[k] = v
+	}
+
+	log.Println("Processing image with options: ", procOptions)
+	processedBytes, thumbBytes, err := h.processor.ProcessImage(imgWithOverlay, procOptions)
 	if err != nil {
 		fmt.Printf("Processor failed: %v\n", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "processor service failed: " + err.Error()})

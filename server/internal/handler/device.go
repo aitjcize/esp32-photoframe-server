@@ -40,22 +40,54 @@ func (h *DeviceHandler) ListDevices(c echo.Context) error {
 // POST /api/devices
 func (h *DeviceHandler) AddDevice(c echo.Context) error {
 	var req struct {
-		Name string `json:"name"`
-		Host string `json:"host"`
+		Host               string  `json:"host"`
+		UseDeviceParameter bool    `json:"use_device_parameter"`
+		EnableCollage      bool    `json:"enable_collage"`
+		ShowDate           bool    `json:"show_date"`
+		ShowWeather        bool    `json:"show_weather"`
+		WeatherLat         float64 `json:"weather_lat"`
+		WeatherLon         float64 `json:"weather_lon"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 
-	if req.Name == "" || req.Host == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "name and host required"})
+	if req.Host == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "host required"})
 	}
 
-	device, err := h.deviceService.AddDevice(req.Name, req.Host)
+	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusCreated, device)
+}
+
+// PUT /api/devices/:id
+func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
+	id, _ := strconv.Atoi(c.Param("id"))
+	var req struct {
+		Name               string  `json:"name"`
+		Host               string  `json:"host"`
+		Width              int     `json:"width"`
+		Height             int     `json:"height"`
+		Orientation        string  `json:"orientation"`
+		UseDeviceParameter bool    `json:"use_device_parameter"`
+		EnableCollage      bool    `json:"enable_collage"` // Add this field
+		ShowDate           bool    `json:"show_date"`
+		ShowWeather        bool    `json:"show_weather"`
+		WeatherLat         float64 `json:"weather_lat"`
+		WeatherLon         float64 `json:"weather_lon"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+
+	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, device)
 }
 
 // DELETE /api/devices/:id

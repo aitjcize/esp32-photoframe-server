@@ -1,13 +1,16 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 
+	"github.com/aitjcize/photoframe-server/server/pkg/photoframe"
 	_ "golang.org/x/image/bmp" // Register BMP decoder
 )
 
@@ -16,6 +19,55 @@ type ProcessorService struct {
 
 func NewProcessorService() *ProcessorService {
 	return &ProcessorService{}
+}
+
+func (s *ProcessorService) MapProcessingSettings(settings *photoframe.ProcessingSettings, palette *photoframe.Palette) map[string]string {
+	opts := make(map[string]string)
+	if settings == nil {
+		return opts
+	}
+
+	opts["exposure"] = fmt.Sprintf("%v", settings.Exposure)
+	opts["saturation"] = fmt.Sprintf("%v", settings.Saturation)
+	if settings.ToneMode != "" {
+		opts["tone-mode"] = settings.ToneMode
+	}
+	opts["contrast"] = fmt.Sprintf("%v", settings.Contrast)
+	if settings.ToneMode == "scurve" {
+		opts["scurve-strength"] = fmt.Sprintf("%v", settings.Strength)
+		opts["scurve-shadow"] = fmt.Sprintf("%v", settings.ShadowBoost)
+		opts["scurve-highlight"] = fmt.Sprintf("%v", settings.HighlightCompress)
+		opts["scurve-midpoint"] = fmt.Sprintf("%v", settings.Midpoint)
+	}
+	if settings.ColorMethod != "" {
+		opts["color-method"] = settings.ColorMethod
+	}
+	if settings.DitherAlgorithm != "" {
+		opts["dither-algorithm"] = settings.DitherAlgorithm
+	}
+	if settings.CompressDynamicRange {
+		opts["compress-dynamic-range"] = "" // Boolean flag
+	}
+
+	if palette != nil {
+		paletteWrapper := map[string]interface{}{
+			"theoretical": map[string]interface{}{
+				"black":  map[string]int{"r": 0, "g": 0, "b": 0},
+				"white":  map[string]int{"r": 255, "g": 255, "b": 255},
+				"yellow": map[string]int{"r": 255, "g": 255, "b": 0},
+				"red":    map[string]int{"r": 255, "g": 0, "b": 0},
+				"blue":   map[string]int{"r": 0, "g": 0, "b": 255},
+				"green":  map[string]int{"r": 0, "g": 255, "b": 0},
+			},
+			"perceived": palette,
+		}
+		paletteJSON, err := json.Marshal(paletteWrapper)
+		if err == nil {
+			opts["palette"] = string(paletteJSON)
+		}
+	}
+
+	return opts
 }
 
 func (s *ProcessorService) ProcessImage(img image.Image, options map[string]string) ([]byte, []byte, error) {
@@ -59,9 +111,18 @@ func (s *ProcessorService) ProcessImage(img image.Image, options map[string]stri
 	// Add other options (excluding dimension which we already handled)
 	for k, v := range options {
 		if k != "dimension" {
-			args = append(args, "--"+k, v)
+			if v == "" {
+				// Boolean flag
+				args = append(args, "--"+k)
+			} else {
+				args = append(args, "--"+k, v)
+			}
 		}
 	}
+
+	// Make verbose
+	args = append(args, "-v")
+	log.Println("Processing image with arguments: ", args)
 
 	cmd := exec.Command("epaper-image-convert", args...)
 
@@ -73,7 +134,7 @@ func (s *ProcessorService) ProcessImage(img image.Image, options map[string]stri
 	}
 
 	// Log CLI output for debug
-	// fmt.Printf("CLI Output: %s\n", string(output))
+	log.Printf("CLI Output: %s\n", string(output))
 
 	// 5. Read outputs
 	processedBytes, err := os.ReadFile(outputPath)

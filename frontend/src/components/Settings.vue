@@ -31,134 +31,12 @@
 
       <div v-else>
         <v-tabs v-model="activeMainTab" color="primary" grow>
-          <v-tab value="general">General</v-tab>
-          <v-tab value="datasources">Data Sources</v-tab>
           <v-tab value="devices">Devices</v-tab>
+          <v-tab value="datasources">Data Sources</v-tab>
           <v-tab value="security">Security</v-tab>
         </v-tabs>
 
         <v-window v-model="activeMainTab">
-          <!-- General Tab -->
-          <v-window-item value="general">
-            <v-card-text>
-              <v-alert
-                v-if="store.error"
-                type="error"
-                variant="tonal"
-                class="mb-4"
-              >
-                {{ store.error }}
-              </v-alert>
-
-              <form @submit.prevent="save">
-                <h3 class="text-subtitle-1 font-weight-bold mb-2">
-                  Device Configuration
-                </h3>
-
-                <div class="mb-4">
-                  <label class="text-caption text-grey-darken-1 mb-1 d-block"
-                    >Display Orientation</label
-                  >
-                  <v-radio-group
-                    v-model="form.Orientation"
-                    inline
-                    hide-details
-                    class="mb-2"
-                  >
-                    <v-radio
-                      label="Landscape"
-                      value="landscape"
-                      color="primary"
-                    ></v-radio>
-                    <v-radio
-                      label="Portrait"
-                      value="portrait"
-                      color="primary"
-                    ></v-radio>
-                  </v-radio-group>
-                </div>
-
-                <v-row>
-                  <v-col cols="12" sm="6">
-                    <v-text-field
-                      v-model.number="form.DisplayWidth"
-                      label="Width"
-                      type="number"
-                      variant="outlined"
-                      density="compact"
-                    ></v-text-field>
-                  </v-col>
-                  <v-col cols="12" sm="6">
-                    <v-text-field
-                      v-model.number="form.DisplayHeight"
-                      label="Height"
-                      type="number"
-                      variant="outlined"
-                      density="compact"
-                    ></v-text-field>
-                  </v-col>
-                </v-row>
-
-                <v-checkbox
-                  v-model="form.CollageMode"
-                  label="Enable Collage Mode (Combine 2 photos)"
-                  color="primary"
-                  hide-details
-                  density="compact"
-                ></v-checkbox>
-
-                <v-checkbox
-                  v-model="form.show_date"
-                  label="Show Date"
-                  color="primary"
-                  hide-details
-                  density="compact"
-                ></v-checkbox>
-
-                <v-checkbox
-                  v-model="form.show_weather"
-                  label="Show Weather"
-                  color="primary"
-                  hide-details
-                  density="compact"
-                ></v-checkbox>
-
-                <v-divider class="my-4"></v-divider>
-
-                <h3 class="text-subtitle-1 font-weight-bold mb-2">
-                  Weather Overlay
-                </h3>
-                <v-row>
-                  <v-col cols="12" sm="6">
-                    <v-text-field
-                      v-model="form.weather_lat"
-                      label="Latitude"
-                      variant="outlined"
-                      density="compact"
-                    ></v-text-field>
-                  </v-col>
-                  <v-col cols="12" sm="6">
-                    <v-text-field
-                      v-model="form.weather_lon"
-                      label="Longitude"
-                      variant="outlined"
-                      density="compact"
-                    ></v-text-field>
-                  </v-col>
-                </v-row>
-
-                <v-btn
-                  color="primary"
-                  :loading="store.loading"
-                  @click="save"
-                  class="mt-4"
-                >
-                  Save General Settings
-                </v-btn>
-              </form>
-            </v-card-text>
-          </v-window-item>
-
           <!-- Data Sources Tab -->
           <v-window-item value="datasources">
             <v-tabs
@@ -453,15 +331,17 @@
 
                     <v-expand-transition>
                       <div v-if="form.telegram_push_enabled" class="mt-2">
-                        <v-text-field
-                          v-model="form.device_host"
-                          label="Device Host (IP or Hostname)"
-                          placeholder="photoframe.local"
+                        <v-select
+                          v-model="form.telegram_target_device_id"
+                          :items="availableDevices"
+                          item-title="name"
+                          item-value="id"
+                          label="Target Device"
                           variant="outlined"
                           density="compact"
-                          hint="The IP address or hostname of your ESP32 device"
+                          hint="Select the device to display photos on"
                           persistent-hint
-                        ></v-text-field>
+                        ></v-select>
                       </div>
                     </v-expand-transition>
 
@@ -633,15 +513,7 @@
                 available for direct push from the Gallery.
               </v-alert>
 
-              <div class="d-flex ga-2 align-center mb-6">
-                <v-text-field
-                  v-model="newDevice.name"
-                  label="Device Name"
-                  placeholder="Living Room"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                ></v-text-field>
+              <div class="d-flex ga-2 align-center mb-2">
                 <v-text-field
                   v-model="newDevice.host"
                   label="IP / Hostname"
@@ -650,6 +522,65 @@
                   density="compact"
                   hide-details
                 ></v-text-field>
+              </div>
+
+              <v-checkbox
+                v-model="newDevice.use_device_parameter"
+                label="Fetch image processing parameters from device"
+                color="primary"
+                density="compact"
+                hide-details
+              ></v-checkbox>
+
+              <v-checkbox
+                v-model="newDevice.enable_collage"
+                label="Enable Collage Mode (Combine 2 photos)"
+                color="primary"
+                density="compact"
+                hide-details
+                class="mb-2"
+              ></v-checkbox>
+
+              <!-- New Device Weather/Date Settings -->
+              <div class="mb-4 border rounded pa-3">
+                <div class="text-subtitle-2 mb-2">Overlay Settings</div>
+                <div class="d-flex ga-4 mb-2">
+                  <v-checkbox
+                    v-model="newDevice.show_date"
+                    label="Show Date"
+                    color="primary"
+                    density="compact"
+                    hide-details
+                  ></v-checkbox>
+                  <v-checkbox
+                    v-model="newDevice.show_weather"
+                    label="Show Weather"
+                    color="primary"
+                    density="compact"
+                    hide-details
+                  ></v-checkbox>
+                </div>
+                <div v-if="newDevice.show_weather" class="d-flex ga-2">
+                  <v-text-field
+                    v-model.number="newDevice.weather_lat"
+                    label="Latitude"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    type="number"
+                  ></v-text-field>
+                  <v-text-field
+                    v-model.number="newDevice.weather_lon"
+                    label="Longitude"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    type="number"
+                  ></v-text-field>
+                </div>
+              </div>
+
+              <div class="d-flex justify-end mb-4">
                 <v-btn
                   color="primary"
                   @click="addNewDevice"
@@ -663,6 +594,7 @@
                 <thead>
                   <tr>
                     <th>Name</th>
+                    <th>Resolution</th>
                     <th>Host</th>
                     <th class="text-right">Action</th>
                   </tr>
@@ -670,8 +602,38 @@
                 <tbody>
                   <tr v-for="device in availableDevices" :key="device.id">
                     <td>{{ device.name }}</td>
-                    <td>{{ device.host }}</td>
+                    <td>
+                      {{ device.width }}x{{ device.height }} ({{
+                        device.orientation
+                      }})
+                    </td>
+                    <td>
+                      {{ device.host }}
+                      <v-chip
+                        v-if="device.use_device_parameter"
+                        size="x-small"
+                        color="info"
+                        class="ml-2"
+                        >Auto-Param</v-chip
+                      >
+                    </td>
                     <td class="text-right">
+                      <v-btn
+                        color="primary"
+                        variant="text"
+                        size="small"
+                        icon="mdi-pencil"
+                        @click="editDevice(device)"
+                      ></v-btn>
+                      <v-btn
+                        v-if="device.use_device_parameter"
+                        color="info"
+                        variant="text"
+                        size="small"
+                        icon="mdi-refresh"
+                        title="Refresh Device Parameters"
+                        @click="refreshDeviceParams(device)"
+                      ></v-btn>
                       <v-btn
                         color="error"
                         variant="text"
@@ -688,6 +650,105 @@
                   </tr>
                 </tbody>
               </v-table>
+
+              <!-- Edit Device Dialog -->
+              <v-dialog v-model="showEditDeviceDialog" max-width="500px">
+                <v-card>
+                  <v-card-title>Edit Device</v-card-title>
+                  <v-card-text>
+                    <div class="d-flex ga-2">
+                      <v-text-field
+                        v-model="editingDevice.name"
+                        label="Name"
+                        variant="outlined"
+                        density="compact"
+                        class="mb-2"
+                      ></v-text-field>
+                    </div>
+                    <v-text-field
+                      v-model="editingDevice.host"
+                      label="Host / IP"
+                      variant="outlined"
+                      density="compact"
+                      class="mb-2"
+                    ></v-text-field>
+
+                    <div class="mb-2">
+                      <v-checkbox
+                        v-model="editingDevice.use_device_parameter"
+                        label="Fetch parameters from device"
+                        color="primary"
+                        density="compact"
+                        hide-details
+                      ></v-checkbox>
+                    </div>
+
+                    <div class="mb-2">
+                      <v-checkbox
+                        v-model="editingDevice.enable_collage"
+                        label="Enable Collage Mode"
+                        color="primary"
+                        density="compact"
+                        hide-details
+                      ></v-checkbox>
+                    </div>
+
+                    <!-- Edit Device Weather/Date Settings -->
+                    <div class="mb-4 border rounded pa-3">
+                      <div class="text-subtitle-2 mb-2">Overlay Settings</div>
+                      <div class="d-flex ga-4 mb-2">
+                        <v-checkbox
+                          v-model="editingDevice.show_date"
+                          label="Show Date"
+                          color="primary"
+                          density="compact"
+                          hide-details
+                        ></v-checkbox>
+                        <v-checkbox
+                          v-model="editingDevice.show_weather"
+                          label="Show Weather"
+                          color="primary"
+                          density="compact"
+                          hide-details
+                        ></v-checkbox>
+                      </div>
+                      <div
+                        v-if="editingDevice.show_weather"
+                        class="d-flex ga-2"
+                      >
+                        <v-text-field
+                          v-model.number="editingDevice.weather_lat"
+                          label="Latitude"
+                          variant="outlined"
+                          density="compact"
+                          hide-details
+                          type="number"
+                        ></v-text-field>
+                        <v-text-field
+                          v-model.number="editingDevice.weather_lon"
+                          label="Longitude"
+                          variant="outlined"
+                          density="compact"
+                          hide-details
+                          type="number"
+                        ></v-text-field>
+                      </div>
+                    </div>
+                  </v-card-text>
+                  <v-card-actions>
+                    <v-spacer></v-spacer>
+                    <v-btn
+                      color="grey"
+                      variant="text"
+                      @click="showEditDeviceDialog = false"
+                      >Cancel</v-btn
+                    >
+                    <v-btn color="primary" @click="saveEditedDevice"
+                      >Save</v-btn
+                    >
+                  </v-card-actions>
+                </v-card>
+              </v-dialog>
             </v-card-text>
           </v-window-item>
         </v-window>
@@ -717,7 +778,14 @@ import { useSettingsStore } from '../stores/settings';
 import { useSynologyStore } from '../stores/synology';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
-import { api, listDevices, addDevice, deleteDevice, type Device } from '../api';
+import {
+  api,
+  listDevices,
+  addDevice,
+  deleteDevice,
+  updateDevice,
+  type Device,
+} from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 
@@ -733,10 +801,156 @@ const confirmDialog = ref();
 // Devices State
 const availableDevices = ref<Device[]>([]);
 const deviceListLoading = ref(false);
+
+// Edit Device State
+const showEditDeviceDialog = ref(false);
+const editingDevice = reactive<Partial<Device>>({});
+
 const newDevice = reactive({
   name: '',
   host: '',
+  width: 0,
+  height: 0,
+  orientation: '',
+  use_device_parameter: false,
+  enable_collage: false,
+  show_date: true,
+  show_weather: true,
+  weather_lat: null as number | null,
+  weather_lon: null as number | null,
 });
+
+const addNewDevice = async () => {
+  if (!newDevice.host) {
+    showMessage('Host is required', true);
+    return;
+  }
+
+  if (newDevice.show_weather) {
+    if (
+      newDevice.weather_lat === null ||
+      isNaN(newDevice.weather_lat) ||
+      newDevice.weather_lon === null ||
+      isNaN(newDevice.weather_lon)
+    ) {
+      showMessage('Latitude and Longitude are required for weather', true);
+      return;
+    }
+  }
+
+  deviceListLoading.value = true;
+  try {
+    await addDevice(
+      newDevice.host,
+      newDevice.use_device_parameter,
+      newDevice.enable_collage,
+      newDevice.show_date,
+      newDevice.show_weather,
+      newDevice.weather_lat || 0,
+      newDevice.weather_lon || 0
+    );
+    await loadDevices();
+    // Reset form
+    newDevice.name = '';
+    newDevice.host = '';
+    newDevice.use_device_parameter = false;
+    newDevice.enable_collage = false;
+    newDevice.show_date = true;
+    newDevice.show_weather = true;
+    newDevice.weather_lat = null;
+    newDevice.weather_lon = null;
+    showMessage('Device added successfully');
+  } catch (e: any) {
+    showMessage('Failed to add device: ' + e.message, true);
+  } finally {
+    deviceListLoading.value = false;
+  }
+};
+
+const editDevice = (device: Device) => {
+  Object.assign(editingDevice, device);
+  showEditDeviceDialog.value = true;
+};
+
+const saveEditedDevice = async () => {
+  if (!editingDevice.id) return;
+  if (!editingDevice.host) {
+    showMessage('Host is required', true);
+    return;
+  }
+  if (editingDevice.show_weather) {
+    if (
+      editingDevice.weather_lat === null ||
+      editingDevice.weather_lat === undefined ||
+      isNaN(editingDevice.weather_lat) ||
+      editingDevice.weather_lon === null ||
+      editingDevice.weather_lon === undefined ||
+      isNaN(editingDevice.weather_lon)
+    ) {
+      showMessage('Latitude and Longitude are required for weather', true);
+      return;
+    }
+  }
+  try {
+    await updateDevice(
+      editingDevice.id,
+      editingDevice.name!,
+      editingDevice.host!,
+      editingDevice.width!,
+      editingDevice.height!,
+      editingDevice.orientation!,
+      editingDevice.use_device_parameter!,
+      editingDevice.enable_collage!,
+      editingDevice.show_date!,
+      editingDevice.show_weather!,
+      editingDevice.weather_lat || 0,
+      editingDevice.weather_lon || 0
+    );
+    await loadDevices();
+    showEditDeviceDialog.value = false;
+    showMessage('Device updated successfully');
+  } catch (e: any) {
+    showMessage('Failed to update device: ' + e.message, true);
+  }
+};
+
+watch(
+  () => newDevice.use_device_parameter,
+  (val) => {
+    if (val) {
+      newDevice.width = 0;
+      newDevice.height = 0;
+      newDevice.orientation = '';
+    }
+  }
+);
+
+const refreshDeviceParams = async (device: Device) => {
+  deviceListLoading.value = true;
+  try {
+    // Trigger refresh by sending empty/0 values with use_device_parameter=true
+    await updateDevice(
+      device.id,
+      '', // Empty name triggers fetch
+      device.host,
+      0, // Width 0 triggers fetch
+      0, // Height 0 triggers fetch
+      '', // Empty orientation triggers fetch
+      true, // Ensure enabled
+      device.enable_collage,
+      device.show_date!,
+      device.show_weather!,
+      device.weather_lat || 0,
+      device.weather_lon || 0
+    );
+    await loadDevices();
+    showMessage('Device parameters refreshed from device');
+  } catch (e: any) {
+    showMessage('Failed to refresh parameters: ' + e.message, true);
+  } finally {
+    deviceListLoading.value = false;
+  }
+};
 
 const loadDevices = async () => {
   deviceListLoading.value = true;
@@ -749,30 +963,13 @@ const loadDevices = async () => {
   }
 };
 
-const addNewDevice = async () => {
-  if (!newDevice.name || !newDevice.host) return;
-  deviceListLoading.value = true;
-  try {
-    await addDevice(newDevice.name, newDevice.host);
-    newDevice.name = '';
-    newDevice.host = '';
-    await loadDevices();
-    showMessage('Device added successfully');
-  } catch (e) {
-    showMessage('Failed to add device', true);
-  } finally {
-    deviceListLoading.value = false;
-  }
-};
-
 const removeDevice = async (id: number) => {
-  if (
-    !(await confirmDialog.value.open(
-      'Remove Device',
-      'Are you sure you want to remove this device?'
-    ))
-  )
-    return;
+  const response = await confirmDialog.value.open(
+    'Remove Device',
+    'Are you sure you want to remove this device?'
+  );
+
+  if (!response) return;
 
   try {
     await deleteDevice(id);
@@ -820,7 +1017,8 @@ const form = reactive({
   albums: [] as any[],
   telegram_bot_token: '',
   telegram_push_enabled: false,
-  device_host: '',
+  telegram_target_device_id: '',
+  device_host: '', // Keep for backward compatibility/display? Or remove. Remove from form, keep in store maybe?
 });
 
 const synologyAlbumOptions = computed(() => {
@@ -848,7 +1046,7 @@ onMounted(async () => {
     google_connected: store.settings.google_connected || 'false',
     telegram_bot_token: store.settings.telegram_bot_token || '',
     telegram_push_enabled: store.settings.telegram_push_enabled === 'true',
-    device_host: store.settings.device_host || '',
+    telegram_target_device_id: store.settings.telegram_target_device_id || '',
     weather_lat: store.settings.weather_lat || '',
     weather_lon: store.settings.weather_lon || '',
     synology_url: store.settings.synology_url || '',
@@ -909,7 +1107,7 @@ const saveSettingsInternal = async () => {
     google_client_secret: form.google_client_secret,
     telegram_bot_token: form.telegram_bot_token,
     telegram_push_enabled: String(form.telegram_push_enabled),
-    device_host: form.device_host,
+    telegram_target_device_id: String(form.telegram_target_device_id),
     weather_lat: form.weather_lat,
     weather_lon: form.weather_lon,
     synology_url: form.synology_url,

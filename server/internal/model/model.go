@@ -36,8 +36,17 @@ type GoogleAuth struct {
 }
 
 type Device struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `json:"name"`
-	Host      string    `json:"host"` // IP or Hostname
-	CreatedAt time.Time `json:"created_at"`
+	ID                 uint      `gorm:"primaryKey" json:"id"`
+	Name               string    `json:"name"`
+	Host               string    `json:"host"` // IP or Hostname
+	Width              int       `json:"width"`
+	Height             int       `json:"height"`
+	UseDeviceParameter bool      `json:"use_device_parameter"`
+	Orientation        string    `json:"orientation"`
+	EnableCollage      bool      `json:"enable_collage"` // Per-device collage setting
+	ShowDate           bool      `json:"show_date"`
+	ShowWeather        bool      `json:"show_weather"`
+	WeatherLat         float64   `json:"weather_lat"`
+	WeatherLon         float64   `json:"weather_lon"`
+	CreatedAt          time.Time `json:"created_at"`
 }

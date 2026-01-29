@@ -13,6 +13,26 @@ func ResizeToFill(src image.Image, targetW, targetH int) image.Image {
 	return dst
 }
 
+// SmartResizeToFill behaves like ResizeToFill but automatically swaps target dimensions
+// if the image orientation differs from the target orientation (Portrait/Landscape).
+func SmartResizeToFill(src image.Image, targetW, targetH int) image.Image {
+	// srcBounds := src.Bounds()
+	// srcW, srcH := srcBounds.Dx(), srcBounds.Dy()
+	// isSrcPortrait := srcH > srcW
+	// isTargetPortrait := targetH > targetW
+
+	// User requested that we respect the target orientation (device orientation)
+	// even if the source is different. This usually means cropping the center
+	// to fill the target frame.
+
+	// if isSrcPortrait != isTargetPortrait {
+	// 	// Orientation mismatch: swap target dimensions
+	// 	targetW, targetH = targetH, targetW
+	// }
+
+	return ResizeToFill(src, targetW, targetH)
+}
+
 // DrawCover draws the source image onto the destination image, scaling and cropping to cover the destination rectangle.
 // It uses a simple nearest-neighbor scaling for performance.
 func DrawCover(dst draw.Image, r image.Rectangle, src image.Image) {

@@ -8,7 +8,6 @@ import (
 	"github.com/aitjcize/photoframe-server/server/internal/db"
 	"github.com/aitjcize/photoframe-server/server/internal/handler"
 	"github.com/aitjcize/photoframe-server/server/internal/middleware"
-	"github.com/aitjcize/photoframe-server/server/internal/model"
 	"github.com/aitjcize/photoframe-server/server/internal/service"
 	"github.com/aitjcize/photoframe-server/server/pkg/googlephotos"
 	"github.com/aitjcize/photoframe-server/server/pkg/photoframe"
@@ -34,6 +33,11 @@ func main() {
 		log.Fatal("Failed to initialize database:", err)
 	}
 
+	// Run Migrations
+	if err := db.Migrate(database, dbPath); err != nil {
+		log.Fatal("Failed to run database migrations:", err)
+	}
+
 	// Initialize Services
 	settingsService := service.NewSettingsService(database)
 	tokenStore := service.NewDBTokenStore(database)
@@ -42,16 +46,18 @@ func main() {
 	authService := service.NewAuthService(database, jwtSecret)
 
 	// Migrate All Models
-	if err := database.AutoMigrate(
-		&model.User{},
-		&model.APIKey{},
-		&model.Device{},
-		&model.Setting{},
-		&model.Image{},
-		&model.GoogleAuth{},
-	); err != nil {
-		log.Fatal("Failed to migrate database:", err)
-	}
+	// Device and other models are handled by golang-migrate now
+	/*
+		if err := database.AutoMigrate(
+			&model.User{},
+			&model.APIKey{},
+			&model.Setting{},
+			&model.Image{},
+			&model.GoogleAuth{},
+		); err != nil {
+			log.Fatal("Failed to migrate database:", err)
+		}
+	*/
 
 	// Initialize Google Client
 	// Pass settingsService as ConfigProvider so it fetches latest config on every request
@@ -151,6 +157,7 @@ func main() {
 	// Device Management (Protected)
 	protectedApi.GET("/devices", deviceHandler.ListDevices)
 	protectedApi.POST("/devices", deviceHandler.AddDevice)
+	protectedApi.PUT("/devices/:id", deviceHandler.UpdateDevice)
 	protectedApi.DELETE("/devices/:id", deviceHandler.DeleteDevice)
 	protectedApi.POST("/devices/:id/push", deviceHandler.PushToDevice)
 

@@ -56,16 +56,73 @@ export interface Device {
   id: number;
   name: string;
   host: string;
+  width: number;
+  height: number;
+  orientation: string;
+  use_device_parameter: boolean;
+  enable_collage: boolean;
+  show_date?: boolean;
+  show_weather?: boolean;
+  weather_lat?: number;
+  weather_lon?: number;
+  created_at: string;
+  model?: any;
 }
 
 export const listDevices = async () => {
   const response = await api.get('/devices');
-  return response.data as Device[];
+  return response.data;
 };
 
-export const addDevice = async (name: string, host: string) => {
-  const response = await api.post('/devices', { name, host });
-  return response.data as Device;
+export const addDevice = async (
+  host: string,
+  useDeviceParameter: boolean,
+  enableCollage: boolean,
+  showDate: boolean,
+  showWeather: boolean,
+  weatherLat: number,
+  weatherLon: number
+) => {
+  const response = await api.post('/devices', {
+    host,
+    use_device_parameter: useDeviceParameter,
+    enable_collage: enableCollage,
+    show_date: showDate,
+    show_weather: showWeather,
+    weather_lat: weatherLat,
+    weather_lon: weatherLon,
+  });
+  return response.data;
+};
+
+export const updateDevice = async (
+  id: number,
+  name: string,
+  host: string,
+  width: number,
+  height: number,
+  orientation: string,
+  useDeviceParameter: boolean,
+  enableCollage: boolean,
+  showDate: boolean,
+  showWeather: boolean,
+  weatherLat: number,
+  weatherLon: number
+) => {
+  const response = await api.put(`/devices/${id}`, {
+    name,
+    host,
+    width,
+    height,
+    orientation,
+    use_device_parameter: useDeviceParameter,
+    enable_collage: enableCollage,
+    show_date: showDate,
+    show_weather: showWeather,
+    weather_lat: weatherLat,
+    weather_lon: weatherLon,
+  });
+  return response.data;
 };
 
 export const deleteDevice = async (id: number) => {
