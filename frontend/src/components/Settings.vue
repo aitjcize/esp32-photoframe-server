@@ -1002,7 +1002,7 @@ const bindingDevice = ref<Device | null>(null);
 const selectedSource = ref('google_photos');
 const sourceOptions = [
   { title: 'Google Photos', value: 'google_photos' },
-  { title: 'Synology Photos', value: 'synology' },
+  { title: 'Synology Photos', value: 'synology_photos' },
   { title: 'Telegram', value: 'telegram' },
   { title: 'URL Proxy', value: 'url_proxy' },
 ];

@@ -115,7 +115,7 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 	}
 
 	// Case 1: Synology (Proxy)
-	if item.Source == "synology" {
+	if item.Source == model.SourceSynologyPhotos {
 		// Synology thumbnail is fetched via service
 		// We request 'small' (typically ~256px) or 'medium'
 		// Synology sizes: small, medium, large, original
@@ -200,8 +200,8 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
 	}
 
-	// If local/google, delete file
-	if item.Source == "google" || item.Source == "local" {
+	// If local, delete file
+	if item.Source == model.SourceGooglePhotos {
 		if item.FilePath != "" {
 			os.Remove(item.FilePath)
 		}
@@ -210,7 +210,7 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 		os.Remove(thumbPath)
 	}
 	// For Synology, we just remove the DB reference, we don't delete from NAS.
-	// For all (including local/google where we already deleted file), perform Unscoped delete from DB
+	// For all (including google where we already deleted file), perform Unscoped delete from DB
 	if err := h.db.Unscoped().Delete(&item).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
 	}
@@ -234,7 +234,7 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 	}
 
 	for _, item := range items {
-		if item.Source == "google" || item.Source == "local" {
+		if item.Source == model.SourceGooglePhotos {
 			if item.FilePath != "" {
 				os.Remove(item.FilePath)
 			}
