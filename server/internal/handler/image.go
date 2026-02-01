@@ -149,6 +149,24 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	var img image.Image
 	var err error
 
+	// 1.5. Get Device History for Exclusion
+	var excludeIDs []uint
+	if deviceFound {
+		// History retention: ensure we don't repeat recent 50 images
+		// Get last 50 served images for this device
+		var history []model.DeviceHistory
+		if err := h.db.Where("device_id = ?", device.ID).
+			Order("served_at desc").
+			Limit(50).
+			Find(&history).Error; err == nil {
+			for _, h := range history {
+				excludeIDs = append(excludeIDs, h.ImageID)
+			}
+		}
+	}
+
+	var servedImageIDs []uint // Track which IDs were served (1 or 2 if collage)
+
 	if source == "telegram" {
 		// Serve Telegram Photo (always single, no collage)
 		imgPath := filepath.Join(h.dataDir, "photos", "telegram_last.jpg")
@@ -160,13 +178,48 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			img, _, err = image.Decode(f)
 		}
 	} else if enableCollage {
-		img, _, err = h.fetchSmartCollage(logicalW, logicalH, source)
+		img, servedImageIDs, err = h.fetchSmartCollage(logicalW, logicalH, source, excludeIDs)
 	} else {
-		img, _, err = h.fetchRandomPhoto(source)
+		var id uint
+		img, id, err = h.fetchRandomPhoto(source, excludeIDs)
+		if err == nil {
+			servedImageIDs = append(servedImageIDs, id)
+		}
 	}
 
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch photo: " + err.Error()})
+	}
+
+	// 1.6. Record History
+	if deviceFound && len(servedImageIDs) > 0 {
+		go func(devID uint, imgIDs []uint) {
+			for _, imgID := range imgIDs {
+				if imgID == 0 {
+					continue
+				}
+				h.db.Create(&model.DeviceHistory{
+					DeviceID: devID,
+					ImageID:  imgID,
+					ServedAt: time.Now(),
+				})
+			}
+			// Prune old history
+			// Keep last 100 entries for this device
+			// (Keep more in DB than we filter to have a buffer)
+			var count int64
+			h.db.Model(&model.DeviceHistory{}).Where("device_id = ?", devID).Count(&count)
+			if count > 100 {
+				// Delete oldest
+				// SQLite modification with LIMIT is compile-option dependent, subquery is safer
+				h.db.Where("device_id = ? AND id NOT IN (?)", devID,
+					h.db.Model(&model.DeviceHistory{}).Select("id").
+						Where("device_id = ?", devID).
+						Order("served_at desc").
+						Limit(100),
+				).Delete(&model.DeviceHistory{})
+			}
+		}(device.ID, servedImageIDs)
 	}
 
 	// 1.5. Resize/Crop to Target Dimensions
@@ -283,15 +336,22 @@ func (h *ImageHandler) getOrientation() string {
 }
 
 // Fetch smart photo (Single or Collage)
-func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter string) (image.Image, uint, error) {
+func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter string, excludeIDs []uint) (image.Image, []uint, error) {
 	// Decide if Device is Landscape or Portrait
 	devicePortrait := screenH > screenW
 
 	// Fetch first image
-	img1, id1, err := h.fetchRandomPhotoWithType("portrait", sourceFilter)
+	img1, id1, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
+
+	var servedIDs []uint
+	servedIDs = append(servedIDs, id1)
+
+	// Add id1 to excludes for the second image
+	excludeIDs2 := append([]uint(nil), excludeIDs...)
+	excludeIDs2 = append(excludeIDs2, id1)
 
 	bounds := img1.Bounds()
 	w, h_img := bounds.Dx(), bounds.Dy()
@@ -299,7 +359,7 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 
 	// Case 1: Match
 	if isPhotoPortrait == devicePortrait {
-		return img1, id1, nil
+		return img1, servedIDs, nil
 	}
 
 	// Case 2: Mismatch
@@ -307,53 +367,63 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	if devicePortrait && !isPhotoPortrait {
 		// Try fetch second landscape
 		// 1. Try DB first
-		img2, id2, err := h.fetchRandomPhotoWithType("landscape", sourceFilter)
+		img2, id2, err := h.fetchRandomPhotoWithType("landscape", sourceFilter, excludeIDs2)
 		if err == nil && id2 != id1 {
-			return h.createVerticalCollage(img1, img2, screenW, screenH), 0, nil
+			servedIDs = append(servedIDs, id2)
+			return h.createVerticalCollage(img1, img2, screenW, screenH), servedIDs, nil
 		}
 		// 2. Fallback: Try random loop
 		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto(sourceFilter)
+			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2)
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dx() > b.Dy() { // Is Landscape
 					// fmt.Printf("SmartCollage: Found match via random!\n")
-					return h.createVerticalCollage(img1, cand, screenW, screenH), 0, nil
+					servedIDs = append(servedIDs, candID)
+					return h.createVerticalCollage(img1, cand, screenW, screenH), servedIDs, nil
 				}
 			}
 		}
 		// Fallback: Use same photo twice
-		return h.createVerticalCollage(img1, img1, screenW, screenH), 0, nil
+		servedIDs = append(servedIDs, id1)
+		return h.createVerticalCollage(img1, img1, screenW, screenH), servedIDs, nil
 	}
 
 	// Device Landscape, Photo Portrait -> Horizontal Side-by-Side
 	if !devicePortrait && isPhotoPortrait {
 		// Try fetch second portrait
-		img2, id2, err := h.fetchRandomPhotoWithType("portrait", sourceFilter)
+		img2, id2, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs2)
 		if err == nil && id2 != id1 {
-			return h.createHorizontalCollage(img1, img2, screenW, screenH), 0, nil
+			servedIDs = append(servedIDs, id2)
+			return h.createHorizontalCollage(img1, img2, screenW, screenH), servedIDs, nil
 		}
 		// 2. Fallback
 		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto(sourceFilter)
+			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2)
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dy() > b.Dx() { // Is Portrait
 					// fmt.Printf("SmartCollage: Found match via random!\n")
-					return h.createHorizontalCollage(img1, cand, screenW, screenH), 0, nil
+					servedIDs = append(servedIDs, candID)
+					return h.createHorizontalCollage(img1, cand, screenW, screenH), servedIDs, nil
 				}
 			}
 		}
 		// Fallback: Use same photo twice
-		return h.createHorizontalCollage(img1, img1, screenW, screenH), 0, nil
+		servedIDs = append(servedIDs, id1)
+		return h.createHorizontalCollage(img1, img1, screenW, screenH), servedIDs, nil
 	}
 
-	return img1, id1, nil
+	return img1, servedIDs, nil
 }
 
-func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter string) (image.Image, uint, error) {
+func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter string, excludeIDs []uint) (image.Image, uint, error) {
 	var item model.Image
 	query := h.db.Order("RANDOM()").Where("orientation = ?", targetType)
+
+	if len(excludeIDs) > 0 {
+		query = query.Where("id NOT IN ?", excludeIDs)
+	}
 
 	if sourceFilter == "google_photos" {
 		query = query.Where("source = ?", "google")
@@ -366,7 +436,24 @@ func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter 
 	}
 
 	if err := query.First(&item).Error; err != nil {
-		return nil, 0, err
+		// Fallback: If no image found (likely due to exclusion), try again WITHOUT exclusion
+		if len(excludeIDs) > 0 {
+			queryRetry := h.db.Order("RANDOM()").Where("orientation = ?", targetType)
+
+			if sourceFilter == "google_photos" {
+				queryRetry = queryRetry.Where("source = ?", "google")
+			} else if sourceFilter == "synology" {
+				queryRetry = queryRetry.Where("source = ?", "synology")
+			} else if sourceFilter == "telegram" {
+				queryRetry = queryRetry.Where("source = ?", "telegram")
+			}
+
+			if errRetry := queryRetry.First(&item).Error; errRetry != nil {
+				return nil, 0, errRetry
+			}
+		} else {
+			return nil, 0, err
+		}
 	}
 
 	resolvedPath := h.resolvePath(item.FilePath)
@@ -459,7 +546,7 @@ func (h *ImageHandler) resolvePath(path string) string {
 	return path
 }
 
-func (h *ImageHandler) fetchRandomPhoto(sourceFilter string) (image.Image, uint, error) {
+func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint) (image.Image, uint, error) {
 	// Source logic: if "google_photos" (default), we include source="google" OR source="" (legacy)
 	// If "synology", source="synology"
 	// If "telegram", source="telegram"
@@ -470,6 +557,10 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string) (image.Image, uint,
 
 	var item model.Image
 	query := h.db.Order("RANDOM()")
+
+	if len(excludeIDs) > 0 {
+		query = query.Where("id NOT IN ?", excludeIDs)
+	}
 
 	if sourceFilter == "google_photos" {
 		query = query.Where("source = ?", "google")
@@ -483,8 +574,28 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string) (image.Image, uint,
 
 	result := query.First(&item)
 	if result.Error != nil {
-		img, err := h.fetchPlaceholder()
-		return img, 0, err
+		// Fallback: If no image found (likely due to exclusion), try again WITHOUT exclusion
+		if len(excludeIDs) > 0 {
+			queryRetry := h.db.Order("RANDOM()")
+
+			if sourceFilter == "google_photos" {
+				queryRetry = queryRetry.Where("source = ?", "google")
+			} else if sourceFilter == "synology" {
+				queryRetry = queryRetry.Where("source = ?", "synology")
+			} else if sourceFilter == "telegram" {
+				queryRetry = queryRetry.Where("source = ?", "telegram")
+			}
+
+			resultRetry := queryRetry.First(&item)
+			if resultRetry.Error != nil {
+				// Still failed, return placeholder
+				img, err := h.fetchPlaceholder()
+				return img, 0, err
+			}
+		} else {
+			img, err := h.fetchPlaceholder()
+			return img, 0, err
+		}
 	}
 
 	if item.Source == "synology" {

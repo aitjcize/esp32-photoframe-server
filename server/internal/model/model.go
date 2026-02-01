@@ -50,3 +50,10 @@ type Device struct {
 	WeatherLon         float64   `json:"weather_lon"`
 	CreatedAt          time.Time `json:"created_at"`
 }
+
+type DeviceHistory struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	DeviceID  uint      `gorm:"index" json:"device_id"` // Foreign key to Device
+	ImageID   uint      `json:"image_id"`
+	ServedAt  time.Time `json:"served_at"`
+}
