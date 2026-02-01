@@ -1,9 +1,11 @@
 package telegram
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aitjcize/photoframe-server/server/internal/model"
@@ -98,33 +100,59 @@ func (bot *Bot) handlePhoto(c tele.Context) error {
 
 	if pushEnabled == "true" && targetDeviceIDStr != "" {
 		// Send initial status
-		statusMsg, err := bot.b.Send(c.Recipient(), "Connecting to device...")
+		statusMsg, err := bot.b.Send(c.Recipient(), "Connecting to devices...")
 		if err != nil {
 			log.Printf("Failed to send status message: %v", err)
 			return err
 		}
 
-		// Look up device
-		var device model.Device
-		if err := bot.db.First(&device, targetDeviceIDStr).Error; err != nil {
-			log.Printf("Failed to find target device (ID: %s): %v", targetDeviceIDStr, err)
-			bot.b.Edit(statusMsg, "Error: Configured target device not found.")
-			return nil
-		}
+		targetIDs := strings.Split(targetDeviceIDStr, ",")
+		var successDevices []string
+		var failDevices []string
 
-		err = bot.pusher.PushToHost(&device, destPath, nil)
-		if err != nil {
-			log.Printf("Failed to push to device: %v", err)
-			_, editErr := bot.b.Edit(statusMsg, "Photo updated! Device is offline/unreachable, so it will show up next time the device awakes.")
-			if editErr != nil {
-				return c.Send("Photo updated! Device is offline/unreachable, so it will show up next time the device awakes.")
+		for _, id := range targetIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
 			}
-			return nil
+
+			// Look up device
+			var device model.Device
+			if err := bot.db.First(&device, id).Error; err != nil {
+				log.Printf("Failed to find target device (ID: %s): %v", id, err)
+				failDevices = append(failDevices, fmt.Sprintf("ID %s", id))
+				continue
+			}
+
+			err = bot.pusher.PushToHost(&device, destPath, nil)
+			if err != nil {
+				log.Printf("Failed to push to device %s: %v", device.Name, err)
+				failDevices = append(failDevices, device.Name)
+			} else {
+				successDevices = append(successDevices, device.Name)
+			}
 		}
 
-		_, editErr := bot.b.Edit(statusMsg, "Photo updated and displayed on device!")
+		var summary strings.Builder
+		summary.WriteString("Photo updated!\n")
+
+		if len(successDevices) > 0 {
+			for _, name := range successDevices {
+				summary.WriteString(fmt.Sprintf("✅ %s\n", name))
+			}
+		}
+
+		if len(failDevices) > 0 {
+			for _, name := range failDevices {
+				summary.WriteString(fmt.Sprintf("❌ %s (Offline/Failed)\n", name))
+			}
+		}
+
+		msg := summary.String()
+
+		_, editErr := bot.b.Edit(statusMsg, msg)
 		if editErr != nil {
-			return c.Send("Photo updated and displayed on device!")
+			return c.Send(msg)
 		}
 		return nil
 	}

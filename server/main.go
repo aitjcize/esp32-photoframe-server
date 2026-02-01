@@ -91,7 +91,7 @@ func main() {
 
 	// Initialize Device Service
 	deviceService := service.NewDeviceService(database, settingsService, processorService, overlayService, photoframeClient)
-	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, authService, database)
+	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, authService, settingsService, database)
 
 	// Initialize Telegram Service
 	// Pass deviceService as Pusher

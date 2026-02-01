@@ -72,19 +72,21 @@
                     variant="outlined"
                     density="compact"
                     append-inner-icon="mdi-content-copy"
-                    @click:append-inner="copyToClipboard(getImageUrl('url_proxy'))"
+                    @click:append-inner="
+                      copyToClipboard(getImageUrl('url_proxy'))
+                    "
                     class="mb-4"
                   ></v-text-field>
 
                   <div class="d-flex justify-end mb-4">
                     <v-btn
-                    color="primary"
-                    prepend-icon="mdi-plus"
-                    class="mb-4"
-                    @click="openAddURLDialog"
-                  >
-                    Add URL Source
-                  </v-btn>
+                      color="primary"
+                      prepend-icon="mdi-plus"
+                      class="mb-4"
+                      @click="openAddURLDialog"
+                    >
+                      Add URL Source
+                    </v-btn>
                   </div>
 
                   <v-table density="comfortable" class="border rounded">
@@ -474,11 +476,14 @@
                           :items="availableDevices"
                           item-title="name"
                           item-value="id"
-                          label="Target Device"
+                          label="Target Devices"
                           variant="outlined"
                           density="compact"
-                          hint="Select the device to display photos on"
+                          hint="Select the devices to display photos on"
                           persistent-hint
+                          multiple
+                          chips
+                          closable-chips
                         ></v-select>
                       </div>
                     </v-expand-transition>
@@ -771,7 +776,7 @@
                         icon="mdi-refresh"
                         title="Refresh Device Parameters"
                         @click="refreshDeviceParams(device)"
-                      </v-btn>
+                      ></v-btn>
                       <v-btn
                         color="secondary"
                         variant="text"
@@ -901,10 +906,17 @@
                 <v-card>
                   <v-card-title>Bind Image Source</v-card-title>
                   <v-card-text>
-                    <v-alert type="info" variant="tonal" class="mb-4" density="compact">
-                      This will configure the device to fetch images from the selected source.
-                      <br>
-                      <strong>Note:</strong> This updates the device's configuration immediately.
+                    <v-alert
+                      type="info"
+                      variant="tonal"
+                      class="mb-4"
+                      density="compact"
+                    >
+                      This will configure the device to fetch images from the
+                      selected source.
+                      <br />
+                      <strong>Note:</strong> This updates the device's
+                      configuration immediately.
                     </v-alert>
                     <v-select
                       v-model="selectedSource"
@@ -915,8 +927,18 @@
                   </v-card-text>
                   <v-card-actions>
                     <v-spacer></v-spacer>
-                    <v-btn color="grey" variant="text" @click="showBindSourceDialog = false">Cancel</v-btn>
-                    <v-btn color="primary" @click="bindDeviceSource">Bind & Configure</v-btn>
+                    <v-btn
+                      color="grey"
+                      variant="text"
+                      @click="showBindSourceDialog = false"
+                      >Cancel</v-btn
+                    >
+                    <v-btn
+                      color="primary"
+                      @click="bindDeviceSource"
+                      :loading="isBinding"
+                      >Bind & Configure</v-btn
+                    >
                   </v-card-actions>
                 </v-card>
               </v-dialog>
@@ -977,27 +999,40 @@ const confirmDialog = ref();
 // Device Binding State
 const showBindSourceDialog = ref(false);
 const bindingDevice = ref<Device | null>(null);
-const selectedSource = ref('url_proxy');
+const selectedSource = ref('google_photos');
 const sourceOptions = [
-  { title: 'URL Proxy', value: 'url_proxy' },
-  { title: 'Google Photos', value: 'google' },
+  { title: 'Google Photos', value: 'google_photos' },
   { title: 'Synology Photos', value: 'synology' },
+  { title: 'Telegram', value: 'telegram' },
+  { title: 'URL Proxy', value: 'url_proxy' },
 ];
+const isBinding = ref(false);
 
 const openBindSourceDialog = (device: Device) => {
   bindingDevice.value = device;
-  selectedSource.value = 'url_proxy'; // Default or try to infer? Inference hard w/o reading config
+  selectedSource.value = 'google_photos';
   showBindSourceDialog.value = true;
 };
 
 const bindDeviceSource = async () => {
   if (!bindingDevice.value) return;
+  isBinding.value = true;
   try {
-    const res = await configureDeviceSource(bindingDevice.value.id, selectedSource.value);
-    showMessage(`Device configured to use source: ${selectedSource.value}. Image URL: ${res.url}`);
+    const res = await configureDeviceSource(
+      bindingDevice.value.id,
+      selectedSource.value
+    );
+    showMessage(
+      `Device configured to use source: ${selectedSource.value}. Image URL: ${res.url}`
+    );
     showBindSourceDialog.value = false;
   } catch (e: any) {
-    showMessage('Failed to bind source: ' + (e.response?.data?.error || e.message), true);
+    showMessage(
+      'Failed to bind source: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  } finally {
+    isBinding.value = false;
   }
 };
 
@@ -1054,7 +1089,10 @@ const saveURLSource = async () => {
     showAddURLDialog.value = false;
     await loadURLSources();
   } catch (e: any) {
-    showMessage('Failed to save URL source: ' + (e.response?.data?.error || e.message), true);
+    showMessage(
+      'Failed to save URL source: ' + (e.response?.data?.error || e.message),
+      true
+    );
   }
 };
 
@@ -1299,7 +1337,7 @@ const form = reactive({
   albums: [] as any[],
   telegram_bot_token: '',
   telegram_push_enabled: false,
-  telegram_target_device_id: '',
+  telegram_target_device_id: [] as number[],
   device_host: '', // Keep for backward compatibility/display? Or remove. Remove from form, keep in store maybe?
 });
 
@@ -1328,7 +1366,12 @@ onMounted(async () => {
     google_connected: store.settings.google_connected || 'false',
     telegram_bot_token: store.settings.telegram_bot_token || '',
     telegram_push_enabled: store.settings.telegram_push_enabled === 'true',
-    telegram_target_device_id: store.settings.telegram_target_device_id || '',
+    telegram_target_device_id: store.settings.telegram_target_device_id
+      ? store.settings.telegram_target_device_id
+          .split(',')
+          .filter((id) => id)
+          .map((id) => parseInt(id))
+      : [],
     weather_lat: store.settings.weather_lat || '',
     weather_lon: store.settings.weather_lon || '',
     synology_url: store.settings.synology_url || '',
@@ -1389,7 +1432,9 @@ const saveSettingsInternal = async () => {
     google_client_secret: form.google_client_secret,
     telegram_bot_token: form.telegram_bot_token,
     telegram_push_enabled: String(form.telegram_push_enabled),
-    telegram_target_device_id: String(form.telegram_target_device_id),
+    telegram_target_device_id: Array.isArray(form.telegram_target_device_id)
+      ? form.telegram_target_device_id.join(',')
+      : form.telegram_target_device_id,
     weather_lat: form.weather_lat,
     weather_lon: form.weather_lon,
     synology_url: form.synology_url,

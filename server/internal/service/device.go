@@ -166,7 +166,38 @@ func (s *DeviceService) PushToDevice(deviceID uint, imagePath string) error {
 		return errors.New("device not found")
 	}
 
+	if err := s.PushToHost(&device, imagePath, nil); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *DeviceService) ConfigureDevice(deviceID uint, config map[string]interface{}) error {
+	var device model.Device
+	if err := s.db.First(&device, deviceID).Error; err != nil {
+		return errors.New("device not found")
+	}
+	return s.pfClient.PushConfig(device.Host, config)
+}
+
+func (s *DeviceService) GetDeviceConfig(deviceID uint) (*photoframe.DeviceConfig, error) {
+	var device model.Device
+	if err := s.db.First(&device, deviceID).Error; err != nil {
+		return nil, errors.New("device not found")
+	}
+	return s.pfClient.FetchDeviceConfig(device.Host)
+}
+
+// PushToHost processes an image file and pushes it to a target host
+// This encapsulates the logic previously in Telegram bot
+// Now includes fetching device parameters if configured
+func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extraOpts map[string]string) error {
+	// 0. Fetch Device Parameters if enabled
 	processingOpts := make(map[string]string)
+	for k, v := range extraOpts {
+		processingOpts[k] = v
+	}
 
 	if device.UseDeviceParameter {
 		// 1. Fetch Dimensions
@@ -192,36 +223,13 @@ func (s *DeviceService) PushToDevice(deviceID uint, imagePath string) error {
 			log.Printf("Failed to fetch palette from %s: %v", device.Host, err)
 		}
 
-		processingOpts = s.processor.MapProcessingSettings(procSettings, palette)
+		fetchedOpts := s.processor.MapProcessingSettings(procSettings, palette)
+		for k, v := range fetchedOpts {
+			processingOpts[k] = v
+		}
 		log.Printf("Fetched processing parameters for %s", device.Name)
 	}
 
-	if err := s.PushToHost(&device, imagePath, processingOpts); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *DeviceService) GetDeviceConfig(deviceID uint) (*photoframe.DeviceConfig, error) {
-	var device model.Device
-	if err := s.db.First(&device, deviceID).Error; err != nil {
-		return nil, errors.New("device not found")
-	}
-	return s.pfClient.FetchDeviceConfig(device.Host)
-}
-
-func (s *DeviceService) ConfigureDevice(deviceID uint, config map[string]interface{}) error {
-	var device model.Device
-	if err := s.db.First(&device, deviceID).Error; err != nil {
-		return errors.New("device not found")
-	}
-	return s.pfClient.PushConfig(device.Host, config)
-}
-
-// PushToHost processes an image file and pushes it to a target host
-// This encapsulates the logic previously in Telegram bot
-func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extraOpts map[string]string) error {
 	// 1. Validate dimensions
 	nativeW, nativeH := device.Width, device.Height
 	if nativeW == 0 || nativeH == 0 {
@@ -283,7 +291,7 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 	}
 
 	// Merge extra options (device params)
-	for k, v := range extraOpts {
+	for k, v := range processingOpts {
 		opts[k] = v
 	}
 

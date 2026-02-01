@@ -144,10 +144,7 @@ export const configureDeviceSource = async (id: number, source: string) => {
   return response.data;
 };
 
-export const createURLSource = async (
-  url: string,
-  deviceIDs: number[]
-) => {
+export const createURLSource = async (url: string, deviceIDs: number[]) => {
   const response = await api.post('/gallery/urls', {
     url,
     device_ids: deviceIDs,
@@ -177,7 +174,11 @@ export const deleteURLSource = async (id: number) => {
   return response.data;
 };
 
-export const listPhotos = async (source?: string, limit?: number, offset?: number) => {
+export const listPhotos = async (
+  source?: string,
+  limit?: number,
+  offset?: number
+) => {
   const params: any = {};
   if (source) params.source = source;
   if (limit) params.limit = limit;

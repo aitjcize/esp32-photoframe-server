@@ -2,9 +2,11 @@ package handler
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"io/ioutil"
 
@@ -18,14 +20,16 @@ type DeviceHandler struct {
 	deviceService   *service.DeviceService
 	synologyService *service.SynologyService
 	authService     *service.AuthService
+	settingsService *service.SettingsService
 	db              *gorm.DB
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, authService *service.AuthService, db *gorm.DB) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, authService *service.AuthService, settingsService *service.SettingsService, db *gorm.DB) *DeviceHandler {
 	return &DeviceHandler{
 		deviceService:   deviceService,
 		synologyService: synologyService,
 		authService:     authService,
+		settingsService: settingsService,
 		db:              db,
 	}
 }
@@ -58,10 +62,40 @@ func (h *DeviceHandler) ConfigureDeviceSource(c echo.Context) error {
 	switch req.Source {
 	case "url_proxy":
 		imageURL = fmt.Sprintf("http://%s/image/url_proxy", host)
-	case "google":
+	case "google_photos":
 		imageURL = fmt.Sprintf("http://%s/image/google_photos", host)
 	case "synology":
 		imageURL = fmt.Sprintf("http://%s/image/synology", host)
+	case "telegram": // Added telegram source
+		imageURL = fmt.Sprintf("http://%s/image/telegram", host)
+		// Update Telegram Settings (Append if not exists)
+		existingIDs, _ := h.settingsService.Get("telegram_target_device_id")
+		newID := fmt.Sprintf("%d", deviceID)
+
+		// Check duplicates
+		ids := strings.Split(existingIDs, ",")
+		found := false
+		for _, id := range ids {
+			if strings.TrimSpace(id) == newID {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			if existingIDs != "" {
+				existingIDs += "," + newID
+			} else {
+				existingIDs = newID
+			}
+			if err := h.settingsService.Set("telegram_target_device_id", existingIDs); err != nil {
+				log.Printf("Failed to set telegram_target_device_id: %v", err)
+			}
+		}
+
+		if err := h.settingsService.Set("telegram_push_enabled", "true"); err != nil {
+			log.Printf("Failed to set telegram_push_enabled: %v", err)
+		}
 	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source"})
 	}
