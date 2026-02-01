@@ -11,6 +11,13 @@ type Setting struct {
 	Value string `json:"value"`
 }
 
+const (
+	SourceGooglePhotos   = "google_photos"
+	SourceSynologyPhotos = "synology_photos"
+	SourceTelegram       = "telegram"
+	SourceURLProxy       = "url_proxy"
+)
+
 type Image struct {
 	ID              uint           `gorm:"primaryKey" json:"id"`
 	FilePath        string         `json:"file_path"`
@@ -20,7 +27,7 @@ type Image struct {
 	Orientation     string         `json:"orientation"` // "landscape", "portrait"
 	UserID          int64          `json:"user_id"`
 	Status          string         `json:"status"` // pending, shown
-	Source          string         `json:"source"` // "local", "google", "synology"
+	Source          string         `json:"source"` // "local", "google_photos", "synology_photos"
 	SynologyPhotoID int            `json:"synology_id"`
 	SynologySpace   string         `json:"synology_space"` // "personal" or "shared"
 	ThumbnailKey    string         `json:"thumbnail_key"`  // Cache key for Synology

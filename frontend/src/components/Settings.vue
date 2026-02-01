@@ -4,8 +4,8 @@
     <!-- Gallery Card -->
     <v-card class="mb-6">
       <v-tabs v-model="galleryTab" color="primary">
-        <v-tab value="google">Google Photos</v-tab>
-        <v-tab value="synology">Synology</v-tab>
+        <v-tab value="google_photos">Google Photos</v-tab>
+        <v-tab value="synology_photos">Synology</v-tab>
       </v-tabs>
       <v-card-text>
         <Gallery />
@@ -45,8 +45,8 @@
               density="compact"
               class="mb-4"
             >
-              <v-tab value="google">Google Photos</v-tab>
-              <v-tab value="synology">Synology</v-tab>
+              <v-tab value="google_photos">Google Photos</v-tab>
+              <v-tab value="synology_photos">Synology</v-tab>
               <v-tab value="telegram">Telegram</v-tab>
               <v-tab value="url">URL Proxy</v-tab>
             </v-tabs>
@@ -192,7 +192,7 @@
               </v-dialog>
 
               <!-- Google Photos -->
-              <v-window-item value="google">
+              <v-window-item value="google_photos">
                 <v-card-text>
                   <div v-if="form.google_connected === 'true'">
                     <v-alert
@@ -274,7 +274,7 @@
               </v-window-item>
 
               <!-- Synology -->
-              <v-window-item value="synology">
+              <v-window-item value="synology_photos">
                 <v-card-text>
                   <div v-if="form.synology_sid">
                     <v-alert
@@ -992,8 +992,8 @@ const synologyStore = useSynologyStore();
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 const activeMainTab = ref('devices');
-const activeDataSourceTab = ref('google');
-const galleryTab = ref('google');
+const activeDataSourceTab = ref('google_photos');
+const galleryTab = ref('google_photos');
 const confirmDialog = ref();
 
 // Device Binding State
@@ -1002,7 +1002,7 @@ const bindingDevice = ref<Device | null>(null);
 const selectedSource = ref('google_photos');
 const sourceOptions = [
   { title: 'Google Photos', value: 'google_photos' },
-  { title: 'Synology Photos', value: 'synology' },
+  { title: 'Synology Photos', value: 'synology_photos' },
   { title: 'Telegram', value: 'telegram' },
   { title: 'URL Proxy', value: 'url_proxy' },
 ];
@@ -1301,10 +1301,10 @@ const removeDevice = async (id: number) => {
 };
 
 watch(galleryTab, (val) => {
-  if (val === 'google') {
-    galleryStore.setSource('google');
-  } else if (val === 'synology') {
-    galleryStore.setSource('synology');
+  if (val === 'google_photos') {
+    galleryStore.setSource('google_photos');
+  } else if (val === 'synology_photos') {
+    galleryStore.setSource('synology_photos');
   }
 });
 

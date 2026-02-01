@@ -291,8 +291,8 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 		// Add to DB queue
 		image := model.Image{
 			FilePath:    localPath,
-			Source:      "google", // Set source to google
-			UserID:      1,        // Default user
+			Source:      model.SourceGooglePhotos, // Set source to google
+			UserID:      1,                        // Default user
 			Status:      "pending",
 			CreatedAt:   time.Now(),
 			Caption:     "From Google Photos",

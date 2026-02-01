@@ -122,7 +122,7 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 
 	// 1. Find photo in DB to get space and stored cache key
 	var img model.Image
-	if err := s.db.Where("synology_photo_id = ? AND source = ?", id, "synology").First(&img).Error; err != nil {
+	if err := s.db.Where("synology_photo_id = ? AND source = ?", id, model.SourceSynologyPhotos).First(&img).Error; err != nil {
 		// Fallback if not found in DB
 		return s.client.GetPhoto(id, cacheKeyStr, size, "personal", 0, s.client.SynoToken)
 	}
@@ -223,7 +223,7 @@ func (s *SynologyService) ImportPhotos() error {
 		for _, p := range photos {
 			// Dedup by SynologyID
 			var existing model.Image
-			result := s.db.Where("synology_photo_id = ? AND source = ?", p.ID, "synology").First(&existing)
+			result := s.db.Where("synology_photo_id = ? AND source = ?", p.ID, model.SourceSynologyPhotos).First(&existing)
 
 			if result.Error == nil {
 				// Update cache key if changed
@@ -238,7 +238,7 @@ func (s *SynologyService) ImportPhotos() error {
 			img := model.Image{
 				SynologyPhotoID: p.ID,
 				SynologySpace:   space,
-				Source:          "synology",
+				Source:          model.SourceSynologyPhotos,
 				FilePath:        p.Filename,
 				ThumbnailKey:    p.Additional.Thumbnail.M,
 				CreatedAt:       time.Now(),
@@ -272,7 +272,7 @@ func (s *SynologyService) ImportPhotos() error {
 
 // ClearPhotos deletes all Synology photos from database
 func (s *SynologyService) ClearPhotos() error {
-	if err := s.db.Unscoped().Where("source = ?", "synology").Delete(&model.Image{}).Error; err != nil {
+	if err := s.db.Unscoped().Where("source = ?", model.SourceSynologyPhotos).Delete(&model.Image{}).Error; err != nil {
 		return err
 	}
 	log.Println("Cleared all Synology photos from database")
@@ -290,7 +290,7 @@ func (s *SynologyService) ClearAndResync() error {
 // GetPhotoCount returns the number of Synology photos in the database
 func (s *SynologyService) GetPhotoCount() (int64, error) {
 	var count int64
-	if err := s.db.Model(&model.Image{}).Where("source = ?", "synology").Count(&count).Error; err != nil {
+	if err := s.db.Model(&model.Image{}).Where("source = ?", model.SourceSynologyPhotos).Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil

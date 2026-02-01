@@ -11,13 +11,19 @@ export const useGalleryStore = defineStore('gallery', {
     limit: 48,
     importMessage: '',
     pickerTimer: null as number | null,
-    source: 'google' as 'google' | 'synology',
+    source: 'google_photos' as
+      | 'google_photos'
+      | 'synology_photos'
+      | 'telegram'
+      | 'url_proxy',
   }),
   getters: {
     totalPages: (state) => Math.ceil(state.totalPhotos / state.limit),
   },
   actions: {
-    setSource(source: 'google' | 'synology') {
+    setSource(
+      source: 'google_photos' | 'synology_photos' | 'telegram' | 'url_proxy'
+    ) {
       this.source = source;
       this.page = 1;
       this.photos = [];
@@ -82,7 +88,7 @@ export const useGalleryStore = defineStore('gallery', {
     async startPicker() {
       const store = useSettingsStore();
 
-      if (this.source === 'synology') {
+      if (this.source === 'synology_photos') {
         // Synology doesn't use a picker flow like Google
         // It syncs via the Sync button in settings.
         // We could trigger sync here? Or show a message?

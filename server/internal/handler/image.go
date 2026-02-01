@@ -164,7 +164,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 	var servedImageIDs []uint // Track which IDs were served (1 or 2 if collage)
 
-	if source == "telegram" {
+	if source == model.SourceTelegram {
 		// Serve Telegram Photo (always single, no collage)
 		imgPath := filepath.Join(h.dataDir, "photos", "telegram_last.jpg")
 		f, fsErr := os.Open(imgPath)
@@ -437,13 +437,13 @@ func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter 
 		query = query.Where("id NOT IN ?", excludeIDs)
 	}
 
-	if sourceFilter == "google_photos" {
-		query = query.Where("source = ?", "google")
-	} else if sourceFilter == "synology" {
-		query = query.Where("source = ?", "synology")
-	} else if sourceFilter == "telegram" {
-		query = query.Where("source = ?", "telegram")
-	} else if sourceFilter == "url_proxy" {
+	if sourceFilter == model.SourceGooglePhotos {
+		query = query.Where("source = ?", model.SourceGooglePhotos)
+	} else if sourceFilter == model.SourceSynologyPhotos {
+		query = query.Where("source = ?", model.SourceSynologyPhotos)
+	} else if sourceFilter == model.SourceTelegram {
+		query = query.Where("source = ?", model.SourceTelegram)
+	} else if sourceFilter == model.SourceURLProxy {
 		// For URL Proxy, we fetch from url_sources table
 		var urlSource model.URLSource
 		// Logic: Get all valid URL sources for this device
@@ -488,14 +488,14 @@ func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter 
 		if len(excludeIDs) > 0 {
 			queryRetry := h.db.Order("RANDOM()").Where("orientation = ?", targetType)
 
-			if sourceFilter == "google_photos" {
-				queryRetry = queryRetry.Where("source = ?", "google")
-			} else if sourceFilter == "synology" {
-				queryRetry = queryRetry.Where("source = ?", "synology")
-			} else if sourceFilter == "telegram" {
-				queryRetry = queryRetry.Where("source = ?", "telegram")
-			} else if sourceFilter == "url_proxy" {
-				queryRetry = queryRetry.Where("source = ?", "url_proxy")
+			if sourceFilter == model.SourceGooglePhotos {
+				queryRetry = queryRetry.Where("source = ?", model.SourceGooglePhotos)
+			} else if sourceFilter == model.SourceSynologyPhotos {
+				queryRetry = queryRetry.Where("source = ?", model.SourceSynologyPhotos)
+			} else if sourceFilter == model.SourceTelegram {
+				queryRetry = queryRetry.Where("source = ?", model.SourceTelegram)
+			} else if sourceFilter == model.SourceURLProxy {
+				queryRetry = queryRetry.Where("source = ?", model.SourceURLProxy)
 				if deviceID != nil {
 					queryRetry = queryRetry.Where("id IN (SELECT image_id FROM device_image_mappings WHERE device_id = ?) OR id NOT IN (SELECT image_id FROM device_image_mappings)", *deviceID)
 				} else {
@@ -602,14 +602,6 @@ func (h *ImageHandler) resolvePath(path string) string {
 }
 
 func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, uint, error) {
-	// Source logic: if "google_photos" (default), we include source="google" OR source="" (legacy)
-	// If "synology", source="synology"
-	// If "telegram", source="telegram"
-
-	// Note: settings uses "google_photos" but DB uses "google"? Or "local"?
-	// Legacy: empty source is usually local or google.
-	// We need to check data model.
-
 	var item model.Image
 	query := h.db.Order("RANDOM()")
 
@@ -617,13 +609,13 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 		query = query.Where("id NOT IN ?", excludeIDs)
 	}
 
-	if sourceFilter == "google_photos" {
-		query = query.Where("source = ?", "google")
-	} else if sourceFilter == "synology" {
-		query = query.Where("source = ?", "synology")
-	} else if sourceFilter == "telegram" {
-		query = query.Where("source = ?", "telegram")
-	} else if sourceFilter == "url_proxy" {
+	if sourceFilter == model.SourceGooglePhotos {
+		query = query.Where("source = ?", model.SourceGooglePhotos)
+	} else if sourceFilter == model.SourceSynologyPhotos {
+		query = query.Where("source = ?", model.SourceSynologyPhotos)
+	} else if sourceFilter == model.SourceTelegram {
+		query = query.Where("source = ?", model.SourceTelegram)
+	} else if sourceFilter == model.SourceURLProxy {
 		// For URL Proxy, we fetch from url_sources table
 		var urlSource model.URLSource
 		subQuery := h.db.Table("url_sources").Select("url_sources.id, url_sources.url")
@@ -649,13 +641,13 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 		if len(excludeIDs) > 0 {
 			queryRetry := h.db.Order("RANDOM()")
 
-			if sourceFilter == "google_photos" {
-				queryRetry = queryRetry.Where("source = ?", "google")
-			} else if sourceFilter == "synology" {
-				queryRetry = queryRetry.Where("source = ?", "synology")
-			} else if sourceFilter == "telegram" {
-				queryRetry = queryRetry.Where("source = ?", "telegram")
-			} else if sourceFilter == "url_proxy" {
+			if sourceFilter == model.SourceGooglePhotos {
+				queryRetry = queryRetry.Where("source = ?", model.SourceGooglePhotos)
+			} else if sourceFilter == model.SourceSynologyPhotos {
+				queryRetry = queryRetry.Where("source = ?", model.SourceSynologyPhotos)
+			} else if sourceFilter == model.SourceTelegram {
+				queryRetry = queryRetry.Where("source = ?", model.SourceTelegram)
+			} else if sourceFilter == model.SourceURLProxy {
 				// For URL Proxy, we fetch from url_sources table
 				var urlSource model.URLSource
 				subQuery := h.db.Table("url_sources").Select("url_sources.id, url_sources.url")
@@ -684,7 +676,7 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 		}
 	}
 
-	if item.Source == "synology" {
+	if item.Source == model.SourceSynologyPhotos {
 		img, _, err := h.fetchSynologyPhoto(item)
 		if err != nil {
 			fmt.Printf("Warning: Failed to fetch Synology photo: %v\n", err)

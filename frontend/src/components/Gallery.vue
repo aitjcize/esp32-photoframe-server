@@ -23,7 +23,7 @@
       <div class="d-flex justify-space-between align-center mb-4">
         <div>
           <h2 class="text-h6 text-capitalize">
-            {{ galleryStore.source }} Gallery
+            {{ galleryStore.source.replace('_', ' ') }} Gallery
           </h2>
           <div class="text-caption text-grey">
             {{ galleryStore.totalPhotos }} photo{{
@@ -44,7 +44,7 @@
             Delete All
           </v-btn>
           <v-btn
-            v-if="galleryStore.source === 'google'"
+            v-if="galleryStore.source === 'google_photos'"
             color="primary"
             variant="flat"
             height="40"
@@ -204,7 +204,7 @@
         ></v-icon>
         <h3 class="text-h6 text-grey-darken-1 mb-2">No photos</h3>
         <p class="text-body-2 text-grey mb-4">
-          <span v-if="galleryStore.source === 'google'">
+          <span v-if="galleryStore.source === 'google_photos'">
             Get started by adding photos from Google Photos.
           </span>
           <span v-else>
@@ -212,7 +212,7 @@
           </span>
         </p>
         <v-btn
-          v-if="galleryStore.source === 'google'"
+          v-if="galleryStore.source === 'google_photos'"
           color="primary"
           prepend-icon="mdi-plus"
           @click="galleryStore.startPicker"
@@ -319,7 +319,7 @@ const openPushDialog = async (imageId: number) => {
 
     // If we have a saved preference and it's in the list, pre-select it
     if (savedId) {
-      const found = list.find((d) => d.id === parseInt(savedId));
+      const found = list.find((d: Device) => d.id === parseInt(savedId));
       if (found) {
         pushDialog.selectedDevice = found.id;
       }

@@ -61,7 +61,7 @@ func (h *GoogleHandler) Callback(c echo.Context) error {
 	}
 
 	// Redirect back to frontend
-	return c.Redirect(http.StatusTemporaryRedirect, "/?tab=datasources&source=google")
+	return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/?tab=datasources&source=%s", model.SourceGooglePhotos))
 }
 
 func (h *GoogleHandler) Logout(c echo.Context) error {
@@ -133,7 +133,7 @@ func (h *GoogleHandler) PollPickerProgress(c echo.Context) error {
 func (h *GoogleHandler) DeleteAllGooglePhotos(c echo.Context) error {
 	var items []model.Image
 	// Only fetch Google Photos
-	if err := h.db.Where("source = ?", "google").Find(&items).Error; err != nil {
+	if err := h.db.Where("source = ?", model.SourceGooglePhotos).Find(&items).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch photos"})
 	}
 
@@ -145,7 +145,7 @@ func (h *GoogleHandler) DeleteAllGooglePhotos(c echo.Context) error {
 	}
 
 	// Delete from DB
-	if err := h.db.Where("source = ?", "google").Delete(&model.Image{}).Error; err != nil {
+	if err := h.db.Where("source = ?", model.SourceGooglePhotos).Delete(&model.Image{}).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete photos from db"})
 	}
 
@@ -158,7 +158,7 @@ func (h *GoogleHandler) DeleteAllGooglePhotos(c echo.Context) error {
 func (h *GoogleHandler) DeleteGooglePhoto(c echo.Context) error {
 	id := c.Param("id")
 	var item model.Image
-	if err := h.db.Where("source = ?", "google").First(&item, id).Error; err != nil {
+	if err := h.db.Where("source = ?", model.SourceGooglePhotos).First(&item, id).Error; err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
 	}
 
@@ -178,7 +178,7 @@ func (h *GoogleHandler) DeleteGooglePhoto(c echo.Context) error {
 func (h *GoogleHandler) GetGooglePhotoThumbnail(c echo.Context) error {
 	id := c.Param("id")
 	var item model.Image
-	if err := h.db.Where("source = ?", "google").First(&item, id).Error; err != nil {
+	if err := h.db.Where("source = ?", model.SourceGooglePhotos).First(&item, id).Error; err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
 	}
 
@@ -250,13 +250,13 @@ func (h *GoogleHandler) ListGooglePhotos(c echo.Context) error {
 
 	// Get total count of Google Photos only
 	var total int64
-	if err := h.db.Model(&model.Image{}).Where("source = ?", "google").Count(&total).Error; err != nil {
+	if err := h.db.Model(&model.Image{}).Where("source = ?", model.SourceGooglePhotos).Count(&total).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to count photos"})
 	}
 
 	// Get paginated Google Photos only
 	var items []model.Image
-	if err := h.db.Where("source = ?", "google").Order("created_at desc").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
+	if err := h.db.Where("source = ?", model.SourceGooglePhotos).Order("created_at desc").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list photos"})
 	}
 

@@ -60,13 +60,13 @@ func (h *DeviceHandler) ConfigureDeviceSource(c echo.Context) error {
 
 	var imageURL string
 	switch req.Source {
-	case "url_proxy":
+	case model.SourceURLProxy:
 		imageURL = fmt.Sprintf("http://%s/image/url_proxy", host)
-	case "google_photos":
+	case model.SourceGooglePhotos:
 		imageURL = fmt.Sprintf("http://%s/image/google_photos", host)
-	case "synology":
-		imageURL = fmt.Sprintf("http://%s/image/synology", host)
-	case "telegram": // Added telegram source
+	case model.SourceSynologyPhotos:
+		imageURL = fmt.Sprintf("http://%s/image/synology_photos", host)
+	case model.SourceTelegram: // Added telegram source
 		imageURL = fmt.Sprintf("http://%s/image/telegram", host)
 		// Update Telegram Settings (Append if not exists)
 		existingIDs, _ := h.settingsService.Get("telegram_target_device_id")
@@ -224,7 +224,7 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "image not found"})
 		}
 
-		if img.Source == "synology" {
+		if img.Source == model.SourceSynologyPhotos {
 			// Download to temporary file
 			data, err := h.synologyService.DownloadPhoto(int(img.SynologyPhotoID))
 			if err != nil {
