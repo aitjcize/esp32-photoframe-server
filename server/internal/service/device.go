@@ -203,6 +203,22 @@ func (s *DeviceService) PushToDevice(deviceID uint, imagePath string) error {
 	return nil
 }
 
+func (s *DeviceService) GetDeviceConfig(deviceID uint) (*photoframe.DeviceConfig, error) {
+	var device model.Device
+	if err := s.db.First(&device, deviceID).Error; err != nil {
+		return nil, errors.New("device not found")
+	}
+	return s.pfClient.FetchDeviceConfig(device.Host)
+}
+
+func (s *DeviceService) ConfigureDevice(deviceID uint, config map[string]interface{}) error {
+	var device model.Device
+	if err := s.db.First(&device, deviceID).Error; err != nil {
+		return errors.New("device not found")
+	}
+	return s.pfClient.PushConfig(device.Host, config)
+}
+
 // PushToHost processes an image file and pushes it to a target host
 // This encapsulates the logic previously in Telegram bot
 func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extraOpts map[string]string) error {

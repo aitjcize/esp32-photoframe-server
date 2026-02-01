@@ -249,6 +249,7 @@ func (c *Client) FetchProcessingSettings(host string) (*ProcessingSettings, erro
 
 type DeviceConfig struct {
 	DisplayOrientation string `json:"display_orientation"`
+	AccessToken        string `json:"access_token"`
 }
 
 func (c *Client) FetchDeviceConfig(host string) (*DeviceConfig, error) {
@@ -280,6 +281,39 @@ func (c *Client) FetchDeviceConfig(host string) (*DeviceConfig, error) {
 	}
 
 	return &config, nil
+}
+
+func (c *Client) PushConfig(host string, config map[string]interface{}) error {
+	ip, err := c.resolveHost(host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve device %s: %w", host, err)
+	}
+
+	url := fmt.Sprintf("http://%s/api/config", ip)
+
+	jsonData, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Host = host
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("device returned status: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (c *Client) FetchPalette(host string) (*Palette, error) {

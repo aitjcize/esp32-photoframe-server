@@ -91,11 +91,15 @@ func main() {
 
 	// Initialize Device Service
 	deviceService := service.NewDeviceService(database, settingsService, processorService, overlayService, photoframeClient)
-	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, database)
+	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, authService, database)
 
 	// Initialize Telegram Service
 	// Pass deviceService as Pusher
 	telegramService := service.NewTelegramService(database, dataDir, settingsService, deviceService)
+	// telegramHandler removed as it does not exist
+	// Start bot: now deferred to start after config load or handled within service constructor
+	// telegramService.StartBot() // Removed auto-start here, service handles it if token exists
+
 	telegramToken, _ := settingsService.Get("telegram_bot_token")
 	if telegramToken != "" {
 		telegramService.Restart(telegramToken)
@@ -160,6 +164,7 @@ func main() {
 	protectedApi.PUT("/devices/:id", deviceHandler.UpdateDevice)
 	protectedApi.DELETE("/devices/:id", deviceHandler.DeleteDevice)
 	protectedApi.POST("/devices/:id/push", deviceHandler.PushToDevice)
+	protectedApi.POST("/devices/:id/configure-source", deviceHandler.ConfigureDeviceSource)
 
 	// Device Tokens (Protected)
 	protectedApi.POST("/auth/tokens", ah.GenerateDeviceToken)

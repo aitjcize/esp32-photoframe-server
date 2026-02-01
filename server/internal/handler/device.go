@@ -17,15 +17,86 @@ import (
 type DeviceHandler struct {
 	deviceService   *service.DeviceService
 	synologyService *service.SynologyService
-	db              *gorm.DB // Needed to find image by ID
+	authService     *service.AuthService
+	db              *gorm.DB
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, db *gorm.DB) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, authService *service.AuthService, db *gorm.DB) *DeviceHandler {
 	return &DeviceHandler{
 		deviceService:   deviceService,
 		synologyService: synologyService,
+		authService:     authService,
 		db:              db,
 	}
+}
+
+// ... existing methods ... (List, Add, Update, Delete, Push)
+
+// POST /api/devices/:id/configure-source
+func (h *DeviceHandler) ConfigureDeviceSource(c echo.Context) error {
+	id, _ := strconv.Atoi(c.Param("id"))
+	deviceID := uint(id)
+
+	var req struct {
+		Source string `json:"source"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+
+	if req.Source == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "source required"})
+	}
+
+	// 1. Determine Image URL
+	host := c.Request().Host
+	if host == "" {
+		host = "localhost:9607" // Fallback
+	}
+
+	var imageURL string
+	switch req.Source {
+	case "url_proxy":
+		imageURL = fmt.Sprintf("http://%s/image/url_proxy", host)
+	case "google":
+		imageURL = fmt.Sprintf("http://%s/image/google_photos", host)
+	case "synology":
+		imageURL = fmt.Sprintf("http://%s/image/synology", host)
+	default:
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source"})
+	}
+
+	configUpdate := map[string]interface{}{
+		"image_url":     imageURL,
+		"rotation_mode": "url",
+		"auto_rotate":   true,
+	}
+
+	// Generate Token
+	userID, ok := c.Get("user_id").(uint)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	}
+	username := c.Get("username").(string)
+
+	// Get Device Name for Token Name
+	var device model.Device
+	if err := h.db.First(&device, deviceID).Error; err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "device not found"})
+	}
+
+	token, err := h.authService.GetOrGenerateDeviceToken(userID, username, device.Name)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate token: " + err.Error()})
+	}
+	configUpdate["access_token"] = token
+
+	// Push Config
+	if err := h.deviceService.ConfigureDevice(deviceID, configUpdate); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to push config: " + err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "configured", "url": imageURL})
 }
 
 // GET /api/devices

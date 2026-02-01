@@ -771,6 +771,14 @@
                         icon="mdi-refresh"
                         title="Refresh Device Parameters"
                         @click="refreshDeviceParams(device)"
+                      </v-btn>
+                      <v-btn
+                        color="secondary"
+                        variant="text"
+                        size="small"
+                        icon="mdi-link"
+                        title="Bind Image Source"
+                        @click="openBindSourceDialog(device)"
                       ></v-btn>
                       <v-btn
                         color="error"
@@ -887,6 +895,31 @@
                   </v-card-actions>
                 </v-card>
               </v-dialog>
+
+              <!-- Bind Source Dialog -->
+              <v-dialog v-model="showBindSourceDialog" max-width="500px">
+                <v-card>
+                  <v-card-title>Bind Image Source</v-card-title>
+                  <v-card-text>
+                    <v-alert type="info" variant="tonal" class="mb-4" density="compact">
+                      This will configure the device to fetch images from the selected source.
+                      <br>
+                      <strong>Note:</strong> This updates the device's configuration immediately.
+                    </v-alert>
+                    <v-select
+                      v-model="selectedSource"
+                      :items="sourceOptions"
+                      label="Select Source"
+                      variant="outlined"
+                    ></v-select>
+                  </v-card-text>
+                  <v-card-actions>
+                    <v-spacer></v-spacer>
+                    <v-btn color="grey" variant="text" @click="showBindSourceDialog = false">Cancel</v-btn>
+                    <v-btn color="primary" @click="bindDeviceSource">Bind & Configure</v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-dialog>
             </v-card-text>
           </v-window-item>
         </v-window>
@@ -927,6 +960,7 @@ import {
   updateURLSource,
   listURLSources,
   deleteURLSource,
+  configureDeviceSource,
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -939,6 +973,33 @@ const activeMainTab = ref('devices');
 const activeDataSourceTab = ref('google');
 const galleryTab = ref('google');
 const confirmDialog = ref();
+
+// Device Binding State
+const showBindSourceDialog = ref(false);
+const bindingDevice = ref<Device | null>(null);
+const selectedSource = ref('url_proxy');
+const sourceOptions = [
+  { title: 'URL Proxy', value: 'url_proxy' },
+  { title: 'Google Photos', value: 'google' },
+  { title: 'Synology Photos', value: 'synology' },
+];
+
+const openBindSourceDialog = (device: Device) => {
+  bindingDevice.value = device;
+  selectedSource.value = 'url_proxy'; // Default or try to infer? Inference hard w/o reading config
+  showBindSourceDialog.value = true;
+};
+
+const bindDeviceSource = async () => {
+  if (!bindingDevice.value) return;
+  try {
+    const res = await configureDeviceSource(bindingDevice.value.id, selectedSource.value);
+    showMessage(`Device configured to use source: ${selectedSource.value}. Image URL: ${res.url}`);
+    showBindSourceDialog.value = false;
+  } catch (e: any) {
+    showMessage('Failed to bind source: ' + (e.response?.data?.error || e.message), true);
+  }
+};
 
 // URL Proxy State
 const urlSources = ref<any[]>([]); // Renamed from urlImages

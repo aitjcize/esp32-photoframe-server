@@ -113,6 +113,16 @@ func (s *AuthService) GenerateDeviceToken(userID uint, username string, name str
 	return token.SignedString(s.jwtSecret)
 }
 
+func (s *AuthService) GetOrGenerateDeviceToken(userID uint, username string, name string) (string, error) {
+	// Check for existing key with this name and revoke it to ensure 1:1 mapping and freshness
+	var apiKey model.APIKey
+	if err := s.db.Where("user_id = ? AND name = ?", userID, name).First(&apiKey).Error; err == nil {
+		// Key exists. Delete it so we can create a fresh one
+		s.db.Delete(&apiKey)
+	}
+	return s.GenerateDeviceToken(userID, username, name)
+}
+
 func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return s.jwtSecret, nil

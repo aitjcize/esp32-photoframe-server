@@ -351,8 +351,8 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	// Decide if Device is Landscape or Portrait
 	devicePortrait := screenH > screenW
 
-	// Fetch first image
-	img1, id1, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs, deviceID)
+	// Fetch first image generic (could be portrait or landscape)
+	img1, id1, err := h.fetchRandomPhoto(sourceFilter, excludeIDs, deviceID)
 	if err != nil {
 		return nil, nil, err
 	}
