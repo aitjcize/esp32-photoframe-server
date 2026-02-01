@@ -260,3 +260,133 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 		"message": fmt.Sprintf("Deleted %d photos", len(items)),
 	})
 }
+
+// URL Proxy Handlers
+
+type CreateURLSourceRequest struct {
+	URL       string `json:"url"`
+	DeviceIDs []uint `json:"device_ids"`
+}
+
+func (h *GalleryHandler) CreateURLSource(c echo.Context) error {
+	req := new(CreateURLSourceRequest)
+	if err := c.Bind(req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+
+	if req.URL == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "url is required"})
+	}
+
+	// Create URL Source Record
+	src := model.URLSource{
+		URL:       req.URL,
+		CreatedAt: time.Now(),
+	}
+
+	if err := h.db.Create(&src).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create url source"})
+	}
+
+	// Create Bindings
+	if len(req.DeviceIDs) > 0 {
+		for _, devID := range req.DeviceIDs {
+			mapping := model.DeviceURLMapping{
+				DeviceID:    devID,
+				URLSourceID: src.ID,
+			}
+			if err := h.db.Create(&mapping).Error; err != nil {
+				fmt.Printf("Failed to create binding for dev %d url %d: %v\n", devID, src.ID, err)
+			}
+		}
+	}
+
+	return c.JSON(http.StatusCreated, src)
+}
+
+func (h *GalleryHandler) ListURLSources(c echo.Context) error {
+	var sources []model.URLSource
+	if err := h.db.Find(&sources).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list url sources"})
+	}
+
+	// Fetch Mappings
+	type URLSourceResponse struct {
+		ID        uint      `json:"id"`
+		URL       string    `json:"url"`
+		CreatedAt time.Time `json:"created_at"`
+		DeviceIDs []uint    `json:"device_ids"`
+	}
+
+	var resp []URLSourceResponse
+
+	// Collecting Bindings
+	// Opt: Pre-fetch all mappings
+	mappings := []model.DeviceURLMapping{}
+	h.db.Find(&mappings)
+	bindingMap := make(map[uint][]uint)
+	for _, m := range mappings {
+		bindingMap[m.URLSourceID] = append(bindingMap[m.URLSourceID], m.DeviceID)
+	}
+
+	for _, s := range sources {
+		resp = append(resp, URLSourceResponse{
+			ID:        s.ID,
+			URL:       s.URL,
+			CreatedAt: s.CreatedAt,
+			DeviceIDs: bindingMap[s.ID],
+		})
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *GalleryHandler) DeleteURLSource(c echo.Context) error {
+	id := c.Param("id")
+	// Delete mappings
+	h.db.Where("url_source_id = ?", id).Delete(&model.DeviceURLMapping{})
+	// Delete source
+	if err := h.db.Delete(&model.URLSource{}, id).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete url source"})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *GalleryHandler) UpdateURLSource(c echo.Context) error {
+	id := c.Param("id")
+	req := new(CreateURLSourceRequest)
+	if err := c.Bind(req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+
+	if req.URL == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "url is required"})
+	}
+
+	// Update Source
+	var src model.URLSource
+	if err := h.db.First(&src, id).Error; err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "url source not found"})
+	}
+	src.URL = req.URL
+	if err := h.db.Save(&src).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update url source"})
+	}
+
+	// Re-create bindings
+	// 1. Delete old
+	h.db.Where("url_source_id = ?", id).Delete(&model.DeviceURLMapping{})
+
+	// 2. Add new
+	if len(req.DeviceIDs) > 0 {
+		for _, devID := range req.DeviceIDs {
+			mapping := model.DeviceURLMapping{
+				DeviceID:    devID,
+				URLSourceID: src.ID,
+			}
+			h.db.Create(&mapping)
+		}
+	}
+
+	return c.JSON(http.StatusOK, src)
+}

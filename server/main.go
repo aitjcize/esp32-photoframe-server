@@ -172,6 +172,11 @@ func main() {
 	protectedApi.GET("/gallery/thumbnail/:id", gh.GetThumbnail)
 	protectedApi.DELETE("/gallery/photos/:id", gh.DeletePhoto)
 	protectedApi.DELETE("/gallery/photos", gh.DeletePhotos)
+	// URL Proxy
+	protectedApi.POST("/gallery/urls", gh.CreateURLSource)
+	protectedApi.GET("/gallery/urls", gh.ListURLSources)
+	protectedApi.PUT("/gallery/urls/:id", gh.UpdateURLSource)
+	protectedApi.DELETE("/gallery/urls/:id", gh.DeleteURLSource)
 
 	// Google Picker (Protected)
 	protectedApi.GET("/google/picker/session", googleHandler.CreatePickerSession)

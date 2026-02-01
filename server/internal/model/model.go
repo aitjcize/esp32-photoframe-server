@@ -52,8 +52,24 @@ type Device struct {
 }
 
 type DeviceHistory struct {
+	ID       uint      `gorm:"primaryKey" json:"id"`
+	DeviceID uint      `gorm:"index" json:"device_id"` // Foreign key to Device
+	ImageID  uint      `json:"image_id"`
+	ServedAt time.Time `json:"served_at"`
+}
+
+type DeviceImageMapping struct {
+	DeviceID uint `gorm:"primaryKey" json:"device_id"`
+	ImageID  uint `gorm:"primaryKey" json:"image_id"`
+}
+
+type URLSource struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	DeviceID  uint      `gorm:"index" json:"device_id"` // Foreign key to Device
-	ImageID   uint      `json:"image_id"`
-	ServedAt  time.Time `json:"served_at"`
+	URL       string    `json:"url"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type DeviceURLMapping struct {
+	DeviceID    uint `gorm:"primaryKey" json:"device_id"`
+	URLSourceID uint `gorm:"primaryKey" json:"url_source_id"`
 }

@@ -136,3 +136,50 @@ export const pushToDevice = async (deviceID: number, imageID: number) => {
   });
   return response.data;
 };
+
+export const createURLSource = async (
+  url: string,
+  deviceIDs: number[]
+) => {
+  const response = await api.post('/gallery/urls', {
+    url,
+    device_ids: deviceIDs,
+  });
+  return response.data;
+};
+
+export const updateURLSource = async (
+  id: number,
+  url: string,
+  deviceIDs: number[]
+) => {
+  const response = await api.put(`/gallery/urls/${id}`, {
+    url,
+    device_ids: deviceIDs,
+  });
+  return response.data;
+};
+
+export const listURLSources = async () => {
+  const response = await api.get('/gallery/urls');
+  return response.data;
+};
+
+export const deleteURLSource = async (id: number) => {
+  const response = await api.delete(`/gallery/urls/${id}`);
+  return response.data;
+};
+
+export const listPhotos = async (source?: string, limit?: number, offset?: number) => {
+  const params: any = {};
+  if (source) params.source = source;
+  if (limit) params.limit = limit;
+  if (offset) params.offset = offset;
+  const response = await api.get('/gallery/photos', { params });
+  return response.data;
+};
+
+export const deletePhoto = async (id: number) => {
+  const response = await api.delete(`/gallery/photos/${id}`);
+  return response.data;
+};

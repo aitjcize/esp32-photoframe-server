@@ -48,9 +48,147 @@
               <v-tab value="google">Google Photos</v-tab>
               <v-tab value="synology">Synology</v-tab>
               <v-tab value="telegram">Telegram</v-tab>
+              <v-tab value="url">URL Proxy</v-tab>
             </v-tabs>
 
             <v-window v-model="activeDataSourceTab">
+              <!-- URL Proxy -->
+              <v-window-item value="url">
+                <v-card-text>
+                  <v-alert
+                    type="info"
+                    variant="tonal"
+                    class="mb-4"
+                    density="compact"
+                  >
+                    Add external image URLs to be served by the photoframe. You
+                    can bind URLs to specific devices or leave them global.
+                  </v-alert>
+
+                  <v-text-field
+                    :model-value="getImageUrl('url_proxy')"
+                    label="Image Endpoint URL (for firmware config)"
+                    readonly
+                    variant="outlined"
+                    density="compact"
+                    append-inner-icon="mdi-content-copy"
+                    @click:append-inner="copyToClipboard(getImageUrl('url_proxy'))"
+                    class="mb-4"
+                  ></v-text-field>
+
+                  <div class="d-flex justify-end mb-4">
+                    <v-btn
+                    color="primary"
+                    prepend-icon="mdi-plus"
+                    class="mb-4"
+                    @click="openAddURLDialog"
+                  >
+                    Add URL Source
+                  </v-btn>
+                  </div>
+
+                  <v-table density="comfortable" class="border rounded">
+                    <thead>
+                      <tr>
+                        <th>URL</th>
+                        <th>Bound Devices</th>
+                        <th class="text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="src in urlSources" :key="src.id">
+                        <td class="text-truncate" style="max-width: 300px">
+                          <a :href="src.url" target="_blank">{{ src.url }}</a>
+                        </td>
+                        <td>
+                          <div v-if="src.device_ids && src.device_ids.length">
+                            <v-chip
+                              v-for="did in src.device_ids"
+                              :key="did"
+                              size="x-small"
+                              class="mr-1"
+                            >
+                              {{ getDeviceName(did) }}
+                            </v-chip>
+                          </div>
+                          <span v-else class="text-grey text-caption"
+                            >Global</span
+                          >
+                        </td>
+                        <td class="text-right">
+                          <v-btn
+                            color="primary"
+                            variant="text"
+                            size="small"
+                            icon="mdi-pencil"
+                            class="mr-2"
+                            @click="openEditURLDialog(src)"
+                          ></v-btn>
+                          <v-btn
+                            color="error"
+                            variant="text"
+                            size="small"
+                            icon="mdi-delete"
+                            @click="deleteURLSourceWrapper(src.id)"
+                          ></v-btn>
+                        </td>
+                      </tr>
+                      <tr v-if="urlSources.length === 0">
+                        <td colspan="4" class="text-center text-grey py-4">
+                          No URL sources added.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- Add/Edit URL Dialog -->
+              <v-dialog v-model="showAddURLDialog" max-width="500px">
+                <v-card>
+                  <v-card-title>{{
+                    isEditingURL ? 'Edit URL Source' : 'Add URL Source'
+                  }}</v-card-title>
+                  <v-card-text>
+                    <v-form @submit.prevent="saveURLSource">
+                      <v-text-field
+                        v-model="newURL.url"
+                        label="Image URL"
+                        placeholder="https://example.com/image.jpg"
+                        variant="outlined"
+                        class="mb-2"
+                        :rules="[(v) => !!v || 'URL is required']"
+                      ></v-text-field>
+
+                      <v-select
+                        v-model="newURL.device_ids"
+                        :items="availableDevices"
+                        item-title="name"
+                        item-value="id"
+                        label="Bind to Devices (Optional)"
+                        placeholder="Leave empty for Global"
+                        variant="outlined"
+                        multiple
+                        chips
+                        class="mb-4"
+                        hint="If selected, only these devices will see this image."
+                        persistent-hint
+                      ></v-select>
+                    </v-form>
+                  </v-card-text>
+                  <v-card-actions>
+                    <v-spacer></v-spacer>
+                    <v-btn
+                      color="grey"
+                      variant="text"
+                      @click="showAddURLDialog = false"
+                      >Cancel</v-btn
+                    >
+                    <v-btn color="primary" @click="saveURLSource">Save</v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-dialog>
+
               <!-- Google Photos -->
               <v-window-item value="google">
                 <v-card-text>
@@ -785,6 +923,10 @@ import {
   deleteDevice,
   updateDevice,
   type Device,
+  createURLSource,
+  updateURLSource,
+  listURLSources,
+  deleteURLSource,
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -797,6 +939,85 @@ const activeMainTab = ref('devices');
 const activeDataSourceTab = ref('google');
 const galleryTab = ref('google');
 const confirmDialog = ref();
+
+// URL Proxy State
+const urlSources = ref<any[]>([]); // Renamed from urlImages
+const showAddURLDialog = ref(false);
+const isEditingURL = ref(false);
+const editingURLId = ref<number | null>(null);
+const newURL = reactive({
+  url: '',
+  device_ids: [] as number[],
+});
+
+// URL Proxy Functions
+const loadURLSources = async () => {
+  try {
+    const res = await listURLSources();
+    urlSources.value = res;
+  } catch (e) {
+    console.error('Failed to load URL sources', e);
+  }
+};
+
+const openAddURLDialog = () => {
+  isEditingURL.value = false;
+  editingURLId.value = null;
+  newURL.url = '';
+  newURL.device_ids = [];
+  showAddURLDialog.value = true;
+};
+
+const openEditURLDialog = (src: any) => {
+  isEditingURL.value = true;
+  editingURLId.value = src.id;
+  newURL.url = src.url;
+  // device_ids might come as objects or ids depending on API? API returns list of uints.
+  newURL.device_ids = src.device_ids || [];
+  showAddURLDialog.value = true;
+};
+
+const saveURLSource = async () => {
+  if (!newURL.url) {
+    showMessage('URL is required', true);
+    return;
+  }
+  try {
+    if (isEditingURL.value && editingURLId.value) {
+      await updateURLSource(editingURLId.value, newURL.url, newURL.device_ids);
+      showMessage('URL source updated');
+    } else {
+      await createURLSource(newURL.url, newURL.device_ids);
+      showMessage('URL source added');
+    }
+    showAddURLDialog.value = false;
+    await loadURLSources();
+  } catch (e: any) {
+    showMessage('Failed to save URL source: ' + (e.response?.data?.error || e.message), true);
+  }
+};
+
+const deleteURLSourceWrapper = async (id: number) => {
+  if (!(await confirmDialog.value.open('Delete this URL Source?'))) return;
+  try {
+    await deleteURLSource(id);
+    showMessage('URL source deleted');
+    await loadURLSources();
+  } catch (e: any) {
+    showMessage('Failed to delete URL source', true);
+  }
+};
+
+const getDeviceName = (id: number) => {
+  const dev = availableDevices.value.find((d) => d.id === id);
+  return dev ? dev.name : `Device ${id}`;
+};
+
+watch(activeDataSourceTab, (val) => {
+  if (val === 'url') {
+    loadURLSources();
+  }
+});
 
 // Devices State
 const availableDevices = ref<Device[]>([]);

@@ -3,12 +3,14 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"log"
 
 	_ "image/jpeg"
 	_ "image/png"
+
 	"net/http"
 	"os"
 	"path/filepath"
@@ -58,11 +60,6 @@ func NewImageHandler(
 func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// Get source from route parameter
 	source := c.Param("source")
-
-	// Validate source is one of the allowed values
-	if source != "google_photos" && source != "synology" && source != "telegram" {
-		return c.NoContent(http.StatusNotFound)
-	}
 
 	// 1. Identify Device and Determine Settings
 	// Try to find device by Hostname (X-Hostname header) first, then IP
@@ -178,16 +175,30 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			img, _, err = image.Decode(f)
 		}
 	} else if enableCollage {
-		img, servedImageIDs, err = h.fetchSmartCollage(logicalW, logicalH, source, excludeIDs)
+		var devID *uint
+		if deviceFound {
+			devID = &device.ID
+		}
+		img, servedImageIDs, err = h.fetchSmartCollage(logicalW, logicalH, source, excludeIDs, devID)
 	} else {
 		var id uint
-		img, id, err = h.fetchRandomPhoto(source, excludeIDs)
+		var devID *uint
+		if deviceFound {
+			devID = &device.ID
+		}
+		img, id, err = h.fetchRandomPhoto(source, excludeIDs, devID)
 		if err == nil {
 			servedImageIDs = append(servedImageIDs, id)
 		}
 	}
 
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid source filter") {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "invalid source"})
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) || strings.Contains(err.Error(), "record not found") {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "no photos found for this device"})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch photo: " + err.Error()})
 	}
 
@@ -336,12 +347,12 @@ func (h *ImageHandler) getOrientation() string {
 }
 
 // Fetch smart photo (Single or Collage)
-func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter string, excludeIDs []uint) (image.Image, []uint, error) {
+func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, []uint, error) {
 	// Decide if Device is Landscape or Portrait
 	devicePortrait := screenH > screenW
 
 	// Fetch first image
-	img1, id1, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs)
+	img1, id1, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs, deviceID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -367,14 +378,14 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	if devicePortrait && !isPhotoPortrait {
 		// Try fetch second landscape
 		// 1. Try DB first
-		img2, id2, err := h.fetchRandomPhotoWithType("landscape", sourceFilter, excludeIDs2)
+		img2, id2, err := h.fetchRandomPhotoWithType("landscape", sourceFilter, excludeIDs2, deviceID)
 		if err == nil && id2 != id1 {
 			servedIDs = append(servedIDs, id2)
 			return h.createVerticalCollage(img1, img2, screenW, screenH), servedIDs, nil
 		}
 		// 2. Fallback: Try random loop
 		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2)
+			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2, deviceID)
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dx() > b.Dy() { // Is Landscape
@@ -392,14 +403,14 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	// Device Landscape, Photo Portrait -> Horizontal Side-by-Side
 	if !devicePortrait && isPhotoPortrait {
 		// Try fetch second portrait
-		img2, id2, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs2)
+		img2, id2, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs2, deviceID)
 		if err == nil && id2 != id1 {
 			servedIDs = append(servedIDs, id2)
 			return h.createHorizontalCollage(img1, img2, screenW, screenH), servedIDs, nil
 		}
 		// 2. Fallback
 		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2)
+			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2, deviceID)
 			if err == nil && candID != id1 {
 				b := cand.Bounds()
 				if b.Dy() > b.Dx() { // Is Portrait
@@ -417,9 +428,10 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	return img1, servedIDs, nil
 }
 
-func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter string, excludeIDs []uint) (image.Image, uint, error) {
+func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, uint, error) {
 	var item model.Image
-	query := h.db.Order("RANDOM()").Where("orientation = ?", targetType)
+	// Allow 'auto' orientation (e.g. for dynamic URLs) to match any target type
+	query := h.db.Order("RANDOM()").Where("orientation IN ?", []string{targetType, "auto"})
 
 	if len(excludeIDs) > 0 {
 		query = query.Where("id NOT IN ?", excludeIDs)
@@ -431,6 +443,42 @@ func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter 
 		query = query.Where("source = ?", "synology")
 	} else if sourceFilter == "telegram" {
 		query = query.Where("source = ?", "telegram")
+	} else if sourceFilter == "url_proxy" {
+		// For URL Proxy, we fetch from url_sources table
+		var urlSource model.URLSource
+		// Logic: Get all valid URL sources for this device
+		// Valid = Global (not in mapping) OR Bound to this device
+
+		// Subquery for valid IDs
+		subQuery := h.db.Table("url_sources").Select("url_sources.*")
+		if deviceID != nil {
+			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+				Where("device_url_mappings.device_id = ? OR device_url_mappings.device_id IS NULL", *deviceID)
+		} else {
+			// If no device ID (unknown device), strictly show only globals?
+			// Or just show globals.
+			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+				Where("device_url_mappings.device_id IS NULL")
+		}
+
+		// Pick one random
+		if err := subQuery.Order("RANDOM()").Take(&urlSource).Error; err != nil {
+			return nil, 0, err
+		}
+
+		if urlSource.URL == "" {
+			return nil, 0, fmt.Errorf("fetched empty URL from source ID %d", urlSource.ID)
+		}
+		// Use ID 0 for URL proxy items as they don't map to 'images' table IDs
+		// BUT we need an ID for history tracking?
+		// If we don't track history for URLs (since they are proxies), we can pass 0.
+		// However, if we pass 0, exclude list logic won't work.
+		// User said "don't need to consider randomization".
+		// So maybe we don't track history for URL proxy?
+		// Let's return local ID of url_source as ID, but effectively it's different namespace.
+		// This might collide with image IDs in history.
+		// For now, let's just fetch it.
+		return h.fetchURLPhoto(urlSource.URL)
 	} else {
 		return nil, 0, fmt.Errorf("invalid source filter: %s", sourceFilter)
 	}
@@ -446,6 +494,13 @@ func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter 
 				queryRetry = queryRetry.Where("source = ?", "synology")
 			} else if sourceFilter == "telegram" {
 				queryRetry = queryRetry.Where("source = ?", "telegram")
+			} else if sourceFilter == "url_proxy" {
+				queryRetry = queryRetry.Where("source = ?", "url_proxy")
+				if deviceID != nil {
+					queryRetry = queryRetry.Where("id IN (SELECT image_id FROM device_image_mappings WHERE device_id = ?) OR id NOT IN (SELECT image_id FROM device_image_mappings)", *deviceID)
+				} else {
+					queryRetry = queryRetry.Where("id NOT IN (SELECT image_id FROM device_image_mappings)")
+				}
 			}
 
 			if errRetry := queryRetry.First(&item).Error; errRetry != nil {
@@ -546,7 +601,7 @@ func (h *ImageHandler) resolvePath(path string) string {
 	return path
 }
 
-func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint) (image.Image, uint, error) {
+func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, uint, error) {
 	// Source logic: if "google_photos" (default), we include source="google" OR source="" (legacy)
 	// If "synology", source="synology"
 	// If "telegram", source="telegram"
@@ -568,6 +623,22 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint) 
 		query = query.Where("source = ?", "synology")
 	} else if sourceFilter == "telegram" {
 		query = query.Where("source = ?", "telegram")
+	} else if sourceFilter == "url_proxy" {
+		// For URL Proxy, we fetch from url_sources table
+		var urlSource model.URLSource
+		subQuery := h.db.Table("url_sources").Select("url_sources.id, url_sources.url")
+		if deviceID != nil {
+			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+				Where("device_url_mappings.device_id = ? OR device_url_mappings.device_id IS NULL", *deviceID)
+		} else {
+			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+				Where("device_url_mappings.device_id IS NULL")
+		}
+
+		if err := subQuery.Order("RANDOM()").Limit(1).Scan(&urlSource).Error; err != nil {
+			return nil, 0, err
+		}
+		return h.fetchURLPhoto(urlSource.URL)
 	} else {
 		return nil, 0, fmt.Errorf("invalid source filter: %s", sourceFilter)
 	}
@@ -584,10 +655,25 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint) 
 				queryRetry = queryRetry.Where("source = ?", "synology")
 			} else if sourceFilter == "telegram" {
 				queryRetry = queryRetry.Where("source = ?", "telegram")
+			} else if sourceFilter == "url_proxy" {
+				// For URL Proxy, we fetch from url_sources table
+				var urlSource model.URLSource
+				subQuery := h.db.Table("url_sources").Select("url_sources.id, url_sources.url")
+				if deviceID != nil {
+					subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+						Where("device_url_mappings.device_id = ? OR device_url_mappings.device_id IS NULL", *deviceID)
+				} else {
+					subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+						Where("device_url_mappings.device_id IS NULL")
+				}
+
+				if err := subQuery.Order("RANDOM()").Limit(1).Scan(&urlSource).Error; err != nil {
+					return nil, 0, err
+				}
+				return h.fetchURLPhoto(urlSource.URL)
 			}
 
-			resultRetry := queryRetry.First(&item)
-			if resultRetry.Error != nil {
+			if errRetry := queryRetry.First(&item).Error; errRetry != nil {
 				// Still failed, return placeholder
 				img, err := h.fetchPlaceholder()
 				return img, 0, err
@@ -607,7 +693,6 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint) 
 		}
 		return img, item.ID, nil
 	}
-
 	resolvedPath := h.resolvePath(item.FilePath)
 	f, err := os.Open(resolvedPath)
 	if err != nil {
@@ -636,4 +721,22 @@ func (h *ImageHandler) fetchPlaceholder() (image.Image, error) {
 
 	img, _, err := image.Decode(resp.Body)
 	return img, err
+}
+
+func (h *ImageHandler) fetchURLPhoto(url string) (image.Image, uint, error) {
+	// Fetch Image from URL
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Printf("Failed to fetch URL photo: %v\n", err)
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	img, _, err := image.Decode(resp.Body)
+	if err != nil {
+		fmt.Printf("Failed to decode URL photo: %v\n", err)
+		return nil, 0, err
+	}
+	// Return 0 as ID for URL sources
+	return img, 0, nil
 }
