@@ -300,14 +300,14 @@
                     </v-alert>
 
                     <v-text-field
-                      :model-value="getImageUrl('synology')"
+                      :model-value="getImageUrl('synology_photos')"
                       label="Image Endpoint URL (for firmware config)"
                       readonly
                       variant="outlined"
                       density="compact"
                       append-inner-icon="mdi-content-copy"
                       @click:append-inner="
-                        copyToClipboard(getImageUrl('synology'))
+                        copyToClipboard(getImageUrl('synology_photos'))
                       "
                     ></v-text-field>
 
