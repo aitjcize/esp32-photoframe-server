@@ -1,7 +1,7 @@
 <template>
   <v-app>
     <v-app-bar color="primary" density="compact">
-      <v-app-bar-title>PhotoFrame Server</v-app-bar-title>
+      <v-app-bar-title>ESP32 PhotoFrame Server</v-app-bar-title>
       <template v-if="authStore.isLoggedIn" v-slot:append>
         <v-btn
           variant="text"

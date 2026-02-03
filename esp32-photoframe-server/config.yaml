@@ -1,6 +1,6 @@
 name: "ESP32 PhotoFrame Server"
 version: "v1.4.5"
-slug: "photoframe-server"
+slug: "esp32-photoframe-server"
 description: "Middleware server for ESP32 PhotoFrame (Google Photos & Telegram)"
 url: "https://github.com/aitjcize/esp32-photoframe-server"
 arch:
@@ -15,7 +15,7 @@ ports:
 ingress: true
 ingress_port: 9607
 panel_icon: mdi:image-frame
-panel_title: PhotoFrame
+panel_title: ESP32 PhotoFrame Server
 webui: http://[HOST]:[PORT:9607]
 map:
   - config:rw
