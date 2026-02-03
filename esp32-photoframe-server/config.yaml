@@ -1,5 +1,5 @@
 name: "ESP32 PhotoFrame Server"
-version: "v1.4.6"
+version: "v1.4.5"
 slug: "esp32-photoframe-server"
 description: "Image server for ESP32 PhotoFrame"
 url: "https://github.com/aitjcize/esp32-photoframe-server"
