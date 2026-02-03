@@ -26,7 +26,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 
-	token, err := h.authService.Login(req.Username, req.Password)
+	token, err := h.authService.Login(req.Username, req.Password, c.Request().UserAgent(), c.RealIP())
 	if err != nil {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
 	}
@@ -60,7 +60,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	}
 
 	// Auto-login after register
-	token, _ := h.authService.Login(req.Username, req.Password)
+	token, _ := h.authService.Login(req.Username, req.Password, c.Request().UserAgent(), c.RealIP())
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "user created", "token": token})
 }
@@ -136,6 +136,40 @@ func (h *AuthHandler) RevokeToken(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "token revoked"})
+}
+
+func (h *AuthHandler) ListSessions(c echo.Context) error {
+	userID, ok := c.Get("user_id").(uint)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "user id not found in context"})
+	}
+
+	sessions, err := h.authService.ListSessions(userID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list sessions"})
+	}
+
+	return c.JSON(http.StatusOK, sessions)
+}
+
+func (h *AuthHandler) RevokeSession(c echo.Context) error {
+	userID, ok := c.Get("user_id").(uint)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "user id not found in context"})
+	}
+
+	var req struct {
+		ID uint `param:"id"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+
+	if err := h.authService.RevokeSession(userID, req.ID); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to revoke session"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "session revoked"})
 }
 
 func (h *AuthHandler) UpdateAccount(c echo.Context) error {

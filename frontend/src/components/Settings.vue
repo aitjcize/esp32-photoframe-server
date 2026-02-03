@@ -556,7 +556,7 @@
                       variant="outlined"
                       density="compact"
                       class="mb-2"
-                     ></v-text-field>
+                    ></v-text-field>
                     <v-text-field
                       v-model="accountForm.confirmPassword"
                       label="Confirm New Password"
@@ -582,6 +582,35 @@
                   </v-card-text>
                 </v-card>
               </v-expand-transition>
+
+              <v-divider class="mb-6"></v-divider>
+
+              <h3 class="text-h6 mb-4">Active Sessions</h3>
+              <v-list density="compact" class="bg-grey-lighten-4 rounded mb-6">
+                <v-list-item
+                  v-for="session in sessions"
+                  :key="session.id"
+                  :title="getDeviceFromUA(session.user_agent)"
+                  :subtitle="`${session.ip} - Expires: ${new Date(session.expires_at).toLocaleDateString()}`"
+                >
+                  <template v-slot:append>
+                    <div class="d-flex align-center">
+                      <v-btn
+                        icon="mdi-delete"
+                        variant="text"
+                        color="error"
+                        size="small"
+                        @click="revokeSessionHandler(session.id)"
+                      ></v-btn>
+                    </div>
+                  </template>
+                </v-list-item>
+                <v-list-item v-if="sessions.length === 0">
+                  <v-list-item-title class="text-grey text-center"
+                    >No active sessions found</v-list-item-title
+                  >
+                </v-list-item>
+              </v-list>
 
               <v-divider class="mb-6"></v-divider>
 
@@ -1007,6 +1036,8 @@ import {
   deleteURLSource,
   configureDeviceSource,
   updateAccount,
+  listSessions,
+  revokeSession,
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -1377,6 +1408,7 @@ const showMessage = (msg: string, isError = false) => {
 };
 
 onMounted(async () => {
+  loadSessions();
   await store.fetchSettings();
   Object.assign(form, {
     Orientation: store.settings.orientation || 'landscape',
@@ -1699,6 +1731,28 @@ const updateAccountSettings = async () => {
   }
 };
 
+// Sessions
+const sessions = ref<any[]>([]);
+
+const loadSessions = async () => {
+  try {
+    sessions.value = await listSessions();
+  } catch (e) {
+    console.error('Failed to load sessions', e);
+  }
+};
+
+const revokeSessionHandler = async (id: number) => {
+  if (!confirm('Are you sure you want to revoke this session?')) return;
+  try {
+    await revokeSession(id);
+    await loadSessions();
+    showMessage('Session revoked');
+  } catch (e: any) {
+    showMessage('Failed: ' + (e.response?.data?.error || e.message), true);
+  }
+};
+
 // Get image endpoint URL
 const getImageUrl = (source: string) => {
   const host = window.location.host;
@@ -1714,5 +1768,16 @@ const copyToClipboard = async (text: string) => {
   } catch (e) {
     showMessage('Failed to copy to clipboard', true);
   }
+};
+
+const getDeviceFromUA = (ua: string) => {
+  if (!ua) return 'Unknown Device';
+  if (ua.includes('iPhone')) return 'iPhone';
+  if (ua.includes('iPad')) return 'iPad';
+  if (ua.includes('Macintosh')) return 'Mac';
+  if (ua.includes('Windows')) return 'Windows';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('Linux')) return 'Linux';
+  return 'Other Device';
 };
 </script>

@@ -61,7 +61,7 @@ func (s *AuthService) Register(username, password string) error {
 	return s.db.Create(&user).Error
 }
 
-func (s *AuthService) Login(username, password string) (string, error) {
+func (s *AuthService) Login(username, password, userAgent, ip string) (string, error) {
 	var user model.User
 	if err := s.db.Where("username = ?", username).First(&user).Error; err != nil {
 		return "", errors.New("invalid credentials")
@@ -71,21 +71,44 @@ func (s *AuthService) Login(username, password string) (string, error) {
 		return "", errors.New("invalid credentials")
 	}
 
-	return s.generateToken(&user)
+	return s.generateToken(&user, userAgent, ip)
 }
 
-func (s *AuthService) generateToken(user *model.User) (string, error) {
+func (s *AuthService) generateToken(user *model.User, userAgent, ip string) (string, error) {
+	// Generate a session ID (just a random string for now, or use UUID)
+	// For simplicity, we'll let the DB allocate an ID, but we need something in the token to link them.
+	// Actually, we can create the session first.
+	session := model.UserSession{
+		UserID:    user.ID,
+		UserAgent: userAgent,
+		IP:        ip,
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour), // 30 days
+		TokenID:   "",                                  // Will be populated after token generation if we use JTI
+	}
+
+	if err := s.db.Create(&session).Error; err != nil {
+		return "", err
+	}
+
 	claims := JWTClaims{
 		UserID:   user.ID,
 		Username: user.Username,
+		KeyID:    session.ID, // Reuse KeyID field for SessionID since it serves same purpose (identifying the key/session)
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)), // 24 hour token
+			ExpiresAt: jwt.NewNumericDate(session.ExpiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.jwtSecret)
+	tokenString, err := token.SignedString(s.jwtSecret)
+	if err != nil {
+		return "", err
+	}
+
+	// Update session with token signature (optional, but good for security)
+	// For now, ID is enough.
+	return tokenString, nil
 }
 
 func (s *AuthService) GenerateDeviceToken(userID uint, username string, name string) (string, error) {
@@ -133,12 +156,24 @@ func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	}
 
 	if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
-		// If KeyID is present, verify it exists in DB
+		// If subject is device, check APIKey table
+		if claims.Subject == "device" {
+			if claims.KeyID > 0 {
+				var count int64
+				s.db.Model(&model.APIKey{}).Where("id = ?", claims.KeyID).Count(&count)
+				if count == 0 {
+					return nil, errors.New("token revoked")
+				}
+			}
+			return claims, nil
+		}
+
+		// Otherwise check UserSession table
 		if claims.KeyID > 0 {
 			var count int64
-			s.db.Model(&model.APIKey{}).Where("id = ?", claims.KeyID).Count(&count)
+			s.db.Model(&model.UserSession{}).Where("id = ?", claims.KeyID).Count(&count)
 			if count == 0 {
-				return nil, errors.New("token revoked")
+				return nil, errors.New("session revoked or expired")
 			}
 		}
 		return claims, nil
@@ -155,6 +190,16 @@ func (s *AuthService) ListTokens(userID uint) ([]model.APIKey, error) {
 
 func (s *AuthService) RevokeToken(userID uint, tokenID uint) error {
 	return s.db.Where("user_id = ? AND id = ?", userID, tokenID).Delete(&model.APIKey{}).Error
+}
+
+func (s *AuthService) ListSessions(userID uint) ([]model.UserSession, error) {
+	var sessions []model.UserSession
+	err := s.db.Where("user_id = ? AND expires_at > ?", userID, time.Now()).Find(&sessions).Error
+	return sessions, err
+}
+
+func (s *AuthService) RevokeSession(userID uint, sessionID uint) error {
+	return s.db.Where("user_id = ? AND id = ?", userID, sessionID).Delete(&model.UserSession{}).Error
 }
 
 func (s *AuthService) UpdateAccount(userID uint, oldPassword, newUsername, newPassword string) error {

@@ -65,6 +65,16 @@ type DeviceHistory struct {
 	ServedAt time.Time `json:"served_at"`
 }
 
+type UserSession struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index" json:"user_id"`
+	TokenID   string    `gorm:"index" json:"-"`
+	UserAgent string    `json:"user_agent"`
+	IP        string    `json:"ip"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type DeviceImageMapping struct {
 	DeviceID uint `gorm:"primaryKey" json:"device_id"`
 	ImageID  uint `gorm:"primaryKey" json:"image_id"`

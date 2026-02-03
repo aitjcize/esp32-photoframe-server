@@ -204,3 +204,13 @@ export const updateAccount = async (
   });
   return response.data;
 };
+
+export const listSessions = async () => {
+  const response = await api.get('/auth/sessions');
+  return response.data;
+};
+
+export const revokeSession = async (id: number) => {
+  const response = await api.delete(`/auth/sessions/${id}`);
+  return response.data;
+};
