@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/aitjcize/photoframe-server/server/internal/db"
@@ -21,6 +22,65 @@ func main() {
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
 		dbPath = "esp32-photoframe/photoframe.db"
+	}
+
+	// Migration Logic: Check if legacy DB exists in /config and new DB doesn't exist
+	// This is specific to HA Add-on migration
+	legacyDBPath := "/config/esp32-photoframe-server/photoframe.db"
+	if dbPath == "/data/photoframe.db" {
+		if _, err := os.Stat(legacyDBPath); err == nil {
+			if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+				log.Println("Migrating database from legacy path:", legacyDBPath)
+				if err := os.Rename(legacyDBPath, dbPath); err != nil {
+					log.Printf("Failed to migrate database: %v", err)
+					// Try copying if rename fails (start across filesystems)
+					input, err := os.ReadFile(legacyDBPath)
+					if err == nil {
+						err = os.WriteFile(dbPath, input, 0644)
+						if err == nil {
+							log.Println("Database copied successfully")
+							os.Remove(legacyDBPath)
+						} else {
+							log.Printf("Failed to copy database: %v", err)
+						}
+					}
+				} else {
+					log.Println("Database migration successful")
+				}
+			}
+		}
+	}
+
+	// Data Directory Migration for Add-on
+	// Check if legacy data directory exists and new data directory is /data
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = "esp32-photoframe/data"
+	}
+	legacyDataDir := "/config/esp32-photoframe-server/data"
+
+	if dataDir == "/data" {
+		if info, err := os.Stat(legacyDataDir); err == nil && info.IsDir() {
+			// Check if new directory is empty or effectively empty
+			// We iterate legacy directory and try to move items
+			log.Println("Found legacy data directory, attempting migration to:", dataDir)
+
+			// Use cp -r from shell which is robust for merging directories
+			// "cp -rn" avoids overwriting existing files in destination
+			cmd := exec.Command("cp", "-rn", legacyDataDir+"/.", dataDir+"/")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("Failed to copy/merge data directory: %v, output: %s", err, output)
+			} else {
+				log.Println("Data directory migration (copy) successful")
+				// Optimization: We could remove legacy directory, but safer to let user do it or backup
+				// But to allow "cutting over", maybe we should rename?
+				// Since cp -rn preserves existing, it's safer.
+
+				// Optional: Rename legacy folder to indicate it's migrated?
+				// os.Rename(legacyDataDir, legacyDataDir+"_migrated")
+				log.Println("Please manually verify and remove legacy data in " + legacyDataDir)
+			}
+		}
 	}
 
 	// Ensure directory exists for dbPath
@@ -73,10 +133,7 @@ func main() {
 	synologyService := service.NewSynologyService(database, settingsService)
 
 	// Initialize Picker Service
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = "esp32-photoframe/data"
-	}
+	// dataDir already set from migration logic above
 	// Ensure dataDir exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("Failed to create data directory: %v", err)

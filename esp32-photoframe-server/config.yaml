@@ -22,5 +22,5 @@ map:
 options: {}
 schema: {}
 environment:
-  DB_PATH: /config/esp32-photoframe-server/photoframe.db
-  DATA_DIR: /config/esp32-photoframe-server/data
+  DB_PATH: /data/photoframe.db
+  DATA_DIR: /data
