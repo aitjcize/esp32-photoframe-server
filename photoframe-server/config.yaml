@@ -12,6 +12,10 @@ boot: auto
 image: docker.io/aitjcize/esp32-photoframe-server
 ports:
   9607/tcp: 9607
+ingress: true
+ingress_port: 9607
+panel_icon: mdi:image-frame
+panel_title: PhotoFrame
 webui: http://[HOST]:[PORT:9607]
 map:
   - config:rw
