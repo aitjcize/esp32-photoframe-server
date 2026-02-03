@@ -15,6 +15,7 @@
               variant="outlined"
               class="mb-2"
               required
+              autocomplete="username"
             ></v-text-field>
 
             <v-text-field
@@ -25,6 +26,7 @@
               variant="outlined"
               class="mb-4"
               required
+              autocomplete="current-password"
             ></v-text-field>
 
             <v-alert

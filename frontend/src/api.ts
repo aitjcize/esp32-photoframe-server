@@ -191,3 +191,16 @@ export const deletePhoto = async (id: number) => {
   const response = await api.delete(`/gallery/photos/${id}`);
   return response.data;
 };
+
+export const updateAccount = async (
+  oldPassword: string,
+  newUsername?: string,
+  newPassword?: string
+) => {
+  const response = await api.post('/auth/account', {
+    old_password: oldPassword,
+    new_username: newUsername,
+    new_password: newPassword,
+  });
+  return response.data;
+};

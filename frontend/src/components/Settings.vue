@@ -516,45 +516,68 @@
           <v-window-item value="security">
             <v-card-text>
               <div class="d-flex justify-space-between align-center mb-4">
-                <h3 class="text-h6">Change Password</h3>
+                <h3 class="text-h6">Admin Account</h3>
                 <v-btn
                   variant="tonal"
                   size="small"
-                  @click="showPasswordForm = !showPasswordForm"
+                  @click="showAccountForm = !showAccountForm"
                 >
-                  {{ showPasswordForm ? 'Cancel' : 'Change Password' }}
+                  {{ showAccountForm ? 'Cancel' : 'Edit Account' }}
                 </v-btn>
               </div>
 
               <v-expand-transition>
-                <v-card v-if="showPasswordForm" variant="outlined" class="mb-6">
+                <v-card v-if="showAccountForm" variant="outlined" class="mb-6">
                   <v-card-text>
+                    <v-alert
+                      type="info"
+                      variant="tonal"
+                      class="mb-4"
+                      density="compact"
+                    >
+                      Leave new password fields blank if you only want to change
+                      the username. Current password is required for any change.
+                    </v-alert>
                     <v-text-field
-                      v-model="passwordForm.oldPassword"
-                      label="Current Password"
-                      type="password"
+                      v-model="accountForm.newUsername"
+                      label="New Username (Optional)"
+                      placeholder="Leave empty to keep current"
                       variant="outlined"
                       density="compact"
                       class="mb-2"
                     ></v-text-field>
+
+                    <v-divider class="my-4"></v-divider>
+
                     <v-text-field
-                      v-model="passwordForm.newPassword"
+                      v-model="accountForm.newPassword"
                       label="New Password"
                       type="password"
                       variant="outlined"
                       density="compact"
                       class="mb-2"
-                    ></v-text-field>
+                     ></v-text-field>
                     <v-text-field
-                      v-model="passwordForm.confirmPassword"
+                      v-model="accountForm.confirmPassword"
                       label="Confirm New Password"
                       type="password"
                       variant="outlined"
                       density="compact"
                       class="mb-4"
                     ></v-text-field>
-                    <v-btn color="primary" @click="changePassword"
-                      >Update Password</v-btn
+
+                    <v-divider class="my-4"></v-divider>
+
+                    <v-text-field
+                      v-model="accountForm.oldPassword"
+                      label="Current Password (Required)"
+                      type="password"
+                      variant="outlined"
+                      density="compact"
+                      class="mb-4"
+                    ></v-text-field>
+                    <v-btn color="primary" @click="updateAccountSettings"
+                      >Update Account</v-btn
                     >
                   </v-card-text>
                 </v-card>
@@ -983,6 +1006,7 @@ import {
   listURLSources,
   deleteURLSource,
   configureDeviceSource,
+  updateAccount,
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -1598,9 +1622,10 @@ const copyToken = async () => {
 };
 
 // Password Change
-const showPasswordForm = ref(false);
-const passwordForm = reactive({
+const showAccountForm = ref(false);
+const accountForm = reactive({
   oldPassword: '',
+  newUsername: '',
   newPassword: '',
   confirmPassword: '',
 });
@@ -1638,28 +1663,37 @@ const revokeToken = async (id: number) => {
   }
 };
 
-const changePassword = async () => {
-  if (!passwordForm.oldPassword || !passwordForm.newPassword) {
-    showMessage('Please fill in all password fields.', true);
+const updateAccountSettings = async () => {
+  if (!accountForm.oldPassword) {
+    showMessage('Current password is required.', true);
     return;
   }
-  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    showMessage('New passwords do not match.', true);
+  if (!accountForm.newUsername && !accountForm.newPassword) {
+    showMessage('Please provide a new username or password.', true);
     return;
   }
-  if (passwordForm.newPassword.length < 6) {
-    showMessage('New password must be at least 6 characters.', true);
-    return;
+  if (accountForm.newPassword) {
+    if (accountForm.newPassword !== accountForm.confirmPassword) {
+      showMessage('New passwords do not match.', true);
+      return;
+    }
+    if (accountForm.newPassword.length < 6) {
+      showMessage('New password must be at least 6 characters.', true);
+      return;
+    }
   }
+
   try {
-    await api.post('/auth/password', {
-      old_password: passwordForm.oldPassword,
-      new_password: passwordForm.newPassword,
-    });
-    passwordForm.oldPassword = '';
-    passwordForm.newPassword = '';
-    passwordForm.confirmPassword = '';
-    showMessage('Password updated successfully!');
+    await updateAccount(
+      accountForm.oldPassword,
+      accountForm.newUsername,
+      accountForm.newPassword
+    );
+    accountForm.oldPassword = '';
+    accountForm.newUsername = '';
+    accountForm.newPassword = '';
+    accountForm.confirmPassword = '';
+    showMessage('Account updated successfully!');
   } catch (e: any) {
     showMessage('Failed: ' + (e.response?.data?.error || e.message), true);
   }

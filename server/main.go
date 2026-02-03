@@ -170,7 +170,7 @@ func main() {
 	protectedApi.POST("/auth/tokens", ah.GenerateDeviceToken)
 	protectedApi.GET("/auth/tokens", ah.ListTokens)
 	protectedApi.DELETE("/auth/tokens/:id", ah.RevokeToken)
-	protectedApi.POST("/auth/password", ah.ChangePassword)
+	protectedApi.POST("/auth/account", ah.UpdateAccount)
 
 	// Gallery (Protected) - Unified
 	protectedApi.GET("/gallery/photos", gh.ListPhotos)

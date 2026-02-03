@@ -138,7 +138,7 @@ func (h *AuthHandler) RevokeToken(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"message": "token revoked"})
 }
 
-func (h *AuthHandler) ChangePassword(c echo.Context) error {
+func (h *AuthHandler) UpdateAccount(c echo.Context) error {
 	userID, ok := c.Get("user_id").(uint)
 	if !ok {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "user id not found in context"})
@@ -146,19 +146,20 @@ func (h *AuthHandler) ChangePassword(c echo.Context) error {
 
 	var req struct {
 		OldPassword string `json:"old_password"`
+		NewUsername string `json:"new_username"`
 		NewPassword string `json:"new_password"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 
-	if req.OldPassword == "" || req.NewPassword == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "old and new passwords required"})
+	if req.OldPassword == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "current password is required"})
 	}
 
-	if err := h.authService.UpdatePassword(userID, req.OldPassword, req.NewPassword); err != nil {
+	if err := h.authService.UpdateAccount(userID, req.OldPassword, req.NewUsername, req.NewPassword); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"message": "password updated successfully"})
+	return c.JSON(http.StatusOK, map[string]string{"message": "account updated successfully"})
 }
