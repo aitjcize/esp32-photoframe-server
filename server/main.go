@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/aitjcize/photoframe-server/server/internal/db"
@@ -61,23 +60,48 @@ func main() {
 
 	if dataDir == "/data" {
 		if info, err := os.Stat(legacyDataDir); err == nil && info.IsDir() {
-			// Check if new directory is empty or effectively empty
-			// We iterate legacy directory and try to move items
 			log.Println("Found legacy data directory, attempting migration to:", dataDir)
 
-			// Use cp -r from shell which is robust for merging directories
-			// "cp -rn" avoids overwriting existing files in destination
-			cmd := exec.Command("cp", "-rn", legacyDataDir+"/.", dataDir+"/")
-			if output, err := cmd.CombinedOutput(); err != nil {
-				log.Printf("Failed to copy/merge data directory: %v, output: %s", err, output)
-			} else {
-				log.Println("Data directory migration (copy) successful")
-				// Optimization: We could remove legacy directory, but safer to let user do it or backup
-				// But to allow "cutting over", maybe we should rename?
-				// Since cp -rn preserves existing, it's safer.
+			// Use pure Go for copying to ensure compatibility with BusyBox
+			// BusyBox cp doesn't support -n flag
+			err := filepath.Walk(legacyDataDir, func(srcPath string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
 
-				// Optional: Rename legacy folder to indicate it's migrated?
-				// os.Rename(legacyDataDir, legacyDataDir+"_migrated")
+				// Calculate relative path
+				relPath, err := filepath.Rel(legacyDataDir, srcPath)
+				if err != nil {
+					return err
+				}
+				dstPath := filepath.Join(dataDir, relPath)
+
+				if info.IsDir() {
+					return os.MkdirAll(dstPath, info.Mode())
+				}
+
+				// Skip if destination already exists (no-clobber behavior)
+				if _, err := os.Stat(dstPath); err == nil {
+					log.Printf("Skipping %s (already exists)", relPath)
+					return nil
+				}
+
+				// Copy file
+				input, err := os.ReadFile(srcPath)
+				if err != nil {
+					return err
+				}
+				if err := os.WriteFile(dstPath, input, info.Mode()); err != nil {
+					return err
+				}
+				log.Printf("Copied %s", relPath)
+				return nil
+			})
+
+			if err != nil {
+				log.Printf("Failed to migrate data directory: %v", err)
+			} else {
+				log.Println("Data directory migration successful")
 				log.Println("Please manually verify and remove legacy data in " + legacyDataDir)
 			}
 		}
