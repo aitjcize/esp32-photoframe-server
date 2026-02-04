@@ -9,7 +9,6 @@ arch:
   - armv7
 startup: application
 boot: auto
-image: docker.io/aitjcize/esp32-photoframe-server
 ports:
   9607/tcp: 9607
 ingress: true
