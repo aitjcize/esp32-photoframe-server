@@ -52,3 +52,76 @@ jobs:
       run: |
         cd frontend
         npm run build
+
+  docker-build:
+    name: Build Docker Image (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: [build-go, build-frontend]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build and push (${{ matrix.arch }})
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-${{ matrix.arch }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+  docker-manifest:
+    name: Create Multi-Arch Manifest
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create and push manifest (latest)
+        run: |
+          docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-amd64 \
+            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-arm64
+
+      - name: Create and push manifest (${{ steps.version.outputs.VERSION }})
+        run: |
+          docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }} \
+            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-amd64 \
+            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-arm64
