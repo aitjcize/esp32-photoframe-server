@@ -306,7 +306,11 @@ func main() {
 	})
 
 	// Start server
-	e.Logger.Fatal(e.Start(":9607"))
+	addonPort := os.Getenv("ADDON_PORT")
+	if addonPort == "" {
+		addonPort = "9607"
+	}
+	e.Logger.Fatal(e.Start(":" + addonPort))
 }
 
 func cleanupTempThumbnails(dataDir string) {

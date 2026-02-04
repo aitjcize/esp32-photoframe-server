@@ -33,7 +33,8 @@ ssh "${HA_HOST}" "cd ${REMOTE_DIR} && \
   sed -i 's/^name:.*/name: \"ESP32 PhotoFrame Server (Dev)\"/' config.yaml && \
   sed -i 's/^version:.*/version: \"dev\"/' config.yaml && \
   sed -i 's/panel_title:.*/panel_title: PhotoFrame Dev/' config.yaml && \
-  sed -i 's/9607\\/tcp: 9607/9607\\/tcp: 9608/' config.yaml"
+  sed -i 's/9607\\/tcp: 9607/9607\\/tcp: 9608/' config.yaml && \
+  sed -i 's/ADDON_PORT: \"9607\"/ADDON_PORT: \"9608\"/' config.yaml"
 
 # Create dev build.yaml with port 9608
 ssh "${HA_HOST}" "cat > ${REMOTE_DIR}/build.yaml" << 'EOF'

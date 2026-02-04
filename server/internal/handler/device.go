@@ -53,10 +53,19 @@ func (h *DeviceHandler) ConfigureDeviceSource(c echo.Context) error {
 	}
 
 	// 1. Determine Image URL
-	host := c.Request().Host
-	if host == "" {
-		host = "localhost:9607" // Fallback
+	// For device access, always use the direct add-on port, not the ingress URL
+	// ESP32 devices access the server directly, not through Home Assistant ingress
+	hostname := c.Request().Host
+	// Strip port if present (e.g., homeassistant.local:8123 -> homeassistant.local)
+	if idx := strings.Index(hostname, ":"); idx != -1 {
+		hostname = hostname[:idx]
 	}
+	// Use direct add-on port from environment variable (defaults to 9607)
+	addonPort := os.Getenv("ADDON_PORT")
+	if addonPort == "" {
+		addonPort = "9607"
+	}
+	host := fmt.Sprintf("%s:%s", hostname, addonPort)
 
 	var imageURL string
 	switch req.Source {

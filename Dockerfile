@@ -76,6 +76,7 @@ ENV PORT=8080
 ENV STATIC_DIR=/app/static
 ENV DB_PATH=/data/photoframe.db
 ENV DATA_DIR=/data
+ENV ADDON_PORT=9607
 
 EXPOSE 9607
 
