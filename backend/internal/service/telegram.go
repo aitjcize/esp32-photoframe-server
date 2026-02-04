@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/aitjcize/photoframe-server/server/pkg/telegram"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/telegram"
 	"gorm.io/gorm"
 )
 

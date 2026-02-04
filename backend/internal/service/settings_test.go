@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"

@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/aitjcize/photoframe-server/server/pkg/photoframe"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	_ "golang.org/x/image/bmp" // Register BMP decoder
 )
 

@@ -1,4 +1,4 @@
-module github.com/aitjcize/photoframe-server
+module github.com/aitjcize/esp32-photoframe-server
 
 go 1.24.5
 

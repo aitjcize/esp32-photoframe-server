@@ -4,16 +4,16 @@
 .idea/
 
 # Go
-server/photoframe-server
+backend/photoframe-server
 *.exe
 *.test
 *.out
 
 # Node / Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/*.local
+webapp/node_modules/
+webapp/dist/
+webapp/.vite/
+webapp/*.local
 
 # Database
 start.db

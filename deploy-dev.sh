@@ -18,8 +18,8 @@ ssh "${HA_HOST}" "mkdir -p ${REMOTE_DIR}"
 rsync -avz --delete \
   --exclude '.git' \
   --exclude 'node_modules' \
-  --exclude 'frontend/node_modules' \
-  --exclude 'frontend/dist' \
+  --exclude 'webapp/node_modules' \
+  --exclude 'webapp/dist' \
   --exclude '*.db' \
   --exclude 'data/' \
   --exclude 'bin/' \

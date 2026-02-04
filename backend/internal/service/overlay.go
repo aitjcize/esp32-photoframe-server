@@ -6,7 +6,7 @@ import (
 	"image/color"
 	"time"
 
-	"github.com/aitjcize/photoframe-server/server/pkg/weather"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/weather"
 	"github.com/fogleman/gg"
 )
 

@@ -3,7 +3,7 @@ package db
 import (
 	"log"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Import file source driver

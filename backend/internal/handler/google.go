@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
-	"github.com/aitjcize/photoframe-server/server/internal/service"
-	"github.com/aitjcize/photoframe-server/server/pkg/googlephotos"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/labstack/echo/v4"
 	xdraw "golang.org/x/image/draw"
 	"gorm.io/gorm"

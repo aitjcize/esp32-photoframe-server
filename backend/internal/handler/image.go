@@ -18,11 +18,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
-	"github.com/aitjcize/photoframe-server/server/internal/service"
-	"github.com/aitjcize/photoframe-server/server/pkg/googlephotos"
-	"github.com/aitjcize/photoframe-server/server/pkg/imageops"
-	"github.com/aitjcize/photoframe-server/server/pkg/photoframe"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/imageops"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )

@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"github.com/aitjcize/photoframe-server/server/internal/service"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
 	"github.com/labstack/echo/v4"
 )
 

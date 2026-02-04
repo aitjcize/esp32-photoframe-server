@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
-	"github.com/aitjcize/photoframe-server/server/pkg/synology"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/synology"
 	"gorm.io/gorm"
 )
 

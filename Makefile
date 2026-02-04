@@ -2,9 +2,9 @@
 
 format:
 	@echo "Formatting Go code..."
-	gofmt -w server/
+	gofmt -w backend/
 	@echo "Formatting Frontend code..."
-	cd frontend && npm run format
+	cd webapp && npm run format
 
 build:
 	docker build -t photoframe-server .
@@ -31,6 +31,6 @@ dev:
 		curl -sL "https://github.com/google/material-design-icons/raw/master/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf" -o bin/fonts/MaterialSymbolsOutlined.ttf; \
 	fi
 	@echo "Building frontend..."
-	@cd frontend && npm install && npm run build
+	@cd webapp && npm install && npm run build
 	@echo "Starting server locally..."
-	@cd server && CGO_ENABLED=1 DATA_DIR=$(PWD)/data DB_PATH=$(PWD)/data/photoframe.db STATIC_DIR=../frontend/dist go run .
+	@cd backend && CGO_ENABLED=1 DATA_DIR=$(PWD)/data DB_PATH=$(PWD)/data/photoframe.db STATIC_DIR=../webapp/dist go run .

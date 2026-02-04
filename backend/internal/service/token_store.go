@@ -4,7 +4,7 @@ import (
 	"errors"
 	"log"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )

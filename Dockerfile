@@ -13,16 +13,16 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy Source
-COPY server/ ./server/
-RUN CGO_ENABLED=1 go build -o photoframe-server ./server
+COPY backend/ ./backend/
+RUN CGO_ENABLED=1 go build -o photoframe-server ./backend
 
 # Build Stage for Frontend
 FROM node:20-alpine AS frontend-builder
 ARG ADDON_PORT=9607
 WORKDIR /app
-COPY frontend/package*.json ./
+COPY webapp/package*.json ./
 RUN npm install
-COPY frontend/ ./
+COPY webapp/ ./
 RUN VITE_ADDON_PORT=${ADDON_PORT} npm run build
 
 # Final Stage
@@ -64,7 +64,7 @@ COPY --from=builder /app/photoframe-server /app/photoframe-server
 COPY --from=frontend-builder /app/dist /app/static
 
 # Copy Migrations
-COPY server/db/migrations /app/db/migrations
+COPY backend/db/migrations /app/db/migrations
 
 # Install epaper-image-convert
 RUN npm install -g @aitjcize/epaper-image-convert

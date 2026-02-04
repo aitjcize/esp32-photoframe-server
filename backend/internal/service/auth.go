@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"

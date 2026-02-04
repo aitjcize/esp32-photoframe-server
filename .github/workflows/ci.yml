@@ -23,13 +23,13 @@ jobs:
         
     - name: Build
       run: |
-        cd server
+        cd backend
         go mod tidy
         go build -v ./...
         
     - name: Test
       run: |
-        cd server
+        cd backend
         go test -v ./...
 
   build-frontend:
@@ -45,12 +45,12 @@ jobs:
         
     - name: Install Dependencies
       run: |
-        cd frontend
+        cd webapp
         npm ci
         
     - name: Build
       run: |
-        cd frontend
+        cd webapp
         npm run build
 
   docker-build:

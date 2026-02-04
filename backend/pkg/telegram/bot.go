@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	tele "gopkg.in/telebot.v3"
 	"gorm.io/gorm"
 )

@@ -7,9 +7,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/aitjcize/photoframe-server/server/internal/model"
-	"github.com/aitjcize/photoframe-server/server/pkg/imageops"
-	"github.com/aitjcize/photoframe-server/server/pkg/photoframe"
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/imageops"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	"gorm.io/gorm"
 )
 
