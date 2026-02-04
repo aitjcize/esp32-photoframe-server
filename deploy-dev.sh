@@ -27,14 +27,13 @@ rsync -avz --delete \
   "${LOCAL_DIR}/" "${HA_HOST}:${REMOTE_DIR}/"
 
 # Modify config.yaml for dev: remove image line, change slug/name/port
-ssh "${HA_HOST}" "cd ${REMOTE_DIR}/esp32-photoframe-server && \
+ssh "${HA_HOST}" "cd ${REMOTE_DIR} && \
   sed -i 's/^image:.*$/# image removed for local build/' config.yaml && \
   sed -i 's/^slug:.*/slug: \"esp32-photoframe-server-dev\"/' config.yaml && \
   sed -i 's/^name:.*/name: \"ESP32 PhotoFrame Server (Dev)\"/' config.yaml && \
   sed -i 's/^version:.*/version: \"dev\"/' config.yaml && \
   sed -i 's/panel_title:.*/panel_title: PhotoFrame Dev/' config.yaml && \
-  sed -i 's/9607\\/tcp: 9607/9607\\/tcp: 9608/' config.yaml && \
-  mv config.yaml ../"
+  sed -i 's/9607\\/tcp: 9607/9607\\/tcp: 9608/' config.yaml"
 
 # Create dev build.yaml with port 9608
 ssh "${HA_HOST}" "cat > ${REMOTE_DIR}/build.yaml" << 'EOF'
