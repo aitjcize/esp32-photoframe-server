@@ -77,11 +77,10 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 	}
 
 	var photos []PhotoResponse
-	host := c.Request().Host
 	for _, item := range items {
 		photos = append(photos, PhotoResponse{
 			ID:           item.ID,
-			ThumbnailURL: fmt.Sprintf("http://%s/api/gallery/thumbnail/%d", host, item.ID),
+			ThumbnailURL: fmt.Sprintf("api/gallery/thumbnail/%d", item.ID),
 			CreatedAt:    item.CreatedAt,
 			Caption:      item.Caption,
 			Width:        item.Width,

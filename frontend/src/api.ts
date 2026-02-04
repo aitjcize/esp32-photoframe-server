@@ -17,15 +17,15 @@ api.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401) {
       // Ignore Synology endpoints as they use 401 for 2FA challenges
-      if (error.config.url && error.config.url.includes('/synology/')) {
+      if (error.config.url && error.config.url.includes('synology/')) {
         return Promise.reject(error);
       }
 
       // Clear token and redirect to login if 401 received
       // Avoid redirect loop if already on login page
-      if (!window.location.pathname.startsWith('/login')) {
+      if (!window.location.pathname.endsWith('/login')) {
         localStorage.removeItem('token');
-        window.location.href = '/login';
+        window.location.href = 'login';
       }
     }
     return Promise.reject(error);
@@ -33,22 +33,22 @@ api.interceptors.response.use(
 );
 
 export const getSettings = async () => {
-  const response = await api.get('/settings');
+  const response = await api.get('settings');
   return response.data;
 };
 
 export const updateSettings = async (settings: Record<string, string>) => {
-  const response = await api.post('/settings', { settings });
+  const response = await api.post('settings', { settings });
   return response.data;
 };
 
 export const getStatus = async () => {
-  const response = await api.get('/status');
+  const response = await api.get('status');
   return response.data;
 };
 
 export const getGoogleAlbums = async () => {
-  const response = await api.get('/google/albums');
+  const response = await api.get('google/albums');
   return response.data;
 };
 // Devices
@@ -70,7 +70,7 @@ export interface Device {
 }
 
 export const listDevices = async () => {
-  const response = await api.get('/devices');
+  const response = await api.get('devices');
   return response.data;
 };
 
@@ -83,7 +83,7 @@ export const addDevice = async (
   weatherLat: number,
   weatherLon: number
 ) => {
-  const response = await api.post('/devices', {
+  const response = await api.post('devices', {
     host,
     use_device_parameter: useDeviceParameter,
     enable_collage: enableCollage,
@@ -145,7 +145,7 @@ export const configureDeviceSource = async (id: number, source: string) => {
 };
 
 export const createURLSource = async (url: string, deviceIDs: number[]) => {
-  const response = await api.post('/gallery/urls', {
+  const response = await api.post('gallery/urls', {
     url,
     device_ids: deviceIDs,
   });
@@ -165,7 +165,7 @@ export const updateURLSource = async (
 };
 
 export const listURLSources = async () => {
-  const response = await api.get('/gallery/urls');
+  const response = await api.get('gallery/urls');
   return response.data;
 };
 
@@ -183,7 +183,7 @@ export const listPhotos = async (
   if (source) params.source = source;
   if (limit) params.limit = limit;
   if (offset) params.offset = offset;
-  const response = await api.get('/gallery/photos', { params });
+  const response = await api.get('gallery/photos', { params });
   return response.data;
 };
 
@@ -197,7 +197,7 @@ export const updateAccount = async (
   newUsername?: string,
   newPassword?: string
 ) => {
-  const response = await api.post('/auth/account', {
+  const response = await api.post('auth/account', {
     old_password: oldPassword,
     new_username: newUsername,
     new_password: newPassword,
@@ -206,7 +206,7 @@ export const updateAccount = async (
 };
 
 export const listSessions = async () => {
-  const response = await api.get('/auth/sessions');
+  const response = await api.get('auth/sessions');
   return response.data;
 };
 

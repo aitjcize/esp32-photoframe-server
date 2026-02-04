@@ -18,11 +18,12 @@ RUN CGO_ENABLED=1 go build -o photoframe-server ./server
 
 # Build Stage for Frontend
 FROM node:20-alpine AS frontend-builder
+ARG ADDON_PORT=9607
 WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm install
 COPY frontend/ ./
-RUN npm run build
+RUN VITE_ADDON_PORT=${ADDON_PORT} npm run build
 
 # Final Stage
 FROM $BUILD_FROM
@@ -30,8 +31,8 @@ FROM $BUILD_FROM
 WORKDIR /app
 
 # Install runtime dependencies
-# Install runtime dependencies
 # Canvas dependencies: cairo, pango, jpeg, giflib, librsvg
+# Node.js for epaper-image-convert
 RUN apk add --no-cache \
     cairo-dev \
     pango-dev \
@@ -43,7 +44,9 @@ RUN apk add --no-cache \
     build-base \
     python3 \
     font-noto \
-    font-noto-emoji
+    font-noto-emoji \
+    nodejs \
+    npm
 
 # Create directories
 RUN mkdir -p /app/bin /app/static /app/data

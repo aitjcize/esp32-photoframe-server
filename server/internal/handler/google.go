@@ -271,11 +271,10 @@ func (h *GoogleHandler) ListGooglePhotos(c echo.Context) error {
 	}
 
 	var photos []PhotoResponse
-	host := c.Request().Host
 	for _, item := range items {
 		photos = append(photos, PhotoResponse{
 			ID:           item.ID,
-			ThumbnailURL: fmt.Sprintf("http://%s/api/google-photos/%d/thumbnail", host, item.ID),
+			ThumbnailURL: fmt.Sprintf("api/google-photos/%d/thumbnail", item.ID),
 			CreatedAt:    item.CreatedAt,
 			Caption:      item.Caption,
 			Width:        item.Width,

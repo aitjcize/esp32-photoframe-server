@@ -1754,10 +1754,13 @@ const revokeSessionHandler = async (id: number) => {
 };
 
 // Get image endpoint URL
+// Always use direct add-on port for device access (ESP32 devices access directly, not via ingress)
 const getImageUrl = (source: string) => {
-  const host = window.location.host;
+  const hostname = window.location.hostname;
   const protocol = window.location.protocol;
-  return `${protocol}//${host}/image/${source}`;
+  // Use configurable port via env var, default to 9607 for production
+  const addonPort = import.meta.env.VITE_ADDON_PORT || '9607';
+  return `${protocol}//${hostname}:${addonPort}/image/${source}`;
 };
 
 // Copy to clipboard
