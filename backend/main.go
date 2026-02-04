@@ -306,11 +306,11 @@ func main() {
 	})
 
 	// Start server
-	addonPort := os.Getenv("ADDON_PORT")
-	if addonPort == "" {
-		addonPort = "9607"
+	listenPort := os.Getenv("PORT")
+	if listenPort == "" {
+		listenPort = "9607"
 	}
-	e.Logger.Fatal(e.Start(":" + addonPort))
+	e.Logger.Fatal(e.Start(":" + listenPort))
 }
 
 func cleanupTempThumbnails(dataDir string) {

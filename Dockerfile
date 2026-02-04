@@ -72,11 +72,12 @@ RUN npm install -g @aitjcize/epaper-image-convert
 WORKDIR /app
 
 # Environment Variables
-ENV PORT=8080
+ENV PORT=9607
 ENV STATIC_DIR=/app/static
 ENV DB_PATH=/data/photoframe.db
 ENV DATA_DIR=/data
-ENV ADDON_PORT=9607
+ARG ADDON_PORT=9607
+ENV ADDON_PORT=$ADDON_PORT
 
 EXPOSE 9607
 
