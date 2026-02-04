@@ -39,13 +39,19 @@ func (s *OverlayService) ApplyOverlay(img image.Image, opts OverlayOptions) (ima
 	w := float64(dc.Width())
 	h := float64(dc.Height())
 
+	// Calculate scale factor based on reference height (e.g., 800px)
+	scaleFactor := h / 800.0
+	if scaleFactor < 0.5 {
+		scaleFactor = 0.5 // Minimum scale
+	}
+
 	// 2. Draw Gradient (only if we have overlays)
-	gradientHeight := 150.0
+	gradientHeight := 150.0 * scaleFactor
 	grad := gg.NewLinearGradient(0, h-gradientHeight, 0, h)
 	grad.AddColorStop(0, color.RGBA{0, 0, 0, 0})
-	grad.AddColorStop(0.3, color.RGBA{0, 0, 0, 100})
-	grad.AddColorStop(0.6, color.RGBA{0, 0, 0, 130})
-	grad.AddColorStop(1, color.RGBA{0, 0, 0, 160})
+	grad.AddColorStop(0.3, color.RGBA{0, 0, 0, 90})
+	grad.AddColorStop(0.6, color.RGBA{0, 0, 0, 110})
+	grad.AddColorStop(1, color.RGBA{0, 0, 0, 140})
 
 	dc.SetFillStyle(grad)
 	dc.DrawRectangle(0, h-gradientHeight, w, gradientHeight)
@@ -60,7 +66,7 @@ func (s *OverlayService) ApplyOverlay(img image.Image, opts OverlayOptions) (ima
 	}
 	var validFontPath string
 	for _, fontPath := range fontPaths {
-		if err := dc.LoadFontFace(fontPath, 25); err == nil {
+		if err := dc.LoadFontFace(fontPath, 25*scaleFactor); err == nil {
 			validFontPath = fontPath
 			break
 		}
@@ -71,14 +77,15 @@ func (s *OverlayService) ApplyOverlay(img image.Image, opts OverlayOptions) (ima
 	}
 
 	// 4. Configuration for text positioning
-	marginBottom := 50.0
+	marginBottom := 50.0 * scaleFactor
+	paddingSide := 20.0 * scaleFactor
 
 	// Date
 	if hasDate {
 		now := time.Now()
 		dateStr := now.Format("Mon, Jan 02")
 
-		x := 20.0
+		x := paddingSide
 		y := h - marginBottom
 
 		// Draw text
@@ -99,7 +106,7 @@ func (s *OverlayService) ApplyOverlay(img image.Image, opts OverlayOptions) (ima
 			}
 			iconFontLoaded := false
 			for _, p := range iconFontPaths {
-				if err := dc.LoadFontFace(p, 72); err == nil {
+				if err := dc.LoadFontFace(p, 72*scaleFactor); err == nil {
 					iconFontLoaded = true
 					break
 				}
@@ -107,11 +114,11 @@ func (s *OverlayService) ApplyOverlay(img image.Image, opts OverlayOptions) (ima
 
 			if iconFontLoaded {
 				icon := weather.Icon()
-				iconX := w - 20
+				iconX := w - paddingSide
 				// Icon sits above the text.
 				// Text is at h - marginBottom.
 				// Icon center previously at h - 60 (diff 35).
-				iconY := h - marginBottom - 35
+				iconY := h - marginBottom - (35 * scaleFactor)
 
 				// Draw icon
 				dc.SetRGB(1, 1, 1)
@@ -120,9 +127,9 @@ func (s *OverlayService) ApplyOverlay(img image.Image, opts OverlayOptions) (ima
 			// If Material Symbols font not available, skip weather icon (text will still show)
 
 			// Draw temperature and humidity below in smaller text using detected font
-			if err := dc.LoadFontFace(validFontPath, 18); err == nil {
+			if err := dc.LoadFontFace(validFontPath, 18*scaleFactor); err == nil {
 				weatherStr := fmt.Sprintf("%.1f°C  %d%%", weather.Temperature, weather.Humidity)
-				textX := w - 20
+				textX := w - paddingSide
 				textY := h - marginBottom
 
 				// Draw text
