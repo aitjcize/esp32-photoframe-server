@@ -184,7 +184,7 @@ func (c *Client) ListPhotos(offset, limit int, albumID int, space string) ([]Ite
 	params.Set("type", "photo")
 	params.Set("offset", fmt.Sprintf("%d", offset))
 	params.Set("limit", fmt.Sprintf("%d", limit))
-	params.Set("additional", `["thumbnail"]`)
+	params.Set("additional", `["thumbnail","resolution"]`)
 
 	if albumID != 0 {
 		params.Set("album_id", fmt.Sprintf("%d", albumID))

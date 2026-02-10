@@ -25,6 +25,10 @@ type Item struct {
 			XL string `json:"xl"`
 			S  string `json:"s"`
 		} `json:"thumbnail"`
+		Resolution struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		} `json:"resolution"`
 	} `json:"additional"`
 }
 

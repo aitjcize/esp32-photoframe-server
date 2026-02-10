@@ -226,12 +226,34 @@ func (s *SynologyService) ImportPhotos() error {
 			result := s.db.Where("synology_photo_id = ? AND source = ?", p.ID, model.SourceSynologyPhotos).First(&existing)
 
 			if result.Error == nil {
-				// Update cache key if changed
+				// Update cache key and backfill orientation if missing
+				updated := false
 				if existing.ThumbnailKey != p.Additional.Thumbnail.M {
 					existing.ThumbnailKey = p.Additional.Thumbnail.M
+					updated = true
+				}
+				if existing.Orientation == "" {
+					pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
+					if ph > pw && pw > 0 {
+						existing.Orientation = "portrait"
+					} else {
+						existing.Orientation = "landscape"
+					}
+					existing.Width = pw
+					existing.Height = ph
+					updated = true
+				}
+				if updated {
 					s.db.Save(&existing)
 				}
 				continue
+			}
+
+			// Determine orientation from resolution
+			orientation := "landscape"
+			pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
+			if ph > pw && pw > 0 {
+				orientation = "portrait"
 			}
 
 			// Create
@@ -241,6 +263,9 @@ func (s *SynologyService) ImportPhotos() error {
 				Source:          model.SourceSynologyPhotos,
 				FilePath:        p.Filename,
 				ThumbnailKey:    p.Additional.Thumbnail.M,
+				Width:           pw,
+				Height:          ph,
+				Orientation:     orientation,
 				CreatedAt:       time.Now(),
 				Status:          "pending",
 			}
