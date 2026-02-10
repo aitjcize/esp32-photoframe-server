@@ -16,6 +16,7 @@ const (
 	SourceSynologyPhotos = "synology_photos"
 	SourceTelegram       = "telegram"
 	SourceURLProxy       = "url_proxy"
+	SourceAIGeneration   = "ai_generation"
 )
 
 type Image struct {
@@ -55,6 +56,9 @@ type Device struct {
 	ShowWeather        bool      `json:"show_weather"`
 	WeatherLat         float64   `json:"weather_lat"`
 	WeatherLon         float64   `json:"weather_lon"`
+	AIProvider         string    `gorm:"column:ai_provider" json:"ai_provider"`
+	AIModel            string    `gorm:"column:ai_model" json:"ai_model"`
+	AIPrompt           string    `gorm:"column:ai_prompt" json:"ai_prompt"`
 	CreatedAt          time.Time `json:"created_at"`
 }
 

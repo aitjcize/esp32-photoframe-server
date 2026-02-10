@@ -1,0 +1,3 @@
+ALTER TABLE devices ADD COLUMN ai_provider TEXT DEFAULT '';
+ALTER TABLE devices ADD COLUMN ai_model TEXT DEFAULT '';
+ALTER TABLE devices ADD COLUMN ai_prompt TEXT DEFAULT '';

@@ -49,6 +49,7 @@
               <v-tab value="synology_photos">Synology</v-tab>
               <v-tab value="telegram">Telegram</v-tab>
               <v-tab value="url">URL Proxy</v-tab>
+              <v-tab value="ai_generation">AI Generation</v-tab>
             </v-tabs>
 
             <v-window v-model="activeDataSourceTab">
@@ -509,6 +510,74 @@
                   </div>
                 </v-card-text>
               </v-window-item>
+
+              <!-- AI Generation -->
+              <v-window-item value="ai_generation">
+                <v-card-text>
+                  <v-alert
+                    type="info"
+                    variant="tonal"
+                    class="mb-4"
+                    density="compact"
+                  >
+                    Generate images using AI (OpenAI or Google Gemini). Configure
+                    API keys below, then set the prompt/model per-device in the
+                    Edit Device dialog.
+                  </v-alert>
+
+                  <v-text-field
+                    :model-value="getImageUrl('ai_generation')"
+                    label="Image Endpoint URL (for firmware config)"
+                    readonly
+                    variant="outlined"
+                    density="compact"
+                    append-inner-icon="mdi-content-copy"
+                    @click:append-inner="
+                      copyToClipboard(getImageUrl('ai_generation'))
+                    "
+                    class="mb-4"
+                  ></v-text-field>
+
+                  <v-text-field
+                    v-model="form.openai_api_key"
+                    label="OpenAI API Key"
+                    type="password"
+                    variant="outlined"
+                    class="mb-1"
+                    hint="sk-..."
+                    persistent-hint
+                  ></v-text-field>
+                  <div class="text-caption text-grey ml-2 mb-4">
+                    Get your API key at
+                    <a
+                      href="https://platform.openai.com/api-keys"
+                      target="_blank"
+                      class="text-primary text-decoration-none"
+                      >platform.openai.com</a
+                    >
+                  </div>
+
+                  <v-text-field
+                    v-model="form.google_api_key"
+                    label="Google Gemini API Key"
+                    type="password"
+                    variant="outlined"
+                    class="mb-1"
+                    persistent-hint
+                  ></v-text-field>
+                  <div class="text-caption text-grey ml-2 mb-4">
+                    Get your API key at
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      class="text-primary text-decoration-none"
+                      >aistudio.google.com</a
+                    >
+                  </div>
+
+                  <v-btn color="primary" @click="save">Save API Keys</v-btn>
+                </v-card-text>
+              </v-window-item>
             </v-window>
           </v-window-item>
 
@@ -937,6 +1006,68 @@
                         ></v-text-field>
                       </div>
                     </div>
+
+                    <!-- AI Generation Settings -->
+                    <div class="mb-4 border rounded pa-3">
+                      <div class="text-subtitle-2 mb-4">
+                        AI Image Generation
+                      </div>
+                      <v-select
+                        v-model="editingDevice.ai_provider"
+                        :items="[
+                          { title: 'None', value: '' },
+                          { title: 'OpenAI', value: 'openai' },
+                          { title: 'Google Gemini', value: 'google' },
+                        ]"
+                        label="AI Provider"
+                        variant="outlined"
+                        density="compact"
+                        class="mb-4"
+                        hide-details
+                      ></v-select>
+
+                      <v-alert
+                        v-if="editingDevice.ai_provider === 'openai' && !form.openai_api_key"
+                        type="warning"
+                        variant="tonal"
+                        density="compact"
+                        class="mb-4"
+                      >
+                        OpenAI API Key not configured. Please add it in Data Sources → AI Generation.
+                      </v-alert>
+
+                      <v-alert
+                        v-if="editingDevice.ai_provider === 'google' && !form.google_api_key"
+                        type="warning"
+                        variant="tonal"
+                        density="compact"
+                        class="mb-4"
+                      >
+                        Google API Key not configured. Please add it in Data Sources → AI Generation.
+                      </v-alert>
+
+                      <v-select
+                        v-if="editingDevice.ai_provider"
+                        v-model="editingDevice.ai_model"
+                        :items="aiModelOptionsForProvider(editingDevice.ai_provider)"
+                        label="Model"
+                        variant="outlined"
+                        density="compact"
+                        class="mb-4"
+                        hide-details
+                      ></v-select>
+
+                      <v-textarea
+                        v-if="editingDevice.ai_provider"
+                        v-model="editingDevice.ai_prompt"
+                        label="Prompt"
+                        variant="outlined"
+                        density="compact"
+                        rows="3"
+                        placeholder="A beautiful landscape painting..."
+                        hid-details
+                      ></v-textarea>
+                    </div>
                   </v-card-text>
                   <v-card-actions>
                     <v-spacer></v-spacer>
@@ -1060,6 +1191,7 @@ const sourceOptions = [
   { title: 'Synology Photos', value: 'synology_photos' },
   { title: 'Telegram', value: 'telegram' },
   { title: 'URL Proxy', value: 'url_proxy' },
+  { title: 'AI Generation', value: 'ai_generation' },
 ];
 const isBinding = ref(false);
 
@@ -1162,6 +1294,24 @@ const deleteURLSourceWrapper = async (id: number) => {
   }
 };
 
+const aiModelOptionsForProvider = (provider: string | undefined) => {
+  if (provider === 'openai') {
+    return [
+      { title: 'GPT Image 1.5', value: 'gpt-image-1.5' },
+      { title: 'GPT Image 1', value: 'gpt-image-1' },
+      { title: 'GPT Image 1 Mini', value: 'gpt-image-1-mini' },
+      { title: 'DALL-E 3', value: 'dall-e-3' },
+      { title: 'DALL-E 2', value: 'dall-e-2' },
+    ];
+  } else if (provider === 'google') {
+    return [
+      { title: 'Gemini 2.5 Flash Image', value: 'gemini-2.5-flash-image' },
+      { title: 'Gemini 3 Pro Image', value: 'gemini-3-pro-image-preview' },
+    ];
+  }
+  return [];
+};
+
 const getDeviceName = (id: number) => {
   const dev = availableDevices.value.find((d) => d.id === id);
   return dev ? dev.name : `Device ${id}`;
@@ -1180,6 +1330,23 @@ const deviceListLoading = ref(false);
 // Edit Device State
 const showEditDeviceDialog = ref(false);
 const editingDevice = reactive<Partial<Device>>({});
+
+// Reset AI model when provider changes
+watch(
+  () => editingDevice.ai_provider,
+  (newProvider, oldProvider) => {
+    if (newProvider !== oldProvider && oldProvider !== undefined) {
+      // Set default model for the new provider
+      if (newProvider === 'openai') {
+        editingDevice.ai_model = 'gpt-image-1.5';
+      } else if (newProvider === 'google') {
+        editingDevice.ai_model = 'gemini-2.5-flash-image';
+      } else {
+        editingDevice.ai_model = '';
+      }
+    }
+  }
+);
 
 const newDevice = reactive({
   name: '',
@@ -1279,7 +1446,10 @@ const saveEditedDevice = async () => {
       editingDevice.show_date!,
       editingDevice.show_weather!,
       editingDevice.weather_lat || 0,
-      editingDevice.weather_lon || 0
+      editingDevice.weather_lon || 0,
+      editingDevice.ai_provider || '',
+      editingDevice.ai_model || '',
+      editingDevice.ai_prompt || ''
     );
     await loadDevices();
     showEditDeviceDialog.value = false;
@@ -1316,7 +1486,10 @@ const refreshDeviceParams = async (device: Device) => {
       device.show_date!,
       device.show_weather!,
       device.weather_lat || 0,
-      device.weather_lon || 0
+      device.weather_lon || 0,
+      device.ai_provider || '',
+      device.ai_model || '',
+      device.ai_prompt || ''
     );
     await loadDevices();
     showMessage('Device parameters refreshed from device');
@@ -1393,6 +1566,8 @@ const form = reactive({
   telegram_bot_token: '',
   telegram_push_enabled: false,
   telegram_target_device_id: [] as number[],
+  openai_api_key: '',
+  google_api_key: '',
   device_host: '', // Keep for backward compatibility/display? Or remove. Remove from form, keep in store maybe?
 });
 
@@ -1439,6 +1614,8 @@ onMounted(async () => {
       ? parseInt(store.settings.synology_album_id)
       : '',
     synology_sid: store.settings.synology_sid || '',
+    openai_api_key: store.settings.openai_api_key || '',
+    google_api_key: store.settings.google_api_key || '',
   });
 
   // Load cached albums if available
@@ -1499,6 +1676,8 @@ const saveSettingsInternal = async () => {
     synology_skip_cert: String(form.synology_skip_cert),
     synology_space: form.synology_space,
     synology_album_id: String(form.synology_album_id),
+    openai_api_key: form.openai_api_key,
+    google_api_key: form.google_api_key,
   });
 };
 

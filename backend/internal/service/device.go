@@ -91,7 +91,7 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 	return device, nil
 }
 
-func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64) (*model.Device, error) {
+func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string) (*model.Device, error) {
 	var device model.Device
 	if err := s.db.First(&device, id).Error; err != nil {
 		return nil, errors.New("device not found")
@@ -145,6 +145,9 @@ func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height i
 	device.ShowWeather = showWeather
 	device.WeatherLat = weatherLat
 	device.WeatherLon = weatherLon
+	device.AIProvider = aiProvider
+	device.AIModel = aiModel
+	device.AIPrompt = aiPrompt
 
 	if err := s.db.Save(&device).Error; err != nil {
 		return nil, err

@@ -75,6 +75,8 @@ func (h *DeviceHandler) ConfigureDeviceSource(c echo.Context) error {
 		imageURL = fmt.Sprintf("http://%s/image/google_photos", host)
 	case model.SourceSynologyPhotos:
 		imageURL = fmt.Sprintf("http://%s/image/synology_photos", host)
+	case model.SourceAIGeneration:
+		imageURL = fmt.Sprintf("http://%s/image/ai_generation", host)
 	case model.SourceTelegram: // Added telegram source
 		imageURL = fmt.Sprintf("http://%s/image/telegram", host)
 		// Update Telegram Settings (Append if not exists)
@@ -187,17 +189,20 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		Height             int     `json:"height"`
 		Orientation        string  `json:"orientation"`
 		UseDeviceParameter bool    `json:"use_device_parameter"`
-		EnableCollage      bool    `json:"enable_collage"` // Add this field
+		EnableCollage      bool    `json:"enable_collage"`
 		ShowDate           bool    `json:"show_date"`
 		ShowWeather        bool    `json:"show_weather"`
 		WeatherLat         float64 `json:"weather_lat"`
 		WeatherLon         float64 `json:"weather_lon"`
+		AIProvider         string  `json:"ai_provider"`
+		AIModel            string  `json:"ai_model"`
+		AIPrompt           string  `json:"ai_prompt"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 
-	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon)
+	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

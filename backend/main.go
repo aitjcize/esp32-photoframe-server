@@ -155,6 +155,8 @@ func main() {
 	overlayService := service.NewOverlayService(weatherClient, settingsService)
 	// Initialize Synology Photos Service
 	synologyService := service.NewSynologyService(database, settingsService)
+	// Initialize AI Generation Service
+	aiGenerationService := service.NewAIGenerationService(settingsService)
 
 	// Initialize Picker Service
 	// dataDir already set from migration logic above
@@ -193,7 +195,7 @@ func main() {
 	// Reuse 'gh' variable name for GalleryHandler because I used 'gh' in routes above.
 	// Wait, 'gh' was GoogleHandler before. I should rename GoogleHandler to 'googleHandler' and 'gh' to GalleryHandler to match my routes change.
 	gh := handler.NewGalleryHandler(database, synologyService, dataDir)
-	ih := handler.NewImageHandler(settingsService, overlayService, processorService, googleClient, synologyService, database, dataDir)
+	ih := handler.NewImageHandler(settingsService, overlayService, processorService, googleClient, synologyService, aiGenerationService, database, dataDir)
 	ah := handler.NewAuthHandler(authService)
 
 	// Echo instance

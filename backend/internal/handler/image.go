@@ -33,6 +33,7 @@ type ImageHandler struct {
 	processor *service.ProcessorService
 	google    *googlephotos.Client
 	synology  *service.SynologyService
+	aiGen     *service.AIGenerationService
 	db        *gorm.DB
 	dataDir   string
 }
@@ -43,6 +44,7 @@ func NewImageHandler(
 	p *service.ProcessorService,
 	g *googlephotos.Client,
 	synology *service.SynologyService,
+	aiGen *service.AIGenerationService,
 	db *gorm.DB,
 	dataDir string,
 ) *ImageHandler {
@@ -52,6 +54,7 @@ func NewImageHandler(
 		processor: p,
 		google:    g,
 		synology:  synology,
+		aiGen:     aiGen,
 		db:        db,
 		dataDir:   dataDir,
 	}
@@ -174,6 +177,12 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			defer f.Close()
 			img, _, err = image.Decode(f)
 		}
+	} else if source == model.SourceAIGeneration {
+		// AI Generation: generate fresh image from device config
+		if !deviceFound {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "device not found - AI generation requires device config"})
+		}
+		img, err = h.aiGen.Generate(&device)
 	} else if enableCollage {
 		var devID *uint
 		if deviceFound {

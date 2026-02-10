@@ -9,6 +9,7 @@ A image server for the [ESP32 PhotoFrame](https://github.com/aitjcize/esp32-phot
     - **Synology Photos**: Connect directly to your Synology NAS (supports DSM 7 Personal and Shared spaces).
     - **Telegram Bot**: Send photos directly to your frame via a Telegram bot.
     - **URL Proxy**: Display images from any URL.
+    - **AI Generation**: Generate unique images using OpenAI (GPT Image, DALL-E) or Google Gemini.
 - **Smart Image Processing**:
     - Automatic cropping to device aspect ratio (800x480 or 480x800).
     - **Smart Collage**: Automatically combines two landscape photos in portrait mode (or vice versa) to maximize screen usage.
@@ -152,6 +153,29 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
 3. Add URLs to images you want to display.
 4. Assign URLs to specific devices.
 
+### AI Generation Setup
+
+Generate unique AI artwork for your photo frame using OpenAI or Google Gemini.
+
+1. **Get an API Key**:
+   - **OpenAI**: Get your key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+   - **Google Gemini**: Get your key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+
+2. **Configure API Keys**:
+   - Go to **Settings** → **Data Sources** → **AI Generation**
+   - Enter your API key(s) and click **Save API Keys**
+
+3. **Configure Per-Device**:
+   - Go to **Settings** → **Devices**
+   - Click **Edit** on the device you want to configure
+   - Under **AI Image Generation**, select a provider (OpenAI or Google Gemini)
+   - Choose a model and enter a prompt describing the images you want
+   - Click **Save**
+
+4. **Available Models**:
+   - **OpenAI**: GPT Image 1, DALL-E 3, DALL-E 2
+   - **Google Gemini**: Gemini 2.5 Flash Image, Gemini 3 Pro Image
+
 ## Photo Frame Configuration
 
 Once you've configured a photo source, the correct URL will be displayed in the settings:
@@ -174,6 +198,7 @@ http(s)://<hostname/IP address>:9607/image/<source>
 - **`GET /image/synology_photos`**: Returns a random image from **Synology Photos**.
 - **`GET /image/telegram`**: Returns the last photo sent via **Telegram Bot**.
 - **`GET /image/url_proxy`**: Returns a random image from configured URLs.
+- **`GET /image/ai_generation`**: Returns a newly generated AI image based on device prompt.
 
 ### Authentication
 

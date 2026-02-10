@@ -65,6 +65,9 @@ export interface Device {
   show_weather?: boolean;
   weather_lat?: number;
   weather_lon?: number;
+  ai_provider?: string;
+  ai_model?: string;
+  ai_prompt?: string;
   created_at: string;
   model?: any;
 }
@@ -107,7 +110,10 @@ export const updateDevice = async (
   showDate: boolean,
   showWeather: boolean,
   weatherLat: number,
-  weatherLon: number
+  weatherLon: number,
+  aiProvider?: string,
+  aiModel?: string,
+  aiPrompt?: string
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -121,6 +127,9 @@ export const updateDevice = async (
     show_weather: showWeather,
     weather_lat: weatherLat,
     weather_lon: weatherLon,
+    ai_provider: aiProvider || '',
+    ai_model: aiModel || '',
+    ai_prompt: aiPrompt || '',
   });
   return response.data;
 };
