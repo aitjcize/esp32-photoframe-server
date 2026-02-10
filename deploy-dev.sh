@@ -52,16 +52,16 @@ echo ""
 echo "Triggering Supervisor to reload and rebuild..."
 
 # Reload add-ons to detect the new/updated local add-on
-ssh "${HA_HOST}" "ha addons reload"
+ssh "${HA_HOST}" "ha apps reload"
 
 # Check if add-on is already installed
 ADDON_SLUG="local_${ADDON_NAME}"
-if ssh "${HA_HOST}" "ha addons info ${ADDON_SLUG}" &>/dev/null; then
+if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" &>/dev/null; then
     echo "Add-on already installed, rebuilding..."
-    ssh "${HA_HOST}" "ha addons rebuild ${ADDON_SLUG}"
+    ssh "${HA_HOST}" "ha apps rebuild ${ADDON_SLUG}"
 else
     echo "Installing add-on for the first time..."
-    ssh "${HA_HOST}" "ha addons install ${ADDON_SLUG}"
+    ssh "${HA_HOST}" "ha apps install ${ADDON_SLUG}"
 fi
 
 echo ""
@@ -69,8 +69,8 @@ echo "Waiting for build to complete..."
 sleep 5
 
 # Start the add-on
-ssh "${HA_HOST}" "ha addons start ${ADDON_SLUG}" || true
+ssh "${HA_HOST}" "ha apps start ${ADDON_SLUG}" || true
 
 echo ""
 echo "=== Done! ==="
-echo "Check logs with: ssh ${HA_HOST} 'ha addons logs ${ADDON_SLUG}'"
+echo "Check logs with: ssh ${HA_HOST} 'ha apps logs ${ADDON_SLUG}'"
