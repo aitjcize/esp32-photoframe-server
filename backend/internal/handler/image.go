@@ -355,179 +355,77 @@ func (h *ImageHandler) getOrientation() string {
 	return val
 }
 
-// Fetch smart photo (Single or Collage)
+// fetchSmartCollage fetches one or two photos and creates a collage if the
+// first photo's orientation doesn't match the device orientation.
 func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, []uint, error) {
-	// Decide if Device is Landscape or Portrait
 	devicePortrait := screenH > screenW
 
-	// Fetch first image generic (could be portrait or landscape)
 	img1, id1, err := h.fetchRandomPhoto(sourceFilter, excludeIDs, deviceID)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	var servedIDs []uint
-	servedIDs = append(servedIDs, id1)
-
-	// Add id1 to excludes for the second image
-	excludeIDs2 := append([]uint(nil), excludeIDs...)
-	excludeIDs2 = append(excludeIDs2, id1)
+	servedIDs := []uint{id1}
 
 	bounds := img1.Bounds()
-	w, h_img := bounds.Dx(), bounds.Dy()
-	isPhotoPortrait := h_img > w
+	isPhotoPortrait := bounds.Dy() > bounds.Dx()
 
-	// Case 1: Match
+	// Orientation matches - no collage needed
 	if isPhotoPortrait == devicePortrait {
 		return img1, servedIDs, nil
 	}
 
-	// Case 2: Mismatch
-	// Device Portrait, Photo Landscape -> Vertical Stack
-	if devicePortrait && !isPhotoPortrait {
-		// Try fetch second landscape
-		// 1. Try DB first
-		img2, id2, err := h.fetchRandomPhotoWithType("landscape", sourceFilter, excludeIDs2, deviceID)
-		if err == nil && id2 != id1 {
-			servedIDs = append(servedIDs, id2)
-			return h.createVerticalCollage(img1, img2, screenW, screenH), servedIDs, nil
-		}
-		// 2. Fallback: Try random loop
-		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2, deviceID)
-			if err == nil && candID != id1 {
-				b := cand.Bounds()
-				if b.Dx() > b.Dy() { // Is Landscape
-					// fmt.Printf("SmartCollage: Found match via random!\n")
-					servedIDs = append(servedIDs, candID)
-					return h.createVerticalCollage(img1, cand, screenW, screenH), servedIDs, nil
-				}
-			}
-		}
-		// Fallback: Use same photo twice
-		servedIDs = append(servedIDs, id1)
-		return h.createVerticalCollage(img1, img1, screenW, screenH), servedIDs, nil
+	// Orientation mismatch - try to find a second photo for collage
+	var targetType string
+	if devicePortrait {
+		targetType = "landscape"
+	} else {
+		targetType = "portrait"
 	}
 
-	// Device Landscape, Photo Portrait -> Horizontal Side-by-Side
-	if !devicePortrait && isPhotoPortrait {
-		// Try fetch second portrait
-		img2, id2, err := h.fetchRandomPhotoWithType("portrait", sourceFilter, excludeIDs2, deviceID)
-		if err == nil && id2 != id1 {
-			servedIDs = append(servedIDs, id2)
-			return h.createHorizontalCollage(img1, img2, screenW, screenH), servedIDs, nil
-		}
-		// 2. Fallback
-		for i := 0; i < 5; i++ {
-			cand, candID, err := h.fetchRandomPhoto(sourceFilter, excludeIDs2, deviceID)
-			if err == nil && candID != id1 {
-				b := cand.Bounds()
-				if b.Dy() > b.Dx() { // Is Portrait
-					// fmt.Printf("SmartCollage: Found match via random!\n")
-					servedIDs = append(servedIDs, candID)
-					return h.createHorizontalCollage(img1, cand, screenW, screenH), servedIDs, nil
-				}
-			}
-		}
-		// Fallback: Use same photo twice
-		servedIDs = append(servedIDs, id1)
-		return h.createHorizontalCollage(img1, img1, screenW, screenH), servedIDs, nil
+	excludeWithHistory := append(append([]uint(nil), excludeIDs...), id1)
+
+	// 1. Try with full exclusions (history + id1)
+	img2, id2, err := h.fetchRandomPhotoWithType(targetType, sourceFilter, excludeWithHistory, deviceID)
+	if err != nil || id2 == id1 {
+		fmt.Printf("SmartCollage: query with history exclusion failed for %s: %v, retrying without history\n", targetType, err)
+		// 2. Try with only id1 excluded (ignore history)
+		img2, id2, err = h.fetchRandomPhotoWithType(targetType, sourceFilter, []uint{id1}, deviceID)
 	}
 
-	return img1, servedIDs, nil
+	if err == nil && id2 != id1 {
+		servedIDs = append(servedIDs, id2)
+	} else {
+		fmt.Printf("SmartCollage: no different %s photo found, using same photo twice\n", targetType)
+		img2 = img1
+		servedIDs = append(servedIDs, id1)
+	}
+
+	if devicePortrait {
+		return h.createVerticalCollage(img1, img2, screenW, screenH), servedIDs, nil
+	}
+	return h.createHorizontalCollage(img1, img2, screenW, screenH), servedIDs, nil
 }
 
+// fetchRandomPhotoWithType fetches a random photo matching the given orientation.
+// orientations "auto" is always included as a match.
 func (h *ImageHandler) fetchRandomPhotoWithType(targetType string, sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, uint, error) {
-	var item model.Image
-	// Allow 'auto' orientation (e.g. for dynamic URLs) to match any target type
 	query := h.db.Order("RANDOM()").Where("orientation IN ?", []string{targetType, "auto"})
 
 	if len(excludeIDs) > 0 {
 		query = query.Where("id NOT IN ?", excludeIDs)
 	}
 
-	if sourceFilter == model.SourceGooglePhotos {
-		query = query.Where("source = ?", model.SourceGooglePhotos)
-	} else if sourceFilter == model.SourceSynologyPhotos {
-		query = query.Where("source = ?", model.SourceSynologyPhotos)
-	} else if sourceFilter == model.SourceTelegram {
-		query = query.Where("source = ?", model.SourceTelegram)
-	} else if sourceFilter == model.SourceURLProxy {
-		// For URL Proxy, we fetch from url_sources table
-		var urlSource model.URLSource
-		// Logic: Get all valid URL sources for this device
-		// Valid = Global (not in mapping) OR Bound to this device
-
-		// Subquery for valid IDs
-		subQuery := h.db.Table("url_sources").Select("url_sources.*")
-		if deviceID != nil {
-			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
-				Where("device_url_mappings.device_id = ? OR device_url_mappings.device_id IS NULL", *deviceID)
-		} else {
-			// If no device ID (unknown device), strictly show only globals?
-			// Or just show globals.
-			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
-				Where("device_url_mappings.device_id IS NULL")
-		}
-
-		// Pick one random
-		if err := subQuery.Order("RANDOM()").Take(&urlSource).Error; err != nil {
-			return nil, 0, err
-		}
-
-		if urlSource.URL == "" {
-			return nil, 0, fmt.Errorf("fetched empty URL from source ID %d", urlSource.ID)
-		}
-		// Use ID 0 for URL proxy items as they don't map to 'images' table IDs
-		// BUT we need an ID for history tracking?
-		// If we don't track history for URLs (since they are proxies), we can pass 0.
-		// However, if we pass 0, exclude list logic won't work.
-		// User said "don't need to consider randomization".
-		// So maybe we don't track history for URL proxy?
-		// Let's return local ID of url_source as ID, but effectively it's different namespace.
-		// This might collide with image IDs in history.
-		// For now, let's just fetch it.
-		return h.fetchURLPhoto(urlSource.URL)
-	} else {
-		return nil, 0, fmt.Errorf("invalid source filter: %s", sourceFilter)
+	query, earlyResult, err := h.applySourceFilter(query, sourceFilter, deviceID)
+	if earlyResult != nil || err != nil {
+		return earlyResult, 0, err
 	}
 
+	var item model.Image
 	if err := query.First(&item).Error; err != nil {
-		// Fallback: If no image found (likely due to exclusion), try again WITHOUT exclusion
-		if len(excludeIDs) > 0 {
-			queryRetry := h.db.Order("RANDOM()").Where("orientation = ?", targetType)
-
-			if sourceFilter == model.SourceGooglePhotos {
-				queryRetry = queryRetry.Where("source = ?", model.SourceGooglePhotos)
-			} else if sourceFilter == model.SourceSynologyPhotos {
-				queryRetry = queryRetry.Where("source = ?", model.SourceSynologyPhotos)
-			} else if sourceFilter == model.SourceTelegram {
-				queryRetry = queryRetry.Where("source = ?", model.SourceTelegram)
-			} else if sourceFilter == model.SourceURLProxy {
-				queryRetry = queryRetry.Where("source = ?", model.SourceURLProxy)
-				if deviceID != nil {
-					queryRetry = queryRetry.Where("id IN (SELECT image_id FROM device_image_mappings WHERE device_id = ?) OR id NOT IN (SELECT image_id FROM device_image_mappings)", *deviceID)
-				} else {
-					queryRetry = queryRetry.Where("id NOT IN (SELECT image_id FROM device_image_mappings)")
-				}
-			}
-
-			if errRetry := queryRetry.First(&item).Error; errRetry != nil {
-				return nil, 0, errRetry
-			}
-		} else {
-			return nil, 0, err
-		}
-	}
-
-	resolvedPath := h.resolvePath(item.FilePath)
-	f, err := os.Open(resolvedPath)
-	if err != nil {
 		return nil, 0, err
 	}
-	defer f.Close()
 
-	img, _, err := image.Decode(f)
+	img, err := h.loadImageFromRecord(item)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -610,72 +508,30 @@ func (h *ImageHandler) resolvePath(path string) string {
 	return path
 }
 
+// fetchRandomPhoto fetches a random photo from the given source, excluding
+// the given IDs. Falls back to ignoring exclusions, then to a placeholder.
 func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, uint, error) {
-	var item model.Image
 	query := h.db.Order("RANDOM()")
 
 	if len(excludeIDs) > 0 {
 		query = query.Where("id NOT IN ?", excludeIDs)
 	}
 
-	if sourceFilter == model.SourceGooglePhotos {
-		query = query.Where("source = ?", model.SourceGooglePhotos)
-	} else if sourceFilter == model.SourceSynologyPhotos {
-		query = query.Where("source = ?", model.SourceSynologyPhotos)
-	} else if sourceFilter == model.SourceTelegram {
-		query = query.Where("source = ?", model.SourceTelegram)
-	} else if sourceFilter == model.SourceURLProxy {
-		// For URL Proxy, we fetch from url_sources table
-		var urlSource model.URLSource
-		subQuery := h.db.Table("url_sources").Select("url_sources.id, url_sources.url")
-		if deviceID != nil {
-			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
-				Where("device_url_mappings.device_id = ? OR device_url_mappings.device_id IS NULL", *deviceID)
-		} else {
-			subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
-				Where("device_url_mappings.device_id IS NULL")
-		}
-
-		if err := subQuery.Order("RANDOM()").Limit(1).Scan(&urlSource).Error; err != nil {
-			return nil, 0, err
-		}
-		return h.fetchURLPhoto(urlSource.URL)
-	} else {
-		return nil, 0, fmt.Errorf("invalid source filter: %s", sourceFilter)
+	query, earlyResult, err := h.applySourceFilter(query, sourceFilter, deviceID)
+	if earlyResult != nil || err != nil {
+		return earlyResult, 0, err
 	}
 
-	result := query.First(&item)
-	if result.Error != nil {
-		// Fallback: If no image found (likely due to exclusion), try again WITHOUT exclusion
+	var item model.Image
+	if err := query.First(&item).Error; err != nil {
+		// Fallback: retry without exclusions
 		if len(excludeIDs) > 0 {
-			queryRetry := h.db.Order("RANDOM()")
-
-			if sourceFilter == model.SourceGooglePhotos {
-				queryRetry = queryRetry.Where("source = ?", model.SourceGooglePhotos)
-			} else if sourceFilter == model.SourceSynologyPhotos {
-				queryRetry = queryRetry.Where("source = ?", model.SourceSynologyPhotos)
-			} else if sourceFilter == model.SourceTelegram {
-				queryRetry = queryRetry.Where("source = ?", model.SourceTelegram)
-			} else if sourceFilter == model.SourceURLProxy {
-				// For URL Proxy, we fetch from url_sources table
-				var urlSource model.URLSource
-				subQuery := h.db.Table("url_sources").Select("url_sources.id, url_sources.url")
-				if deviceID != nil {
-					subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
-						Where("device_url_mappings.device_id = ? OR device_url_mappings.device_id IS NULL", *deviceID)
-				} else {
-					subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
-						Where("device_url_mappings.device_id IS NULL")
-				}
-
-				if err := subQuery.Order("RANDOM()").Limit(1).Scan(&urlSource).Error; err != nil {
-					return nil, 0, err
-				}
-				return h.fetchURLPhoto(urlSource.URL)
+			retryQuery := h.db.Order("RANDOM()")
+			retryQuery, earlyResult, retryErr := h.applySourceFilter(retryQuery, sourceFilter, deviceID)
+			if earlyResult != nil || retryErr != nil {
+				return earlyResult, 0, retryErr
 			}
-
-			if errRetry := queryRetry.First(&item).Error; errRetry != nil {
-				// Still failed, return placeholder
+			if err := retryQuery.First(&item).Error; err != nil {
 				img, err := h.fetchPlaceholder()
 				return img, 0, err
 			}
@@ -685,32 +541,67 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 		}
 	}
 
-	if item.Source == model.SourceSynologyPhotos {
-		img, _, err := h.fetchSynologyPhoto(item)
-		if err != nil {
-			fmt.Printf("Warning: Failed to fetch Synology photo: %v\n", err)
-			img, err := h.fetchPlaceholder()
-			return img, 0, err
-		}
-		return img, item.ID, nil
-	}
-	resolvedPath := h.resolvePath(item.FilePath)
-	f, err := os.Open(resolvedPath)
+	img, err := h.loadImageFromRecord(item)
 	if err != nil {
-		// Do NOT delete the record just because file is missing locally
-		// h.db.Delete(&item)
-		fmt.Printf("Warning: Failed to open image: %s (resolved: %s): %v\n", item.FilePath, resolvedPath, err)
-		img, err := h.fetchPlaceholder()
-		return img, 0, err
-	}
-	defer f.Close()
-
-	img, _, err := image.Decode(f)
-	if err != nil {
+		fmt.Printf("Warning: Failed to load image id=%d: %v\n", item.ID, err)
 		img, err := h.fetchPlaceholder()
 		return img, 0, err
 	}
 	return img, item.ID, nil
+}
+
+// applySourceFilter adds source-specific WHERE clauses to the query.
+// For URL proxy sources, it fetches the image directly and returns it as
+// earlyResult (the caller should return immediately).
+func (h *ImageHandler) applySourceFilter(query *gorm.DB, sourceFilter string, deviceID *uint) (*gorm.DB, image.Image, error) {
+	switch sourceFilter {
+	case model.SourceGooglePhotos, model.SourceSynologyPhotos, model.SourceTelegram:
+		return query.Where("source = ?", sourceFilter), nil, nil
+	case model.SourceURLProxy:
+		img, _, err := h.fetchRandomURLProxy(deviceID)
+		return nil, img, err
+	default:
+		return nil, nil, fmt.Errorf("invalid source filter: %s", sourceFilter)
+	}
+}
+
+// fetchRandomURLProxy picks a random URL source for the device and fetches it.
+func (h *ImageHandler) fetchRandomURLProxy(deviceID *uint) (image.Image, uint, error) {
+	var urlSource model.URLSource
+	subQuery := h.db.Table("url_sources").Select("url_sources.id, url_sources.url")
+	if deviceID != nil {
+		subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+			Where("device_url_mappings.device_id = ? OR device_url_mappings.device_id IS NULL", *deviceID)
+	} else {
+		subQuery = subQuery.Joins("LEFT JOIN device_url_mappings ON url_sources.id = device_url_mappings.url_source_id").
+			Where("device_url_mappings.device_id IS NULL")
+	}
+	if err := subQuery.Order("RANDOM()").Limit(1).Scan(&urlSource).Error; err != nil {
+		return nil, 0, err
+	}
+	if urlSource.URL == "" {
+		return nil, 0, fmt.Errorf("fetched empty URL from source ID %d", urlSource.ID)
+	}
+	return h.fetchURLPhoto(urlSource.URL)
+}
+
+// loadImageFromRecord loads an image from a database record, handling both
+// local files and Synology photos.
+func (h *ImageHandler) loadImageFromRecord(item model.Image) (image.Image, error) {
+	if item.Source == model.SourceSynologyPhotos {
+		img, _, err := h.fetchSynologyPhoto(item)
+		return img, err
+	}
+
+	resolvedPath := h.resolvePath(item.FilePath)
+	f, err := os.Open(resolvedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s (resolved: %s): %w", item.FilePath, resolvedPath, err)
+	}
+	defer f.Close()
+
+	img, _, err := image.Decode(f)
+	return img, err
 }
 
 func (h *ImageHandler) fetchPlaceholder() (image.Image, error) {
