@@ -520,9 +520,9 @@
                     class="mb-4"
                     density="compact"
                   >
-                    Generate images using AI (OpenAI or Google Gemini). Configure
-                    API keys below, then set the prompt/model per-device in the
-                    Edit Device dialog.
+                    Generate images using AI (OpenAI or Google Gemini).
+                    Configure API keys below, then set the prompt/model
+                    per-device in the Edit Device dialog.
                   </v-alert>
 
                   <v-text-field
@@ -1027,29 +1027,39 @@
                       ></v-select>
 
                       <v-alert
-                        v-if="editingDevice.ai_provider === 'openai' && !form.openai_api_key"
+                        v-if="
+                          editingDevice.ai_provider === 'openai' &&
+                          !form.openai_api_key
+                        "
                         type="warning"
                         variant="tonal"
                         density="compact"
                         class="mb-4"
                       >
-                        OpenAI API Key not configured. Please add it in Data Sources → AI Generation.
+                        OpenAI API Key not configured. Please add it in Data
+                        Sources → AI Generation.
                       </v-alert>
 
                       <v-alert
-                        v-if="editingDevice.ai_provider === 'google' && !form.google_api_key"
+                        v-if="
+                          editingDevice.ai_provider === 'google' &&
+                          !form.google_api_key
+                        "
                         type="warning"
                         variant="tonal"
                         density="compact"
                         class="mb-4"
                       >
-                        Google API Key not configured. Please add it in Data Sources → AI Generation.
+                        Google API Key not configured. Please add it in Data
+                        Sources → AI Generation.
                       </v-alert>
 
                       <v-select
                         v-if="editingDevice.ai_provider"
                         v-model="editingDevice.ai_model"
-                        :items="aiModelOptionsForProvider(editingDevice.ai_provider)"
+                        :items="
+                          aiModelOptionsForProvider(editingDevice.ai_provider)
+                        "
                         label="Model"
                         variant="outlined"
                         density="compact"
