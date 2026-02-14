@@ -232,6 +232,12 @@ This script:
 - Modifies config for development (port 9608, dev slug)
 - Triggers Supervisor to rebuild and restart the add-on
 
+## Support
+
+If you find this project useful, consider buying me a coffee! ☕
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/aitjcize)
+
 ## License
 
 MIT License - see LICENSE file for details.

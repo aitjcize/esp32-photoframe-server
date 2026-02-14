@@ -45,8 +45,13 @@ RUN apk add --no-cache \
     python3 \
     font-noto \
     font-noto-emoji \
+    font-noto-cjk \
     nodejs \
-    npm
+    npm \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz
 
 # Create directories
 RUN mkdir -p /app/bin /app/static /app/data

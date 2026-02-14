@@ -68,6 +68,10 @@ export interface Device {
   ai_provider?: string;
   ai_model?: string;
   ai_prompt?: string;
+  layout?: string;
+  display_mode?: string;
+  show_calendar?: boolean;
+  calendar_id?: string;
   created_at: string;
   model?: any;
 }
@@ -77,24 +81,20 @@ export const listDevices = async () => {
   return response.data;
 };
 
-export const addDevice = async (
-  host: string,
-  useDeviceParameter: boolean,
-  enableCollage: boolean,
-  showDate: boolean,
-  showWeather: boolean,
-  weatherLat: number,
-  weatherLon: number
-) => {
-  const response = await api.post('devices', {
-    host,
-    use_device_parameter: useDeviceParameter,
-    enable_collage: enableCollage,
-    show_date: showDate,
-    show_weather: showWeather,
-    weather_lat: weatherLat,
-    weather_lon: weatherLon,
-  });
+export const addDevice = async (params: {
+  host: string;
+  use_device_parameter: boolean;
+  enable_collage: boolean;
+  show_date: boolean;
+  show_weather: boolean;
+  weather_lat: number;
+  weather_lon: number;
+  layout?: string;
+  display_mode?: string;
+  show_calendar?: boolean;
+  calendar_id?: string;
+}) => {
+  const response = await api.post('devices', params);
   return response.data;
 };
 
@@ -113,7 +113,11 @@ export const updateDevice = async (
   weatherLon: number,
   aiProvider?: string,
   aiModel?: string,
-  aiPrompt?: string
+  aiPrompt?: string,
+  layout?: string,
+  displayMode?: string,
+  showCalendar?: boolean,
+  calendarId?: string
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -130,6 +134,10 @@ export const updateDevice = async (
     ai_provider: aiProvider || '',
     ai_model: aiModel || '',
     ai_prompt: aiPrompt || '',
+    layout: layout || 'photo_overlay',
+    display_mode: displayMode || 'cover',
+    show_calendar: showCalendar || false,
+    calendar_id: calendarId || '',
   });
   return response.data;
 };
@@ -221,5 +229,21 @@ export const listSessions = async () => {
 
 export const revokeSession = async (id: number) => {
   const response = await api.delete(`/auth/sessions/${id}`);
+  return response.data;
+};
+
+// Calendar
+export const listCalendars = async () => {
+  const response = await api.get('calendar/calendars');
+  return response.data;
+};
+
+export const googleCalendarLogin = async () => {
+  const response = await api.get('auth/google-calendar/login');
+  return response.data;
+};
+
+export const googleCalendarLogout = async () => {
+  const response = await api.post('auth/google-calendar/logout');
   return response.data;
 };

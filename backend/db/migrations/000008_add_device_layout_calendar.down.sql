@@ -1,0 +1,2 @@
+-- SQLite does not support DROP COLUMN before 3.35.0, so we recreate the table
+-- For simplicity, these columns are simply ignored if this migration is rolled back

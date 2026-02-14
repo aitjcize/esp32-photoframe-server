@@ -9,6 +9,7 @@ import (
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/handler"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/middleware"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/weather"
@@ -124,7 +125,7 @@ func main() {
 
 	// Initialize Services
 	settingsService := service.NewSettingsService(database)
-	tokenStore := service.NewDBTokenStore(database)
+	tokenStore := service.NewDBTokenStore(database, "photos")
 	// JWT Secret - In production, this should come from env but for Addon we might generate or fix it
 	jwtSecret := os.Getenv("JWT_SECRET")
 	authService := service.NewAuthService(database, jwtSecret)
@@ -143,16 +144,25 @@ func main() {
 		}
 	*/
 
-	// Initialize Google Client
+	// Initialize Google Photos Client
 	// Pass settingsService as ConfigProvider so it fetches latest config on every request
 	googleClient := googlephotos.NewClient(settingsService, tokenStore)
 
+	// Initialize Google Calendar Client (separate OAuth, separate token)
+	calendarTokenStore := service.NewDBTokenStore(database, "calendar")
+	calendarConfigProvider := service.NewCalendarConfigProvider(settingsService)
+	googleCalendarClient := googlephotos.NewClient(calendarConfigProvider, calendarTokenStore)
+
 	// Initialize Processor
-	// We use global epaper-image-convert command
 	processorService := service.NewProcessorService()
-	// Initialize Overlay
 	weatherClient := weather.NewClient()
-	overlayService := service.NewOverlayService(weatherClient, settingsService)
+	calendarClient := gcalendar.NewClient()
+	// Initialize Renderer (HTML/CSS → image via headless Chrome)
+	// Chrome is launched lazily on first render request to save memory.
+	rendererService, err := service.NewRendererService()
+	if err != nil {
+		log.Fatalf("Failed to initialize renderer: %v", err)
+	}
 	// Initialize Synology Photos Service
 	synologyService := service.NewSynologyService(database, settingsService)
 	// Initialize AI Generation Service
@@ -173,7 +183,16 @@ func main() {
 	photoframeClient := photoframe.NewClient()
 
 	// Initialize Device Service
-	deviceService := service.NewDeviceService(database, settingsService, processorService, overlayService, photoframeClient)
+	deviceService := service.NewDeviceService(service.DeviceServiceDeps{
+		DB:             database,
+		Settings:       settingsService,
+		Processor:      processorService,
+		Renderer:       rendererService,
+		Weather:        weatherClient,
+		Calendar:       calendarClient,
+		CalendarGoogle: googleCalendarClient,
+		PFClient:       photoframeClient,
+	})
 	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, authService, settingsService, database)
 
 	// Initialize Telegram Service
@@ -189,13 +208,24 @@ func main() {
 	}
 
 	// Initialize Handlers
-	h := handler.NewHandler(settingsService, telegramService, googleClient)
-	googleHandler := handler.NewGoogleHandler(googleClient, pickerService, database, dataDir)
+	h := handler.NewHandler(settingsService, telegramService, googleClient, googleCalendarClient)
+	googleHandler := handler.NewGoogleHandler(googleClient, googleCalendarClient, pickerService, database, dataDir)
 	sh := handler.NewSynologyHandler(synologyService)
-	// Reuse 'gh' variable name for GalleryHandler because I used 'gh' in routes above.
-	// Wait, 'gh' was GoogleHandler before. I should rename GoogleHandler to 'googleHandler' and 'gh' to GalleryHandler to match my routes change.
 	gh := handler.NewGalleryHandler(database, synologyService, dataDir)
-	ih := handler.NewImageHandler(settingsService, overlayService, processorService, googleClient, synologyService, aiGenerationService, database, dataDir)
+	ih := handler.NewImageHandler(handler.ImageHandlerDeps{
+		Settings:       settingsService,
+		Renderer:       rendererService,
+		Processor:      processorService,
+		Google:         googleClient,
+		CalendarGoogle: googleCalendarClient,
+		Synology:       synologyService,
+		AIGen:          aiGenerationService,
+		Weather:        weatherClient,
+		Calendar:       calendarClient,
+		DB:             database,
+		DataDir:        dataDir,
+	})
+	ch := handler.NewCalendarHandler(googleCalendarClient, calendarClient)
 	ah := handler.NewAuthHandler(authService)
 
 	// Echo instance
@@ -229,6 +259,7 @@ func main() {
 
 	// Image Route (Protected)
 	e.GET("/image/:source", ih.ServeImage, authMiddleware)
+
 	// Thumbnail likely needs protection too, or obscure IDs. For now, keep public as they are temporary?
 	// User said "access the /image/<source>/ endpoint. This one... people can't just access".
 	// Let's protect main image endpoint.
@@ -282,11 +313,16 @@ func main() {
 	protectedApi.GET("/synology/count", sh.GetPhotoCount)
 	protectedApi.POST("/synology/logout", sh.Logout)
 
-	// Google Auth: Login (Protected - User initiates), Callback (Public - Google calls)
+	// Calendar (Protected)
+	protectedApi.GET("/calendar/calendars", ch.ListCalendars)
+
+	// Google Auth (Photos + Calendar share the same callback via state parameter)
 	protectedApi.GET("/auth/google/login", googleHandler.Login)
 	protectedApi.POST("/auth/google/logout", googleHandler.Logout)
+	protectedApi.GET("/auth/google-calendar/login", googleHandler.CalendarLogin)
+	protectedApi.POST("/auth/google-calendar/logout", googleHandler.CalendarLogout)
 
-	// Public Callback
+	// Public Callback (shared by both Photos and Calendar)
 	e.GET("/api/auth/google/callback", googleHandler.Callback)
 
 	// Static Files (Frontend)

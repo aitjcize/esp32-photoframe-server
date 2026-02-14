@@ -45,7 +45,7 @@
               density="compact"
               class="mb-4"
             >
-              <v-tab value="google_photos">Google Photos</v-tab>
+              <v-tab value="google">Google</v-tab>
               <v-tab value="synology_photos">Synology</v-tab>
               <v-tab value="telegram">Telegram</v-tab>
               <v-tab value="url">URL Proxy</v-tab>
@@ -192,9 +192,59 @@
                 </v-card>
               </v-dialog>
 
-              <!-- Google Photos -->
-              <v-window-item value="google_photos">
+              <!-- Google (Photos + Calendar) -->
+              <v-window-item value="google">
                 <v-card-text>
+                  <!-- Shared Google API Credentials -->
+                  <h3 class="text-subtitle-1 font-weight-bold mb-3">
+                    Google API Credentials
+                  </h3>
+
+                  <v-alert
+                    type="info"
+                    variant="tonal"
+                    class="mb-4"
+                    density="compact"
+                  >
+                    <div class="text-body-2">
+                      These credentials are shared by Google Photos and Google
+                      Calendar. Create a project in
+                      <a
+                        href="https://console.cloud.google.com/"
+                        target="_blank"
+                        >Google Cloud Console</a
+                      >
+                      and add the redirect URI:
+                      <br />
+                      <code
+                        >http://[YOUR_SERVER_IP]:8080/api/auth/google/callback</code
+                      >
+                    </div>
+                  </v-alert>
+
+                  <v-text-field
+                    v-model="form.google_client_id"
+                    label="Client ID"
+                    variant="outlined"
+                    class="mb-2"
+                  ></v-text-field>
+
+                  <v-text-field
+                    v-model="form.google_client_secret"
+                    label="Client Secret"
+                    type="password"
+                    variant="outlined"
+                    class="mb-4"
+                  ></v-text-field>
+
+                  <v-btn color="grey-darken-1" @click="save" class="mb-2"
+                    >Save Credentials</v-btn
+                  >
+
+                  <!-- Photos Section -->
+                  <v-divider class="my-6"></v-divider>
+                  <h3 class="text-subtitle-1 font-weight-bold mb-3">Photos</h3>
+
                   <div v-if="form.google_connected === 'true'">
                     <v-alert
                       type="success"
@@ -224,52 +274,75 @@
                   </div>
 
                   <div v-else>
-                    <v-alert type="info" variant="tonal" class="mb-4">
-                      <div class="text-subtitle-2 mb-1">Setup Required</div>
-                      <div class="text-body-2">
-                        To enable Google Photos, create a project in
-                        <a
-                          href="https://console.cloud.google.com/"
-                          target="_blank"
-                          >Google Cloud Console</a
-                        >.
-                        <br />
-                        Redirect URI:
-                        <code
-                          >http://[YOUR_SERVER_IP]:8080/api/auth/google/callback</code
-                        >
-                      </div>
+                    <v-btn
+                      v-if="form.google_client_id && form.google_client_secret"
+                      color="primary"
+                      @click="connectGoogle"
+                    >
+                      Authorize Google Photos
+                    </v-btn>
+                    <v-alert
+                      v-else
+                      type="warning"
+                      variant="tonal"
+                      density="compact"
+                    >
+                      Enter Google API credentials above first.
+                    </v-alert>
+                  </div>
+
+                  <!-- Calendar Section -->
+                  <v-divider class="my-6"></v-divider>
+                  <h3 class="text-subtitle-1 font-weight-bold mb-3">
+                    Calendar
+                  </h3>
+
+                  <div v-if="form.google_calendar_connected === 'true'">
+                    <v-alert
+                      type="success"
+                      variant="tonal"
+                      class="mb-4"
+                      density="compact"
+                      icon="mdi-check-circle"
+                    >
+                      Google Calendar connected
                     </v-alert>
 
-                    <v-text-field
-                      v-model="form.google_client_id"
-                      label="Client ID"
-                      variant="outlined"
-                      class="mb-2"
-                    ></v-text-field>
+                    <v-btn
+                      color="error"
+                      variant="text"
+                      @click="logoutGoogleCalendar"
+                    >
+                      Disconnect Google Calendar
+                    </v-btn>
+                  </div>
 
-                    <v-text-field
-                      v-model="form.google_client_secret"
-                      label="Client Secret"
-                      type="password"
-                      variant="outlined"
+                  <div v-else>
+                    <v-alert
+                      type="info"
+                      variant="tonal"
                       class="mb-4"
-                    ></v-text-field>
+                      density="compact"
+                    >
+                      Connect a Google account for Calendar integration. This
+                      can be a different account than Google Photos.
+                    </v-alert>
 
-                    <div class="d-flex ga-2">
-                      <v-btn color="grey-darken-1" @click="save"
-                        >Save Credentials</v-btn
-                      >
-                      <v-btn
-                        v-if="
-                          form.google_client_id && form.google_client_secret
-                        "
-                        color="primary"
-                        @click="connectGoogle"
-                      >
-                        Authorize with Google
-                      </v-btn>
-                    </div>
+                    <v-btn
+                      v-if="form.google_client_id && form.google_client_secret"
+                      color="primary"
+                      @click="connectGoogleCalendar"
+                    >
+                      Authorize Google Calendar
+                    </v-btn>
+                    <v-alert
+                      v-else
+                      type="warning"
+                      variant="tonal"
+                      density="compact"
+                    >
+                      Enter Google API credentials above first.
+                    </v-alert>
                   </div>
                 </v-card-text>
               </v-window-item>
@@ -777,77 +850,11 @@
                 available for direct push from the Gallery.
               </v-alert>
 
-              <div class="d-flex ga-2 align-center mb-2">
-                <v-text-field
-                  v-model="newDevice.host"
-                  label="IP / Hostname"
-                  placeholder="192.168.1.50"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                ></v-text-field>
-              </div>
-
-              <v-checkbox
-                v-model="newDevice.use_device_parameter"
-                label="Fetch image processing parameters from device"
-                color="primary"
-                density="compact"
-                hide-details
-              ></v-checkbox>
-
-              <v-checkbox
-                v-model="newDevice.enable_collage"
-                label="Enable Collage Mode (Combine 2 photos)"
-                color="primary"
-                density="compact"
-                hide-details
-                class="mb-2"
-              ></v-checkbox>
-
-              <!-- New Device Weather/Date Settings -->
-              <div class="mb-4 border rounded pa-3">
-                <div class="text-subtitle-2 mb-2">Overlay Settings</div>
-                <div class="d-flex ga-4 mb-2">
-                  <v-checkbox
-                    v-model="newDevice.show_date"
-                    label="Show Date"
-                    color="primary"
-                    density="compact"
-                    hide-details
-                  ></v-checkbox>
-                  <v-checkbox
-                    v-model="newDevice.show_weather"
-                    label="Show Weather"
-                    color="primary"
-                    density="compact"
-                    hide-details
-                  ></v-checkbox>
-                </div>
-                <div v-if="newDevice.show_weather" class="d-flex ga-2">
-                  <v-text-field
-                    v-model.number="newDevice.weather_lat"
-                    label="Latitude"
-                    variant="outlined"
-                    density="compact"
-                    hide-details
-                    type="number"
-                  ></v-text-field>
-                  <v-text-field
-                    v-model.number="newDevice.weather_lon"
-                    label="Longitude"
-                    variant="outlined"
-                    density="compact"
-                    hide-details
-                    type="number"
-                  ></v-text-field>
-                </div>
-              </div>
-
               <div class="d-flex justify-end mb-4">
                 <v-btn
                   color="primary"
-                  @click="addNewDevice"
+                  prepend-icon="mdi-plus"
+                  @click="openAddDeviceDialog"
                   :loading="deviceListLoading"
                 >
                   Add Device
@@ -926,158 +933,328 @@
               <!-- Edit Device Dialog -->
               <v-dialog v-model="showEditDeviceDialog" max-width="500px">
                 <v-card>
-                  <v-card-title>Edit Device</v-card-title>
+                  <v-card-title>{{
+                    isAddingDevice ? 'Add Device' : 'Edit Device'
+                  }}</v-card-title>
                   <v-card-text>
-                    <div class="d-flex ga-2">
-                      <v-text-field
-                        v-model="editingDevice.name"
-                        label="Name"
-                        variant="outlined"
-                        density="compact"
-                        class="mb-2"
-                      ></v-text-field>
-                    </div>
-                    <v-text-field
-                      v-model="editingDevice.host"
-                      label="Host / IP"
-                      variant="outlined"
-                      density="compact"
-                      class="mb-2"
-                    ></v-text-field>
+                    <v-expansion-panels
+                      v-model="deviceDialogPanels"
+                      multiple
+                      variant="accordion"
+                    >
+                      <!-- General -->
+                      <v-expansion-panel value="general">
+                        <v-expansion-panel-title>
+                          <div class="d-flex align-center ga-2">
+                            <v-icon size="small">mdi-cog</v-icon>
+                            <span class="text-subtitle-2">General</span>
+                          </div>
+                        </v-expansion-panel-title>
+                        <v-expansion-panel-text>
+                          <div class="d-flex ga-2 mt-2">
+                            <v-text-field
+                              v-model="editingDevice.name"
+                              label="Name"
+                              variant="outlined"
+                              density="compact"
+                              hide-details
+                            ></v-text-field>
+                          </div>
+                          <v-text-field
+                            v-model="editingDevice.host"
+                            label="Host / IP"
+                            variant="outlined"
+                            density="compact"
+                            class="mt-3"
+                            hide-details
+                          ></v-text-field>
+                          <v-checkbox
+                            v-model="editingDevice.use_device_parameter"
+                            label="Fetch parameters from device"
+                            color="primary"
+                            density="compact"
+                            hide-details
+                            class="mt-2"
+                          ></v-checkbox>
+                          <v-checkbox
+                            v-model="editingDevice.enable_collage"
+                            label="Enable Collage Mode"
+                            color="primary"
+                            density="compact"
+                            hide-details
+                          ></v-checkbox>
+                          <v-select
+                            v-model="editingDevice.display_mode"
+                            :items="[
+                              {
+                                title: 'Cover (fill, may crop)',
+                                value: 'cover',
+                              },
+                              {
+                                title: 'Contain (show entire photo)',
+                                value: 'contain',
+                              },
+                            ]"
+                            label="Photo Display Mode"
+                            variant="outlined"
+                            density="compact"
+                            class="mt-3"
+                            hide-details
+                          ></v-select>
+                        </v-expansion-panel-text>
+                      </v-expansion-panel>
 
-                    <div class="mb-2">
-                      <v-checkbox
-                        v-model="editingDevice.use_device_parameter"
-                        label="Fetch parameters from device"
-                        color="primary"
-                        density="compact"
-                        hide-details
-                      ></v-checkbox>
-                    </div>
+                      <!-- Overlay -->
+                      <v-expansion-panel value="overlay">
+                        <v-expansion-panel-title>
+                          <div class="d-flex align-center ga-2">
+                            <v-icon size="small">mdi-image-text</v-icon>
+                            <span class="text-subtitle-2">Overlay</span>
+                            <span class="text-caption text-grey ml-2">
+                              {{
+                                [
+                                  editingDevice.show_date ? 'Date' : '',
+                                  editingDevice.show_weather ? 'Weather' : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ') || 'None'
+                              }}
+                            </span>
+                          </div>
+                        </v-expansion-panel-title>
+                        <v-expansion-panel-text>
+                          <div class="d-flex ga-4 mt-2">
+                            <v-checkbox
+                              v-model="editingDevice.show_date"
+                              label="Show Date"
+                              color="primary"
+                              density="compact"
+                              hide-details
+                            ></v-checkbox>
+                            <v-checkbox
+                              v-model="editingDevice.show_weather"
+                              label="Show Weather"
+                              color="primary"
+                              density="compact"
+                              hide-details
+                            ></v-checkbox>
+                          </div>
+                          <div
+                            v-if="editingDevice.show_weather"
+                            class="d-flex ga-2 mt-3"
+                          >
+                            <v-text-field
+                              v-model.number="editingDevice.weather_lat"
+                              label="Latitude"
+                              variant="outlined"
+                              density="compact"
+                              hide-details
+                              type="number"
+                            ></v-text-field>
+                            <v-text-field
+                              v-model.number="editingDevice.weather_lon"
+                              label="Longitude"
+                              variant="outlined"
+                              density="compact"
+                              hide-details
+                              type="number"
+                            ></v-text-field>
+                          </div>
+                        </v-expansion-panel-text>
+                      </v-expansion-panel>
 
-                    <div class="mb-2">
-                      <v-checkbox
-                        v-model="editingDevice.enable_collage"
-                        label="Enable Collage Mode"
-                        color="primary"
-                        density="compact"
-                        hide-details
-                      ></v-checkbox>
-                    </div>
+                      <!-- Layout & Calendar -->
+                      <v-expansion-panel value="layout">
+                        <v-expansion-panel-title>
+                          <div class="d-flex align-center ga-2">
+                            <v-icon size="small"
+                              >mdi-view-dashboard-outline</v-icon
+                            >
+                            <span class="text-subtitle-2"
+                              >Layout & Calendar</span
+                            >
+                            <span class="text-caption text-grey ml-2">
+                              {{
+                                filteredLayoutOptions.find(
+                                  (o) => o.value === editingDevice.layout
+                                )?.title || 'Photo Overlay'
+                              }}{{
+                                editingDevice.show_calendar ? ' · Calendar' : ''
+                              }}
+                            </span>
+                          </div>
+                        </v-expansion-panel-title>
+                        <v-expansion-panel-text>
+                          <div class="d-flex flex-wrap ga-3 mb-3 mt-2">
+                            <v-card
+                              v-for="opt in filteredLayoutOptions"
+                              :key="opt.value"
+                              :variant="
+                                editingDevice.layout === opt.value
+                                  ? 'outlined'
+                                  : 'flat'
+                              "
+                              :color="
+                                editingDevice.layout === opt.value
+                                  ? 'primary'
+                                  : undefined
+                              "
+                              class="layout-preview-card pa-2 text-center"
+                              style="width: 110px; cursor: pointer"
+                              @click="editingDevice.layout = opt.value"
+                            >
+                              <div
+                                class="layout-preview mb-1"
+                                v-html="
+                                  getLayoutPreviewSvg(
+                                    opt.value,
+                                    editingDevice.orientation || 'landscape'
+                                  )
+                                "
+                              ></div>
+                              <div
+                                class="text-caption"
+                                style="line-height: 1.2"
+                              >
+                                {{ opt.title }}
+                              </div>
+                            </v-card>
+                          </div>
+                          <div
+                            class="text-caption text-grey ml-2 mb-3"
+                            v-if="editingDevice.layout"
+                          >
+                            {{ layoutDescriptions[editingDevice.layout] }}
+                          </div>
+                          <v-checkbox
+                            v-model="editingDevice.show_calendar"
+                            label="Show Google Calendar Events"
+                            color="primary"
+                            density="compact"
+                            hide-details
+                          ></v-checkbox>
+                          <v-alert
+                            v-if="
+                              editingDevice.show_calendar &&
+                              form.google_calendar_connected !== 'true'
+                            "
+                            type="warning"
+                            variant="tonal"
+                            density="compact"
+                            class="mt-2"
+                          >
+                            Google Calendar not connected. Connect in Data
+                            Sources &rarr; Google to enable calendar.
+                          </v-alert>
+                          <v-select
+                            v-if="
+                              editingDevice.show_calendar &&
+                              form.google_calendar_connected === 'true'
+                            "
+                            v-model="editingDevice.calendar_id"
+                            :items="calendars"
+                            item-title="summary"
+                            item-value="id"
+                            label="Select Calendar"
+                            variant="outlined"
+                            density="compact"
+                            class="mt-2"
+                            :loading="!calendarLoaded"
+                          ></v-select>
+                        </v-expansion-panel-text>
+                      </v-expansion-panel>
 
-                    <!-- Edit Device Weather/Date Settings -->
-                    <div class="mb-4 border rounded pa-3">
-                      <div class="text-subtitle-2 mb-2">Overlay Settings</div>
-                      <div class="d-flex ga-4 mb-2">
-                        <v-checkbox
-                          v-model="editingDevice.show_date"
-                          label="Show Date"
-                          color="primary"
-                          density="compact"
-                          hide-details
-                        ></v-checkbox>
-                        <v-checkbox
-                          v-model="editingDevice.show_weather"
-                          label="Show Weather"
-                          color="primary"
-                          density="compact"
-                          hide-details
-                        ></v-checkbox>
-                      </div>
-                      <div
-                        v-if="editingDevice.show_weather"
-                        class="d-flex ga-2"
-                      >
-                        <v-text-field
-                          v-model.number="editingDevice.weather_lat"
-                          label="Latitude"
-                          variant="outlined"
-                          density="compact"
-                          hide-details
-                          type="number"
-                        ></v-text-field>
-                        <v-text-field
-                          v-model.number="editingDevice.weather_lon"
-                          label="Longitude"
-                          variant="outlined"
-                          density="compact"
-                          hide-details
-                          type="number"
-                        ></v-text-field>
-                      </div>
-                    </div>
+                      <!-- AI Generation -->
+                      <v-expansion-panel value="ai">
+                        <v-expansion-panel-title>
+                          <div class="d-flex align-center ga-2">
+                            <v-icon size="small">mdi-creation</v-icon>
+                            <span class="text-subtitle-2">AI Generation</span>
+                            <span class="text-caption text-grey ml-2">
+                              {{
+                                editingDevice.ai_provider
+                                  ? (editingDevice.ai_provider === 'openai'
+                                      ? 'OpenAI'
+                                      : 'Gemini') +
+                                    (editingDevice.ai_model
+                                      ? ' · ' + editingDevice.ai_model
+                                      : '')
+                                  : 'Off'
+                              }}
+                            </span>
+                          </div>
+                        </v-expansion-panel-title>
+                        <v-expansion-panel-text>
+                          <v-select
+                            v-model="editingDevice.ai_provider"
+                            :items="[
+                              { title: 'None', value: '' },
+                              { title: 'OpenAI', value: 'openai' },
+                              { title: 'Google Gemini', value: 'google' },
+                            ]"
+                            label="AI Provider"
+                            variant="outlined"
+                            density="compact"
+                            class="mt-2 mb-3"
+                            hide-details
+                          ></v-select>
 
-                    <!-- AI Generation Settings -->
-                    <div class="mb-4 border rounded pa-3">
-                      <div class="text-subtitle-2 mb-4">
-                        AI Image Generation
-                      </div>
-                      <v-select
-                        v-model="editingDevice.ai_provider"
-                        :items="[
-                          { title: 'None', value: '' },
-                          { title: 'OpenAI', value: 'openai' },
-                          { title: 'Google Gemini', value: 'google' },
-                        ]"
-                        label="AI Provider"
-                        variant="outlined"
-                        density="compact"
-                        class="mb-4"
-                        hide-details
-                      ></v-select>
+                          <v-alert
+                            v-if="
+                              editingDevice.ai_provider === 'openai' &&
+                              !form.openai_api_key
+                            "
+                            type="warning"
+                            variant="tonal"
+                            density="compact"
+                            class="mb-3"
+                          >
+                            OpenAI API Key not configured. Please add it in Data
+                            Sources → AI Generation.
+                          </v-alert>
 
-                      <v-alert
-                        v-if="
-                          editingDevice.ai_provider === 'openai' &&
-                          !form.openai_api_key
-                        "
-                        type="warning"
-                        variant="tonal"
-                        density="compact"
-                        class="mb-4"
-                      >
-                        OpenAI API Key not configured. Please add it in Data
-                        Sources → AI Generation.
-                      </v-alert>
+                          <v-alert
+                            v-if="
+                              editingDevice.ai_provider === 'google' &&
+                              !form.google_api_key
+                            "
+                            type="warning"
+                            variant="tonal"
+                            density="compact"
+                            class="mb-3"
+                          >
+                            Google API Key not configured. Please add it in Data
+                            Sources → AI Generation.
+                          </v-alert>
 
-                      <v-alert
-                        v-if="
-                          editingDevice.ai_provider === 'google' &&
-                          !form.google_api_key
-                        "
-                        type="warning"
-                        variant="tonal"
-                        density="compact"
-                        class="mb-4"
-                      >
-                        Google API Key not configured. Please add it in Data
-                        Sources → AI Generation.
-                      </v-alert>
+                          <v-select
+                            v-if="editingDevice.ai_provider"
+                            v-model="editingDevice.ai_model"
+                            :items="
+                              aiModelOptionsForProvider(
+                                editingDevice.ai_provider
+                              )
+                            "
+                            label="Model"
+                            variant="outlined"
+                            density="compact"
+                            class="mb-3"
+                            hide-details
+                          ></v-select>
 
-                      <v-select
-                        v-if="editingDevice.ai_provider"
-                        v-model="editingDevice.ai_model"
-                        :items="
-                          aiModelOptionsForProvider(editingDevice.ai_provider)
-                        "
-                        label="Model"
-                        variant="outlined"
-                        density="compact"
-                        class="mb-4"
-                        hide-details
-                      ></v-select>
-
-                      <v-textarea
-                        v-if="editingDevice.ai_provider"
-                        v-model="editingDevice.ai_prompt"
-                        label="Prompt"
-                        variant="outlined"
-                        density="compact"
-                        rows="3"
-                        placeholder="A beautiful landscape painting..."
-                        hid-details
-                      ></v-textarea>
-                    </div>
+                          <v-textarea
+                            v-if="editingDevice.ai_provider"
+                            v-model="editingDevice.ai_prompt"
+                            label="Prompt"
+                            variant="outlined"
+                            density="compact"
+                            rows="3"
+                            placeholder="A beautiful landscape painting..."
+                            hide-details
+                          ></v-textarea>
+                        </v-expansion-panel-text>
+                      </v-expansion-panel>
+                    </v-expansion-panels>
                   </v-card-text>
                   <v-card-actions>
                     <v-spacer></v-spacer>
@@ -1087,9 +1264,9 @@
                       @click="showEditDeviceDialog = false"
                       >Cancel</v-btn
                     >
-                    <v-btn color="primary" @click="saveEditedDevice"
-                      >Save</v-btn
-                    >
+                    <v-btn color="primary" @click="saveDevice">{{
+                      isAddingDevice ? 'Add' : 'Save'
+                    }}</v-btn>
                   </v-card-actions>
                 </v-card>
               </v-dialog>
@@ -1179,6 +1356,9 @@ import {
   updateAccount,
   listSessions,
   revokeSession,
+  listCalendars,
+  googleCalendarLogin,
+  googleCalendarLogout,
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -1188,7 +1368,7 @@ const synologyStore = useSynologyStore();
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 const activeMainTab = ref('devices');
-const activeDataSourceTab = ref('google_photos');
+const activeDataSourceTab = ref('google');
 const galleryTab = ref('google_photos');
 const confirmDialog = ref();
 
@@ -1304,6 +1484,119 @@ const deleteURLSourceWrapper = async (id: number) => {
   }
 };
 
+// Calendar State
+const calendars = ref<any[]>([]);
+const calendarConnected = ref(false);
+const calendarLoaded = ref(false);
+
+const loadCalendars = async () => {
+  if (form.google_calendar_connected !== 'true') {
+    calendarLoaded.value = true;
+    return;
+  }
+  try {
+    const cals = await listCalendars();
+    calendars.value = cals;
+    calendarConnected.value = true;
+  } catch (e: any) {
+    if (e.response?.status === 403) {
+      calendarConnected.value = false;
+    } else {
+      console.error('Failed to load calendars', e);
+    }
+  } finally {
+    calendarLoaded.value = true;
+  }
+};
+
+// Edit Device State (declared here because computed/watch below reference editingDevice)
+const showEditDeviceDialog = ref(false);
+const editingDevice = reactive<Partial<Device>>({});
+
+const allLayoutOptions = [
+  {
+    title: 'Full Photo + Overlay',
+    value: 'photo_overlay',
+    orientations: ['portrait', 'landscape'],
+  },
+  {
+    title: 'Photo + Info Strip',
+    value: 'photo_info',
+    orientations: ['portrait'],
+  },
+  { title: 'Side Panel', value: 'side_panel', orientations: ['landscape'] },
+];
+
+const filteredLayoutOptions = computed(() => {
+  const orientation = editingDevice.orientation || 'landscape';
+  return allLayoutOptions.filter((opt) =>
+    opt.orientations.includes(orientation)
+  );
+});
+
+// Auto-select first layout if current layout is not valid for orientation
+watch(
+  () => editingDevice.orientation,
+  () => {
+    const valid = filteredLayoutOptions.value.map((o) => o.value);
+    if (editingDevice.layout && !valid.includes(editingDevice.layout)) {
+      editingDevice.layout = valid[0] || 'photo_overlay';
+    }
+  }
+);
+
+const getLayoutPreviewSvg = (layout: string, orientation: string) => {
+  const isPortrait = orientation === 'portrait';
+  const w = isPortrait ? 50 : 80;
+  const h = isPortrait ? 70 : 50;
+  const stroke = '#888';
+  const photoFill = '#4a90d9';
+  const infoFill = '#333';
+  switch (layout) {
+    case 'photo_info': {
+      const photoH = Math.round(h * 0.6);
+      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <rect width="${w}" height="${photoH}" fill="${photoFill}" rx="3"/>
+        <rect y="${photoH}" width="${w}" height="${h - photoH}" fill="${infoFill}" rx="3"/>
+        <line x1="4" y1="${photoH + 8}" x2="${w * 0.6}" y2="${photoH + 8}" stroke="#aaa" stroke-width="1.5"/>
+        <line x1="4" y1="${photoH + 14}" x2="${w * 0.4}" y2="${photoH + 14}" stroke="#666" stroke-width="1"/>
+      </svg>`;
+    }
+    case 'photo_overlay':
+      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <rect width="${w}" height="${h}" fill="${photoFill}" rx="3"/>
+        <defs><linearGradient id="og" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="transparent"/>
+          <stop offset="100%" stop-color="rgba(0,0,0,0.7)"/>
+        </linearGradient></defs>
+        <rect y="${h * 0.5}" width="${w}" height="${h * 0.5}" fill="url(#og)" rx="3"/>
+        <line x1="6" y1="${h - 12}" x2="${w * 0.55}" y2="${h - 12}" stroke="#fff" stroke-width="1.5" opacity="0.8"/>
+        <line x1="6" y1="${h - 6}" x2="${w * 0.35}" y2="${h - 6}" stroke="#fff" stroke-width="1" opacity="0.5"/>
+      </svg>`;
+    case 'side_panel': {
+      const photoW = Math.round(w * 0.65);
+      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <rect width="${photoW}" height="${h}" fill="${photoFill}" rx="3"/>
+        <rect x="${photoW}" width="${w - photoW}" height="${h}" fill="${infoFill}" rx="3"/>
+        <line x1="${photoW + 3}" y1="10" x2="${w - 4}" y2="10" stroke="#aaa" stroke-width="1.5"/>
+        <line x1="${photoW + 3}" y1="18" x2="${w - 6}" y2="18" stroke="#666" stroke-width="1"/>
+        <line x1="${photoW + 3}" y1="24" x2="${w - 8}" y2="24" stroke="#666" stroke-width="1"/>
+      </svg>`;
+    }
+    default:
+      return `<svg width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="${stroke}" rx="3"/></svg>`;
+  }
+};
+
+const layoutDescriptions: Record<string, string> = {
+  photo_info:
+    'Photo on top with a dedicated info strip showing date, weather, and calendar events.',
+  photo_overlay:
+    'Full-screen photo with a semi-transparent overlay showing date, weather, and events.',
+  side_panel:
+    'Photo with a side panel (landscape) or bottom panel (portrait) showing weather and events.',
+};
+
 const aiModelOptionsForProvider = (provider: string | undefined) => {
   if (provider === 'openai') {
     return [
@@ -1330,6 +1623,8 @@ const getDeviceName = (id: number) => {
 watch(activeDataSourceTab, (val) => {
   if (val === 'url') {
     loadURLSources();
+  } else if (val === 'google') {
+    loadCalendars();
   }
 });
 
@@ -1337,9 +1632,12 @@ watch(activeDataSourceTab, (val) => {
 const availableDevices = ref<Device[]>([]);
 const deviceListLoading = ref(false);
 
-// Edit Device State
-const showEditDeviceDialog = ref(false);
-const editingDevice = reactive<Partial<Device>>({});
+// Load calendars when the edit dialog opens (if not yet loaded)
+watch(showEditDeviceDialog, (open) => {
+  if (open && !calendarLoaded.value) {
+    loadCalendars();
+  }
+});
 
 // Reset AI model when provider changes
 watch(
@@ -1358,74 +1656,45 @@ watch(
   }
 );
 
-const newDevice = reactive({
-  name: '',
-  host: '',
-  width: 0,
-  height: 0,
-  orientation: '',
-  use_device_parameter: false,
-  enable_collage: false,
-  show_date: true,
-  show_weather: true,
-  weather_lat: null as number | null,
-  weather_lon: null as number | null,
-});
+const isAddingDevice = ref(false);
+const deviceDialogPanels = ref<string[]>(['general']);
 
-const addNewDevice = async () => {
-  if (!newDevice.host) {
-    showMessage('Host is required', true);
-    return;
-  }
-
-  if (newDevice.show_weather) {
-    if (
-      newDevice.weather_lat === null ||
-      isNaN(newDevice.weather_lat) ||
-      newDevice.weather_lon === null ||
-      isNaN(newDevice.weather_lon)
-    ) {
-      showMessage('Latitude and Longitude are required for weather', true);
-      return;
-    }
-  }
-
-  deviceListLoading.value = true;
-  try {
-    await addDevice(
-      newDevice.host,
-      newDevice.use_device_parameter,
-      newDevice.enable_collage,
-      newDevice.show_date,
-      newDevice.show_weather,
-      newDevice.weather_lat || 0,
-      newDevice.weather_lon || 0
-    );
-    await loadDevices();
-    // Reset form
-    newDevice.name = '';
-    newDevice.host = '';
-    newDevice.use_device_parameter = false;
-    newDevice.enable_collage = false;
-    newDevice.show_date = true;
-    newDevice.show_weather = true;
-    newDevice.weather_lat = null;
-    newDevice.weather_lon = null;
-    showMessage('Device added successfully');
-  } catch (e: any) {
-    showMessage('Failed to add device: ' + e.message, true);
-  } finally {
-    deviceListLoading.value = false;
-  }
+const openAddDeviceDialog = () => {
+  // Reset editingDevice to defaults for a new device
+  Object.assign(editingDevice, {
+    id: undefined,
+    name: '',
+    host: '',
+    width: 0,
+    height: 0,
+    orientation: '',
+    use_device_parameter: false,
+    enable_collage: false,
+    show_date: true,
+    show_weather: true,
+    weather_lat: null,
+    weather_lon: null,
+    ai_provider: '',
+    ai_model: '',
+    ai_prompt: '',
+    layout: 'photo_overlay',
+    display_mode: 'cover',
+    show_calendar: false,
+    calendar_id: '',
+  });
+  isAddingDevice.value = true;
+  deviceDialogPanels.value = ['general'];
+  showEditDeviceDialog.value = true;
 };
 
 const editDevice = (device: Device) => {
   Object.assign(editingDevice, device);
+  isAddingDevice.value = false;
+  deviceDialogPanels.value = ['general'];
   showEditDeviceDialog.value = true;
 };
 
-const saveEditedDevice = async () => {
-  if (!editingDevice.id) return;
+const saveDevice = async () => {
   if (!editingDevice.host) {
     showMessage('Host is required', true);
     return;
@@ -1444,41 +1713,52 @@ const saveEditedDevice = async () => {
     }
   }
   try {
-    await updateDevice(
-      editingDevice.id,
-      editingDevice.name!,
-      editingDevice.host!,
-      editingDevice.width!,
-      editingDevice.height!,
-      editingDevice.orientation!,
-      editingDevice.use_device_parameter!,
-      editingDevice.enable_collage!,
-      editingDevice.show_date!,
-      editingDevice.show_weather!,
-      editingDevice.weather_lat || 0,
-      editingDevice.weather_lon || 0,
-      editingDevice.ai_provider || '',
-      editingDevice.ai_model || '',
-      editingDevice.ai_prompt || ''
-    );
+    if (isAddingDevice.value) {
+      await addDevice({
+        host: editingDevice.host!,
+        use_device_parameter: editingDevice.use_device_parameter!,
+        enable_collage: editingDevice.enable_collage!,
+        show_date: editingDevice.show_date!,
+        show_weather: editingDevice.show_weather!,
+        weather_lat: editingDevice.weather_lat || 0,
+        weather_lon: editingDevice.weather_lon || 0,
+        layout: editingDevice.layout || 'photo_overlay',
+        display_mode: editingDevice.display_mode || 'cover',
+        show_calendar: editingDevice.show_calendar || false,
+        calendar_id: editingDevice.calendar_id || '',
+      });
+      showMessage('Device added successfully');
+    } else {
+      if (!editingDevice.id) return;
+      await updateDevice(
+        editingDevice.id,
+        editingDevice.name!,
+        editingDevice.host!,
+        editingDevice.width!,
+        editingDevice.height!,
+        editingDevice.orientation!,
+        editingDevice.use_device_parameter!,
+        editingDevice.enable_collage!,
+        editingDevice.show_date!,
+        editingDevice.show_weather!,
+        editingDevice.weather_lat || 0,
+        editingDevice.weather_lon || 0,
+        editingDevice.ai_provider || '',
+        editingDevice.ai_model || '',
+        editingDevice.ai_prompt || '',
+        editingDevice.layout || 'photo_overlay',
+        editingDevice.display_mode || 'cover',
+        editingDevice.show_calendar || false,
+        editingDevice.calendar_id || ''
+      );
+      showMessage('Device updated successfully');
+    }
     await loadDevices();
     showEditDeviceDialog.value = false;
-    showMessage('Device updated successfully');
   } catch (e: any) {
-    showMessage('Failed to update device: ' + e.message, true);
+    showMessage('Failed to save device: ' + e.message, true);
   }
 };
-
-watch(
-  () => newDevice.use_device_parameter,
-  (val) => {
-    if (val) {
-      newDevice.width = 0;
-      newDevice.height = 0;
-      newDevice.orientation = '';
-    }
-  }
-);
 
 const refreshDeviceParams = async (device: Device) => {
   deviceListLoading.value = true;
@@ -1499,7 +1779,11 @@ const refreshDeviceParams = async (device: Device) => {
       device.weather_lon || 0,
       device.ai_provider || '',
       device.ai_model || '',
-      device.ai_prompt || ''
+      device.ai_prompt || '',
+      device.layout || 'photo_overlay',
+      device.display_mode || 'cover',
+      device.show_calendar || false,
+      device.calendar_id || ''
     );
     await loadDevices();
     showMessage('Device parameters refreshed from device');
@@ -1562,6 +1846,7 @@ const form = reactive({
   weather_lat: '',
   weather_lon: '',
   google_connected: 'false',
+  google_calendar_connected: 'false',
   google_client_id: '',
   google_client_secret: '',
   synology_sid: '',
@@ -1605,6 +1890,8 @@ onMounted(async () => {
     google_client_id: store.settings.google_client_id || '',
     google_client_secret: store.settings.google_client_secret || '',
     google_connected: store.settings.google_connected || 'false',
+    google_calendar_connected:
+      store.settings.google_calendar_connected || 'false',
     telegram_bot_token: store.settings.telegram_bot_token || '',
     telegram_push_enabled: store.settings.telegram_push_enabled === 'true',
     telegram_target_device_id: store.settings.telegram_target_device_id
@@ -1721,6 +2008,35 @@ const logoutGoogle = async () => {
     await api.post('/auth/google/logout');
     form.google_connected = 'false';
     showMessage('Disconnected Google Photos.');
+    await store.fetchSettings();
+  } catch (e) {
+    showMessage('Error disconnecting: ' + e, true);
+  }
+};
+
+const connectGoogleCalendar = async () => {
+  try {
+    await saveSettingsInternal();
+    const res = await googleCalendarLogin();
+    window.location.href = res.url;
+  } catch (e) {
+    showMessage('Failed to connect Google Calendar: ' + e, true);
+  }
+};
+
+const logoutGoogleCalendar = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Are you sure you want to disconnect Google Calendar?'
+    ))
+  )
+    return;
+  try {
+    await googleCalendarLogout();
+    form.google_calendar_connected = 'false';
+    calendarConnected.value = false;
+    calendars.value = [];
+    showMessage('Disconnected Google Calendar.');
     await store.fetchSettings();
   } catch (e) {
     showMessage('Error disconnecting: ' + e, true);

@@ -8,26 +8,45 @@ import (
 	"os"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
-	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/imageops"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/weather"
 	"gorm.io/gorm"
 )
 
-type DeviceService struct {
-	db        *gorm.DB
-	settings  *SettingsService
-	processor *ProcessorService
-	overlay   *OverlayService
-	pfClient  *photoframe.Client
+type DeviceServiceDeps struct {
+	DB             *gorm.DB
+	Settings       *SettingsService
+	Processor      *ProcessorService
+	Renderer       *RendererService
+	Weather        *weather.Client
+	Calendar       *gcalendar.Client
+	CalendarGoogle *googlephotos.Client
+	PFClient       *photoframe.Client
 }
 
-func NewDeviceService(db *gorm.DB, settings *SettingsService, processor *ProcessorService, overlay *OverlayService, pfClient *photoframe.Client) *DeviceService {
+type DeviceService struct {
+	db             *gorm.DB
+	settings       *SettingsService
+	processor      *ProcessorService
+	renderer       *RendererService
+	weather        *weather.Client
+	calendar       *gcalendar.Client
+	calendarGoogle *googlephotos.Client
+	pfClient       *photoframe.Client
+}
+
+func NewDeviceService(deps DeviceServiceDeps) *DeviceService {
 	return &DeviceService{
-		db:        db,
-		settings:  settings,
-		processor: processor,
-		overlay:   overlay,
-		pfClient:  pfClient,
+		db:             deps.DB,
+		settings:       deps.Settings,
+		processor:      deps.Processor,
+		renderer:       deps.Renderer,
+		weather:        deps.Weather,
+		calendar:       deps.Calendar,
+		calendarGoogle: deps.CalendarGoogle,
+		pfClient:       deps.PFClient,
 	}
 }
 
@@ -41,7 +60,7 @@ func (s *DeviceService) ListDevices() ([]model.Device, error) {
 	return devices, nil
 }
 
-func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64) (*model.Device, error) {
+func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, layout string, displayMode string, showCalendar bool, calendarID string) (*model.Device, error) {
 	sysInfo, err := s.pfClient.FetchSystemInfo(host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch system info: %w", err)
@@ -72,6 +91,10 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 		orientation = "landscape"
 	}
 
+	if displayMode == "" {
+		displayMode = "cover"
+	}
+
 	device := &model.Device{
 		Name:               name,
 		Host:               host,
@@ -84,6 +107,10 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 		ShowWeather:        showWeather,
 		WeatherLat:         weatherLat,
 		WeatherLon:         weatherLon,
+		Layout:             layout,
+		DisplayMode:        displayMode,
+		ShowCalendar:       showCalendar,
+		CalendarID:         calendarID,
 	}
 	if err := s.db.Create(device).Error; err != nil {
 		return nil, err
@@ -91,7 +118,7 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 	return device, nil
 }
 
-func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string) (*model.Device, error) {
+func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string, layout string, displayMode string, showCalendar bool, calendarID string) (*model.Device, error) {
 	var device model.Device
 	if err := s.db.First(&device, id).Error; err != nil {
 		return nil, errors.New("device not found")
@@ -148,6 +175,13 @@ func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height i
 	device.AIProvider = aiProvider
 	device.AIModel = aiModel
 	device.AIPrompt = aiPrompt
+	device.Layout = layout
+	if displayMode == "" {
+		displayMode = "cover"
+	}
+	device.DisplayMode = displayMode
+	device.ShowCalendar = showCalendar
+	device.CalendarID = calendarID
 
 	if err := s.db.Save(&device).Error; err != nil {
 		return nil, err
@@ -267,23 +301,64 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		logicalW, logicalH = logicalH, logicalW
 	}
 
-	resizedImg := imageops.SmartResizeToFill(srcImg, logicalW, logicalH)
+	// 5. Render layout (photo + overlay + calendar)
+	var weatherData *weather.CurrentWeather
+	var deviceTimezone string
+	if device.ShowWeather && device.WeatherLat != 0 && device.WeatherLon != 0 {
+		latStr := fmt.Sprintf("%f", device.WeatherLat)
+		lonStr := fmt.Sprintf("%f", device.WeatherLon)
+		var weatherErr error
+		weatherData, weatherErr = s.weather.GetWeather(latStr, lonStr)
+		if weatherErr != nil {
+			log.Printf("Failed to fetch weather data for device %d: %v", device.ID, weatherErr)
+		}
+		if weatherData != nil {
+			deviceTimezone = weatherData.Timezone
+		}
+	}
 
-	// 5. Apply Overlay or Cover
-	var finalImg image.Image = resizedImg
-	if s.overlay != nil {
-		overlayOpts := OverlayOptions{
-			ShowDate:    device.ShowDate,
-			ShowWeather: device.ShowWeather,
-			WeatherLat:  device.WeatherLat,
-			WeatherLon:  device.WeatherLon,
-		}
-		imgWithOverlay, err := s.overlay.ApplyOverlay(resizedImg, overlayOpts)
+	var events []gcalendar.Event
+	if device.ShowCalendar && s.calendar != nil && s.calendarGoogle != nil {
+		httpClient, err := s.calendarGoogle.GetClient()
 		if err == nil {
-			finalImg = imgWithOverlay
-		} else {
-			log.Printf("Failed to apply overlay: %v", err)
+			calendarID := device.CalendarID
+			if calendarID == "" {
+				calendarID = "primary"
+			}
+			var calErr error
+			events, calErr = s.calendar.GetTodayEvents(httpClient, calendarID, deviceTimezone)
+			if calErr != nil {
+				log.Printf("Failed to fetch calendar events for device %d: %v", device.ID, calErr)
+			}
 		}
+	}
+
+	layout := device.Layout
+	if layout == "" {
+		layout = model.LayoutPhotoOverlay
+	}
+	displayMode := device.DisplayMode
+	if displayMode == "" {
+		displayMode = "cover"
+	}
+
+	finalImg, err := s.renderer.Render(RenderOptions{
+		Layout:       layout,
+		DisplayMode:  displayMode,
+		Width:        logicalW,
+		Height:       logicalH,
+		NativeWidth:  nativeW,
+		NativeHeight: nativeH,
+		Photo:        srcImg,
+		ShowDate:     device.ShowDate,
+		ShowWeather:  device.ShowWeather,
+		Weather:      weatherData,
+		ShowCalendar: device.ShowCalendar,
+		Events:       events,
+		Timezone:     deviceTimezone,
+	})
+	if err != nil {
+		return fmt.Errorf("render failed: %w", err)
 	}
 
 	// 6. Process for E-Paper

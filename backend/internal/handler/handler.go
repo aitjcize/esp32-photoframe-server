@@ -9,15 +9,17 @@ import (
 )
 
 type Handler struct {
-	settings *service.SettingsService
-	telegram *service.TelegramService
-	google   *googlephotos.Client
+	settings       *service.SettingsService
+	telegram       *service.TelegramService
+	google         *googlephotos.Client
+	googleCalendar *googlephotos.Client
 }
 
-func NewHandler(s *service.SettingsService, t *service.TelegramService, g *googlephotos.Client) *Handler {
-	return &Handler{settings: s, telegram: t, google: g}
+func NewHandler(s *service.SettingsService, t *service.TelegramService, g *googlephotos.Client, gc *googlephotos.Client) *Handler {
+	return &Handler{settings: s, telegram: t, google: g, googleCalendar: gc}
 }
 
+// HealthCheck
 func (h *Handler) HealthCheck(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -32,6 +34,12 @@ func (h *Handler) GetSettings(c echo.Context) error {
 		settings["google_connected"] = "true"
 	} else {
 		settings["google_connected"] = "false"
+	}
+
+	if h.googleCalendar.IsConnected() {
+		settings["google_calendar_connected"] = "true"
+	} else {
+		settings["google_calendar_connected"] = "false"
 	}
 
 	return c.JSON(http.StatusOK, settings)

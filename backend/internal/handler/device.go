@@ -163,6 +163,10 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		ShowWeather        bool    `json:"show_weather"`
 		WeatherLat         float64 `json:"weather_lat"`
 		WeatherLon         float64 `json:"weather_lon"`
+		Layout             string  `json:"layout"`
+		DisplayMode        string  `json:"display_mode"`
+		ShowCalendar       bool    `json:"show_calendar"`
+		CalendarID         string  `json:"calendar_id"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -172,7 +176,11 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "host required"})
 	}
 
-	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon)
+	if req.Layout == "" {
+		req.Layout = model.LayoutPhotoOverlay
+	}
+
+	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -197,12 +205,20 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		AIProvider         string  `json:"ai_provider"`
 		AIModel            string  `json:"ai_model"`
 		AIPrompt           string  `json:"ai_prompt"`
+		Layout             string  `json:"layout"`
+		DisplayMode        string  `json:"display_mode"`
+		ShowCalendar       bool    `json:"show_calendar"`
+		CalendarID         string  `json:"calendar_id"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 
-	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt)
+	if req.Layout == "" {
+		req.Layout = model.LayoutPhotoOverlay
+	}
+
+	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

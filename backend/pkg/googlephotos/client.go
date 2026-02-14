@@ -11,6 +11,7 @@ type Config struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+	Scopes       []string
 }
 
 type ConfigProvider interface {
@@ -55,11 +56,7 @@ func (c *Client) getOAuthConfig() (*oauth2.Config, error) {
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		RedirectURL:  redirectURL,
-		Scopes: []string{
-			"https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
-			"https://www.googleapis.com/auth/userinfo.email",
-			"https://www.googleapis.com/auth/userinfo.profile",
-		},
+		Scopes:       cfg.Scopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://accounts.google.com/o/oauth2/auth",
 			TokenURL: "https://oauth2.googleapis.com/token",
@@ -67,13 +64,13 @@ func (c *Client) getOAuthConfig() (*oauth2.Config, error) {
 	}, nil
 }
 
-func (c *Client) GetAuthURL() string {
+func (c *Client) GetAuthURL(state string) string {
 	conf, err := c.getOAuthConfig()
 	if err != nil {
 		return "" // TODO: Handle error better?
 	}
 	// prompt=consent ensures we get a refresh token
-	return conf.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
+	return conf.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
 }
 
 func (c *Client) Exchange(code string) error {

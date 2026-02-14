@@ -21,47 +21,61 @@ import (
 )
 
 type GoogleHandler struct {
-	client  *googlephotos.Client
-	picker  *service.PickerService
-	db      *gorm.DB
-	dataDir string
+	client         *googlephotos.Client
+	calendarClient *googlephotos.Client // calendar OAuth client, for shared callback routing
+	picker         *service.PickerService
+	db             *gorm.DB
+	dataDir        string
 }
 
-func NewGoogleHandler(client *googlephotos.Client, picker *service.PickerService, db *gorm.DB, dataDir string) *GoogleHandler {
+func NewGoogleHandler(client *googlephotos.Client, calendarClient *googlephotos.Client, picker *service.PickerService, db *gorm.DB, dataDir string) *GoogleHandler {
 	return &GoogleHandler{
-		client:  client,
-		picker:  picker,
-		db:      db,
-		dataDir: dataDir,
+		client:         client,
+		calendarClient: calendarClient,
+		picker:         picker,
+		db:             db,
+		dataDir:        dataDir,
 	}
 }
 
+// Login initiates the OAuth flow for Google Photos.
 func (h *GoogleHandler) Login(c echo.Context) error {
-	// Construct redirect URL from request
-	scheme := "http"
-	if c.Request().TLS != nil || c.Request().Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	host := c.Request().Host
-	redirectURL := scheme + "://" + host + "/api/auth/google/callback"
-
+	redirectURL := buildRedirectURL(c)
 	h.client.SetRedirectURL(redirectURL)
-	url := h.client.GetAuthURL()
+	url := h.client.GetAuthURL("photos")
 	return c.JSON(http.StatusOK, map[string]string{"url": url})
 }
 
+// CalendarLogin initiates the OAuth flow for Google Calendar.
+func (h *GoogleHandler) CalendarLogin(c echo.Context) error {
+	redirectURL := buildRedirectURL(c)
+	h.calendarClient.SetRedirectURL(redirectURL)
+	url := h.calendarClient.GetAuthURL("calendar")
+	return c.JSON(http.StatusOK, map[string]string{"url": url})
+}
+
+// Callback handles the shared OAuth callback. It uses the state parameter
+// to route the auth code to the correct client (photos or calendar).
 func (h *GoogleHandler) Callback(c echo.Context) error {
 	code := c.QueryParam("code")
+	state := c.QueryParam("state")
 	if code == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "code is required"})
 	}
 
-	if err := h.client.Exchange(code); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	switch state {
+	case "calendar":
+		if err := h.calendarClient.Exchange(code); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+	default: // "photos" or legacy "state"
+		if err := h.client.Exchange(code); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
 	}
 
-	// Redirect back to frontend
-	return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/?tab=datasources&source=%s", model.SourceGooglePhotos))
+	// Redirect back to frontend – Google data source tab
+	return c.Redirect(http.StatusTemporaryRedirect, "/?tab=datasources&source=google")
 }
 
 func (h *GoogleHandler) Logout(c echo.Context) error {
@@ -69,6 +83,21 @@ func (h *GoogleHandler) Logout(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *GoogleHandler) CalendarLogout(c echo.Context) error {
+	if err := h.calendarClient.Logout(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func buildRedirectURL(c echo.Context) string {
+	scheme := "http"
+	if c.Request().TLS != nil || c.Request().Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + c.Request().Host + "/api/auth/google/callback"
 }
 
 // ListAlbums is no longer supported for Google Photos

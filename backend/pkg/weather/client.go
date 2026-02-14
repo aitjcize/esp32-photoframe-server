@@ -7,8 +7,9 @@ import (
 )
 
 type Weather struct {
-	Current CurrentWeather `json:"current_weather"`
-	Hourly  HourlyWeather  `json:"hourly"`
+	Current  CurrentWeather `json:"current_weather"`
+	Hourly   HourlyWeather  `json:"hourly"`
+	Timezone string         `json:"timezone"` // IANA timezone e.g. "Asia/Taipei"
 }
 
 type CurrentWeather struct {
@@ -16,6 +17,7 @@ type CurrentWeather struct {
 	WeatherCode int     `json:"weathercode"`
 	Time        string  `json:"time"`
 	Humidity    int     // Extracted from hourly data
+	Timezone    string  `json:"-"` // IANA timezone, populated from top-level response
 }
 
 type HourlyWeather struct {
@@ -83,6 +85,7 @@ func (c *Client) GetWeather(lat, lon string) (*CurrentWeather, error) {
 		result.Current.Humidity = result.Hourly.RelativeHumidity2m[0]
 	}
 
+	result.Current.Timezone = result.Timezone
 	return &result.Current, nil
 }
 
@@ -130,5 +133,27 @@ func (c CurrentWeather) Icon() string {
 		return "\uebdb" // thunderstorm
 	default:
 		return "\uf157" // clear_day (default)
+	}
+}
+
+// IconName returns a Material Symbols ligature name for use in HTML templates
+func (c CurrentWeather) IconName() string {
+	switch c.WeatherCode {
+	case 0:
+		return "clear_day"
+	case 1, 2:
+		return "partly_cloudy_day"
+	case 3, 45, 48:
+		return "cloud"
+	case 51, 53, 55, 61, 63, 65, 80, 81, 82:
+		return "rainy"
+	case 56, 57, 66, 67:
+		return "rainy"
+	case 71, 73, 75, 77, 85, 86:
+		return "ac_unit"
+	case 95, 96, 99:
+		return "thunderstorm"
+	default:
+		return "clear_day"
 	}
 }

@@ -20,43 +20,56 @@ import (
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/imageops"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/weather"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
 
-type ImageHandler struct {
-	settings  *service.SettingsService
-	overlay   *service.OverlayService
-	processor *service.ProcessorService
-	google    *googlephotos.Client
-	synology  *service.SynologyService
-	aiGen     *service.AIGenerationService
-	db        *gorm.DB
-	dataDir   string
+type ImageHandlerDeps struct {
+	Settings       *service.SettingsService
+	Renderer       *service.RendererService
+	Processor      *service.ProcessorService
+	Google         *googlephotos.Client
+	CalendarGoogle *googlephotos.Client
+	Synology       *service.SynologyService
+	AIGen          *service.AIGenerationService
+	Weather        *weather.Client
+	Calendar       *gcalendar.Client
+	DB             *gorm.DB
+	DataDir        string
 }
 
-func NewImageHandler(
-	s *service.SettingsService,
-	o *service.OverlayService,
-	p *service.ProcessorService,
-	g *googlephotos.Client,
-	synology *service.SynologyService,
-	aiGen *service.AIGenerationService,
-	db *gorm.DB,
-	dataDir string,
-) *ImageHandler {
+type ImageHandler struct {
+	settings       *service.SettingsService
+	renderer       *service.RendererService
+	processor      *service.ProcessorService
+	google         *googlephotos.Client
+	calendarGoogle *googlephotos.Client
+	synology       *service.SynologyService
+	aiGen          *service.AIGenerationService
+	weather        *weather.Client
+	calendar       *gcalendar.Client
+	db             *gorm.DB
+	dataDir        string
+}
+
+func NewImageHandler(deps ImageHandlerDeps) *ImageHandler {
 	return &ImageHandler{
-		settings:  s,
-		overlay:   o,
-		processor: p,
-		google:    g,
-		synology:  synology,
-		aiGen:     aiGen,
-		db:        db,
-		dataDir:   dataDir,
+		settings:       deps.Settings,
+		renderer:       deps.Renderer,
+		processor:      deps.Processor,
+		google:         deps.Google,
+		calendarGoogle: deps.CalendarGoogle,
+		synology:       deps.Synology,
+		aiGen:          deps.AIGen,
+		weather:        deps.Weather,
+		calendar:       deps.Calendar,
+		db:             deps.DB,
+		dataDir:        deps.DataDir,
 	}
 }
 
@@ -144,6 +157,20 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		} else if device.Orientation == "landscape" && logicalW < logicalH {
 			logicalW, logicalH = logicalH, logicalW
 		}
+	}
+
+	layout := model.LayoutPhotoOverlay
+	displayMode := "cover"
+	showCalendar := false
+
+	if deviceFound {
+		if device.Layout != "" {
+			layout = device.Layout
+		}
+		if device.DisplayMode != "" {
+			displayMode = device.DisplayMode
+		}
+		showCalendar = device.ShowCalendar
 	}
 
 	var img image.Image
@@ -242,22 +269,57 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		}(device.ID, servedImageIDs)
 	}
 
-	// 1.5. Resize/Crop to Target Dimensions
-	dst := image.NewRGBA(image.Rect(0, 0, logicalW, logicalH))
-	imageops.DrawCover(dst, dst.Bounds(), img)
-	img = dst
-
-	// 2. Overlay
-	overlayOpts := service.OverlayOptions{
-		ShowDate:    showDate,
-		ShowWeather: showWeather,
-		WeatherLat:  lat,
-		WeatherLon:  lon,
+	// 2. Render layout (photo + overlay + calendar)
+	// Fetch weather data if needed
+	var weatherData *weather.CurrentWeather
+	var deviceTimezone string
+	if showWeather && lat != 0 && lon != 0 {
+		latStr := fmt.Sprintf("%f", lat)
+		lonStr := fmt.Sprintf("%f", lon)
+		var weatherErr error
+		weatherData, weatherErr = h.weather.GetWeather(latStr, lonStr)
+		if weatherErr != nil {
+			log.Printf("Failed to fetch weather data: %v", weatherErr)
+		}
+		if weatherData != nil {
+			deviceTimezone = weatherData.Timezone
+		}
 	}
 
-	imgWithOverlay, err := h.overlay.ApplyOverlay(img, overlayOpts)
+	// Fetch calendar events if enabled
+	var events []gcalendar.Event
+	if showCalendar && h.calendar != nil && h.calendarGoogle != nil {
+		httpClient, err := h.calendarGoogle.GetClient()
+		if err == nil {
+			calendarID := device.CalendarID
+			if calendarID == "" {
+				calendarID = "primary"
+			}
+			var calErr error
+			events, calErr = h.calendar.GetTodayEvents(httpClient, calendarID, deviceTimezone)
+			if calErr != nil {
+				log.Printf("Failed to fetch calendar events: %v", calErr)
+			}
+		}
+	}
+
+	imgWithOverlay, err := h.renderer.Render(service.RenderOptions{
+		Layout:       layout,
+		DisplayMode:  displayMode,
+		Width:        logicalW,
+		Height:       logicalH,
+		NativeWidth:  nativeW,
+		NativeHeight: nativeH,
+		Photo:        img,
+		ShowDate:     showDate,
+		ShowWeather:  showWeather,
+		Weather:      weatherData,
+		ShowCalendar: showCalendar,
+		Events:       events,
+		Timezone:     deviceTimezone,
+	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "overlay failed: " + err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "render failed: " + err.Error()})
 	}
 
 	// 3. Tone Mapping + Thumbnail (CLI)

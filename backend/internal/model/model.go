@@ -43,6 +43,13 @@ type GoogleAuth struct {
 	Expiry       time.Time `json:"expiry"`
 }
 
+type GoogleCalendarAuth struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	AccessToken  string    `json:"-"`
+	RefreshToken string    `json:"-"`
+	Expiry       time.Time `json:"expiry"`
+}
+
 type Device struct {
 	ID                 uint      `gorm:"primaryKey" json:"id"`
 	Name               string    `json:"name"`
@@ -59,8 +66,18 @@ type Device struct {
 	AIProvider         string    `gorm:"column:ai_provider" json:"ai_provider"`
 	AIModel            string    `gorm:"column:ai_model" json:"ai_model"`
 	AIPrompt           string    `gorm:"column:ai_prompt" json:"ai_prompt"`
+	Layout             string    `json:"layout"`       // "photo_info", "photo_overlay", "side_panel"
+	DisplayMode        string    `json:"display_mode"` // "cover" or "contain"
+	ShowCalendar       bool      `json:"show_calendar"`
+	CalendarID         string    `json:"calendar_id"` // Google Calendar ID (per-device)
 	CreatedAt          time.Time `json:"created_at"`
 }
+
+const (
+	LayoutPhotoInfo    = "photo_info"
+	LayoutPhotoOverlay = "photo_overlay"
+	LayoutSidePanel    = "side_panel"
+)
 
 type DeviceHistory struct {
 	ID       uint      `gorm:"primaryKey" json:"id"`
