@@ -437,8 +437,9 @@ func filterOverlayEvents(events []gcalendar.Event, maxEvents int) []gcalendar.Ev
 			return []gcalendar.Event{events[i]}
 		}
 	}
-	// All events are all-day; skip them entirely on small overlay
-	return nil
+	// If we get here, all events are all-day events.
+	// Fallback to showing the first all-day event instead of nothing.
+	return []gcalendar.Event{events[0]}
 }
 
 func init() {
