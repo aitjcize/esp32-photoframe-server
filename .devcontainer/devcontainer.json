@@ -1,0 +1,42 @@
+{
+	"name": "ESP32 PhotoFrame Dev",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "20"
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.go",
+				"Vue.volar",
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"editorconfig.editorconfig",
+				"googlecloudtools.cloudcode",
+				"ms-toolsai.jupyter"
+			],
+			"settings": {
+				"go.toolsManagement.checkForUpdates": "local",
+				"go.useLanguageServer": true,
+				"go.gopath": "/go",
+				"editor.formatOnSave": true,
+				"[vue]": {
+					"editor.defaultFormatter": "esbenp.prettier-vscode"
+				},
+				"[go]": {
+					"editor.defaultFormatter": "golang.go"
+				}
+			}
+		}
+	},
+	"forwardPorts": [
+		9607,
+		5173
+	],
+	"postCreateCommand": "go mod download && cd webapp && npm install",
+	"remoteUser": "vscode"
+}
