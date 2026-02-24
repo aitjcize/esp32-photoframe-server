@@ -247,3 +247,26 @@ export const googleCalendarLogout = async () => {
   const response = await api.post('auth/google-calendar/logout');
   return response.data;
 };
+
+// Immich
+export const testImmichConnection = async (
+  serverUrl: string,
+  apiKey: string
+) => {
+  const response = await api.post('immich/test', {
+    server_url: serverUrl,
+    api_key: apiKey,
+  });
+  return response.data;
+};
+
+export const listImmichAlbums = async (
+  serverUrl: string,
+  apiKey: string
+) => {
+  const response = await api.post('immich/albums', {
+    server_url: serverUrl,
+    api_key: apiKey,
+  });
+  return response.data;
+};

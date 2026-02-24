@@ -167,6 +167,8 @@ func main() {
 	synologyService := service.NewSynologyService(database, settingsService)
 	// Initialize AI Generation Service
 	aiGenerationService := service.NewAIGenerationService(settingsService)
+	// Initialize Immich Service
+	immichService := service.NewImmichService(settingsService)
 
 	// Initialize Picker Service
 	// dataDir already set from migration logic above
@@ -220,6 +222,7 @@ func main() {
 		CalendarGoogle: googleCalendarClient,
 		Synology:       synologyService,
 		AIGen:          aiGenerationService,
+		Immich:         immichService,
 		Weather:        weatherClient,
 		Calendar:       calendarClient,
 		DB:             database,
@@ -227,6 +230,7 @@ func main() {
 	})
 	ch := handler.NewCalendarHandler(googleCalendarClient, calendarClient)
 	ah := handler.NewAuthHandler(authService)
+	imh := handler.NewImmichHandler(immichService)
 
 	// Echo instance
 	e := echo.New()
@@ -315,6 +319,10 @@ func main() {
 
 	// Calendar (Protected)
 	protectedApi.GET("/calendar/calendars", ch.ListCalendars)
+
+	// Immich (Protected)
+	protectedApi.POST("/immich/test", imh.TestConnection)
+	protectedApi.POST("/immich/albums", imh.ListAlbums)
 
 	// Google Auth (Photos + Calendar share the same callback via state parameter)
 	protectedApi.GET("/auth/google/login", googleHandler.Login)

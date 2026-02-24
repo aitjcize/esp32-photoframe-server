@@ -37,6 +37,7 @@ type ImageHandlerDeps struct {
 	CalendarGoogle *googlephotos.Client
 	Synology       *service.SynologyService
 	AIGen          *service.AIGenerationService
+	Immich         *service.ImmichService
 	Weather        *weather.Client
 	Calendar       *gcalendar.Client
 	DB             *gorm.DB
@@ -51,6 +52,7 @@ type ImageHandler struct {
 	calendarGoogle *googlephotos.Client
 	synology       *service.SynologyService
 	aiGen          *service.AIGenerationService
+	immich         *service.ImmichService
 	weather        *weather.Client
 	calendar       *gcalendar.Client
 	db             *gorm.DB
@@ -66,6 +68,7 @@ func NewImageHandler(deps ImageHandlerDeps) *ImageHandler {
 		calendarGoogle: deps.CalendarGoogle,
 		synology:       deps.Synology,
 		aiGen:          deps.AIGen,
+		immich:         deps.Immich,
 		weather:        deps.Weather,
 		calendar:       deps.Calendar,
 		db:             deps.DB,
@@ -210,6 +213,9 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "device not found - AI generation requires device config"})
 		}
 		img, err = h.aiGen.Generate(&device)
+	} else if source == model.SourceImmichPhotos {
+		// Immich Photos: fetch random photo directly from Immich API
+		img, err = h.immich.FetchRandomPhoto()
 	} else if enableCollage {
 		var devID *uint
 		if deviceFound {
@@ -621,6 +627,9 @@ func (h *ImageHandler) applySourceFilter(query *gorm.DB, sourceFilter string, de
 		return query.Where("source = ?", sourceFilter), nil, nil
 	case model.SourceURLProxy:
 		img, _, err := h.fetchRandomURLProxy(deviceID)
+		return nil, img, err
+	case model.SourceImmichPhotos:
+		img, err := h.immich.FetchRandomPhoto()
 		return nil, img, err
 	default:
 		return nil, nil, fmt.Errorf("invalid source filter: %s", sourceFilter)

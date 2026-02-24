@@ -50,6 +50,7 @@
               <v-tab value="telegram">Telegram</v-tab>
               <v-tab value="url">URL Proxy</v-tab>
               <v-tab value="ai_generation">AI Generation</v-tab>
+              <v-tab value="immich_photos">Immich</v-tab>
             </v-tabs>
 
             <v-window v-model="activeDataSourceTab">
@@ -580,6 +581,128 @@
                     <v-btn color="primary" class="mt-4" @click="save"
                       >Save Token</v-btn
                     >
+                  </div>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- Immich Photos -->
+              <v-window-item value="immich_photos">
+                <v-card-text>
+                  <div v-if="form.immich_connected">
+                    <v-alert
+                      type="success"
+                      variant="tonal"
+                      class="mb-4"
+                      density="compact"
+                      icon="mdi-check-circle"
+                    >
+                      Connected to Immich Server ({{ form.immich_url }})
+                    </v-alert>
+
+                    <v-text-field
+                      :model-value="getImageUrl('immich_photos')"
+                      label="Image Endpoint URL (for firmware config)"
+                      readonly
+                      variant="outlined"
+                      density="compact"
+                      append-inner-icon="mdi-content-copy"
+                      @click:append-inner="
+                        copyToClipboard(getImageUrl('immich_photos'))
+                      "
+                      class="mb-4"
+                    ></v-text-field>
+
+                    <v-text-field
+                      v-model="form.immich_url"
+                      label="Immich Server URL"
+                      variant="outlined"
+                      density="compact"
+                      class="mb-2"
+                    ></v-text-field>
+
+                    <v-text-field
+                      v-model="form.immich_api_key"
+                      label="API Key"
+                      type="password"
+                      variant="outlined"
+                      density="compact"
+                      class="mb-4"
+                    ></v-text-field>
+
+                    <v-row class="mt-2">
+                      <v-col cols="12" sm="8">
+                        <v-select
+                          v-model="form.immich_album_id"
+                          :items="immichAlbumOptions"
+                          item-title="name"
+                          item-value="id"
+                          label="Album"
+                          variant="outlined"
+                          density="compact"
+                          hint="Select an album to pick random photos from, or leave as 'All Photos'"
+                          persistent-hint
+                        ></v-select>
+                      </v-col>
+                      <v-col cols="12" sm="4">
+                        <v-btn block variant="outlined" @click="loadImmichAlbums"
+                          >Refresh Albums</v-btn
+                        >
+                      </v-col>
+                    </v-row>
+
+                    <div class="d-flex flex-wrap ga-2 mt-4">
+                      <v-btn color="primary" @click="saveImmichSettings"
+                        >Save Settings</v-btn
+                      >
+                      <v-btn
+                        color="error"
+                        variant="text"
+                        @click="disconnectImmich"
+                        >Disconnect</v-btn
+                      >
+                    </div>
+                  </div>
+
+                  <div v-else>
+                    <v-alert
+                      type="info"
+                      variant="tonal"
+                      class="mb-4"
+                      density="compact"
+                    >
+                      Connect to your Immich server to display random photos
+                      from your library or a specific album. No photos are
+                      imported — they are fetched directly from Immich on each
+                      request.
+                    </v-alert>
+
+                    <v-text-field
+                      v-model="form.immich_url"
+                      label="Immich Server URL"
+                      placeholder="http://192.168.1.100:2283"
+                      variant="outlined"
+                      class="mb-2"
+                    ></v-text-field>
+
+                    <v-text-field
+                      v-model="form.immich_api_key"
+                      label="API Key"
+                      type="password"
+                      variant="outlined"
+                      class="mb-2"
+                      hint="Generate an API key in Immich → User Settings → API Keys"
+                      persistent-hint
+                    ></v-text-field>
+
+                    <v-btn
+                      color="primary"
+                      class="mt-4"
+                      :disabled="!form.immich_url || !form.immich_api_key"
+                      :loading="immichTesting"
+                      @click="testImmich"
+                    >
+                      Test Connection & Save
+                    </v-btn>
                   </div>
                 </v-card-text>
               </v-window-item>
@@ -1359,6 +1482,8 @@ import {
   listCalendars,
   googleCalendarLogin,
   googleCalendarLogout,
+  testImmichConnection,
+  listImmichAlbums,
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -1382,6 +1507,7 @@ const sourceOptions = [
   { title: 'Telegram', value: 'telegram' },
   { title: 'URL Proxy', value: 'url_proxy' },
   { title: 'AI Generation', value: 'ai_generation' },
+  { title: 'Immich Photos', value: 'immich_photos' },
 ];
 const isBinding = ref(false);
 
@@ -1625,6 +1751,10 @@ watch(activeDataSourceTab, (val) => {
     loadURLSources();
   } else if (val === 'google') {
     loadCalendars();
+  } else if (val === 'immich_photos') {
+    if (form.immich_connected && form.immich_albums.length === 0) {
+      loadImmichAlbums();
+    }
   }
 });
 
@@ -1863,6 +1993,11 @@ const form = reactive({
   telegram_target_device_id: [] as number[],
   openai_api_key: '',
   google_api_key: '',
+  immich_url: '',
+  immich_api_key: '',
+  immich_album_id: '',
+  immich_connected: false,
+  immich_albums: [] as any[],
   device_host: '', // Keep for backward compatibility/display? Or remove. Remove from form, keep in store maybe?
 });
 
@@ -1913,6 +2048,10 @@ onMounted(async () => {
     synology_sid: store.settings.synology_sid || '',
     openai_api_key: store.settings.openai_api_key || '',
     google_api_key: store.settings.google_api_key || '',
+    immich_url: store.settings.immich_url || '',
+    immich_api_key: store.settings.immich_api_key || '',
+    immich_album_id: store.settings.immich_album_id || '',
+    immich_connected: !!(store.settings.immich_url && store.settings.immich_api_key),
   });
 
   // Load cached albums if available
@@ -1975,6 +2114,9 @@ const saveSettingsInternal = async () => {
     synology_album_id: String(form.synology_album_id),
     openai_api_key: form.openai_api_key,
     google_api_key: form.google_api_key,
+    immich_url: form.immich_url,
+    immich_api_key: form.immich_api_key,
+    immich_album_id: form.immich_album_id,
   });
 };
 
@@ -2287,5 +2429,82 @@ const getDeviceFromUA = (ua: string) => {
   if (ua.includes('Android')) return 'Android';
   if (ua.includes('Linux')) return 'Linux';
   return 'Other Device';
+};
+
+// Immich State
+const immichTesting = ref(false);
+
+const immichAlbumOptions = computed(() => {
+  return [{ id: '', name: 'All Photos' }, ...form.immich_albums.map((a: any) => ({ id: a.id, name: `${a.albumName} (${a.assetCount})` }))];
+});
+
+const testImmich = async () => {
+  if (!form.immich_url || !form.immich_api_key) {
+    showMessage('Server URL and API Key are required', true);
+    return;
+  }
+  immichTesting.value = true;
+  try {
+    await testImmichConnection(form.immich_url, form.immich_api_key);
+    // Connection successful - save settings
+    await saveSettingsInternal();
+    form.immich_connected = true;
+    showMessage('Connected to Immich server!');
+    // Try to load albums
+    await loadImmichAlbums();
+  } catch (e: any) {
+    showMessage(
+      'Connection failed: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  } finally {
+    immichTesting.value = false;
+  }
+};
+
+const loadImmichAlbums = async () => {
+  if (!form.immich_url || !form.immich_api_key) {
+    showMessage('Server URL and API Key are required', true);
+    return;
+  }
+  try {
+    const albums = await listImmichAlbums(form.immich_url, form.immich_api_key);
+    form.immich_albums = albums;
+    showMessage('Albums loaded!');
+  } catch (e: any) {
+    showMessage(
+      'Failed to load albums: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+
+const saveImmichSettings = async () => {
+  try {
+    await saveSettingsInternal();
+    showMessage('Immich settings saved!');
+  } catch (e: any) {
+    showMessage('Failed to save: ' + (e.message || 'Unknown error'), true);
+  }
+};
+
+const disconnectImmich = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Are you sure you want to disconnect Immich?'
+    ))
+  )
+    return;
+  form.immich_url = '';
+  form.immich_api_key = '';
+  form.immich_album_id = '';
+  form.immich_albums = [];
+  form.immich_connected = false;
+  try {
+    await saveSettingsInternal();
+    showMessage('Disconnected from Immich.');
+  } catch (e: any) {
+    showMessage('Error disconnecting: ' + e, true);
+  }
 };
 </script>

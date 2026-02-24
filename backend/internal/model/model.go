@@ -17,6 +17,7 @@ const (
 	SourceTelegram       = "telegram"
 	SourceURLProxy       = "url_proxy"
 	SourceAIGeneration   = "ai_generation"
+	SourceImmichPhotos   = "immich_photos"
 )
 
 type Image struct {
