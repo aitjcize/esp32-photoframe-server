@@ -178,7 +178,13 @@ func (c *Client) ListAlbums(offset, limit int) ([]Album, error) {
 func (c *Client) ListPhotos(offset, limit int, albumID int, space string) ([]Item, error) {
 	endpoint := fmt.Sprintf("%s/webapi/entry.cgi", c.BaseURL)
 	params := url.Values{}
-	params.Set("api", "SYNO.Foto.Browse.Item")
+
+	if space == "shared" {
+		params.Set("api", "SYNO.FotoTeam.Browse.Item")
+	} else {
+		params.Set("api", "SYNO.Foto.Browse.Item")
+	}
+
 	params.Set("version", "1")
 	params.Set("method", "list")
 	params.Set("type", "photo")
@@ -254,7 +260,7 @@ func (c *Client) GetPhoto(id int, cacheKey string, size string, space string, al
 		"type=%22unit%22",
 		fmt.Sprintf("size=%s", url.QueryEscape(fmt.Sprintf("\"%s\"", sz))),
 	}
-	if albumID != 0 {
+	if albumID != 0 && space == "shared" {
 		parts = append(parts, fmt.Sprintf("album_id=%d", albumID))
 	}
 	parts = append(parts,

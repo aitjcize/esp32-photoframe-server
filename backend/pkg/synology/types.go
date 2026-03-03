@@ -21,9 +21,12 @@ type Item struct {
 	Type        string `json:"type"` // "photo" or "video"
 	Additional  struct {
 		Thumbnail struct {
-			M  string `json:"m"` // Cache key or similar
-			XL string `json:"xl"`
-			S  string `json:"s"`
+			M        string `json:"m"`
+			XL       string `json:"xl"`
+			S        string `json:"s"`
+			Sm       string `json:"sm"`
+			CacheKey string `json:"cache_key"`
+			UnitID   int    `json:"unit_id"`
 		} `json:"thumbnail"`
 		Resolution struct {
 			Width  int `json:"width"`

@@ -137,8 +137,14 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 		}
 	}
 
-	// Use stored ThumbnailKey (cache_key), SynologySpace, albumID, and SynoToken
-	return s.client.GetPhoto(id, img.ThumbnailKey, size, img.SynologySpace, albumID, s.client.SynoToken)
+	// For Personal albums, use unit_id instead of photo id for thumbnail requests
+	photoID := id
+	if img.SynologySpace == "personal" && img.SynologyUnitID != 0 {
+		photoID = img.SynologyUnitID
+		albumID = 0 // Personal thumbnails don't need album_id
+	}
+
+	return s.client.GetPhoto(photoID, img.ThumbnailKey, size, img.SynologySpace, albumID, s.client.SynoToken)
 }
 
 func (s *SynologyService) ListAlbums() ([]synology.Album, error) {
@@ -257,22 +263,27 @@ func (s *SynologyService) ImportPhotos() error {
 			}
 
 			// Create
+			// Use cache_key if available (needed for Personal album thumbnails), else fall back to status string
+			thumbKey := p.Additional.Thumbnail.CacheKey
+			if thumbKey == "" {
+				thumbKey = p.Additional.Thumbnail.XL
+			}
+			if thumbKey == "" {
+				thumbKey = p.Additional.Thumbnail.M
+			}
+
 			img := model.Image{
 				SynologyPhotoID: p.ID,
 				SynologySpace:   space,
 				Source:          model.SourceSynologyPhotos,
 				FilePath:        p.Filename,
-				ThumbnailKey:    p.Additional.Thumbnail.M,
+				ThumbnailKey:    thumbKey,
+				SynologyUnitID:  p.Additional.Thumbnail.UnitID,
 				Width:           pw,
 				Height:          ph,
 				Orientation:     orientation,
 				CreatedAt:       time.Now(),
 				Status:          "pending",
-			}
-
-			// Use XL cache key if available
-			if p.Additional.Thumbnail.XL != "" {
-				img.ThumbnailKey = p.Additional.Thumbnail.XL
 			}
 
 			if err := s.db.Create(&img).Error; err != nil {
