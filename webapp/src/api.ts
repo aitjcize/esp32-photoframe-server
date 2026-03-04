@@ -72,6 +72,7 @@ export interface Device {
   display_mode?: string;
   show_calendar?: boolean;
   calendar_id?: string;
+  date_format?: string;
   created_at: string;
   model?: any;
 }
@@ -93,6 +94,7 @@ export const addDevice = async (params: {
   display_mode?: string;
   show_calendar?: boolean;
   calendar_id?: string;
+  date_format?: string;
 }) => {
   const response = await api.post('devices', params);
   return response.data;
@@ -117,7 +119,8 @@ export const updateDevice = async (
   layout?: string,
   displayMode?: string,
   showCalendar?: boolean,
-  calendarId?: string
+  calendarId?: string,
+  dateFormat?: string
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -138,6 +141,7 @@ export const updateDevice = async (
     display_mode: displayMode || 'cover',
     show_calendar: showCalendar || false,
     calendar_id: calendarId || '',
+    date_format: dateFormat || '',
   });
   return response.data;
 };

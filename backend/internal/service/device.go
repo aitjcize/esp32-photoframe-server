@@ -60,7 +60,7 @@ func (s *DeviceService) ListDevices() ([]model.Device, error) {
 	return devices, nil
 }
 
-func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, layout string, displayMode string, showCalendar bool, calendarID string) (*model.Device, error) {
+func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, layout string, displayMode string, showCalendar bool, calendarID string, dateFormat string) (*model.Device, error) {
 	sysInfo, err := s.pfClient.FetchSystemInfo(host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch system info: %w", err)
@@ -111,6 +111,7 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 		DisplayMode:        displayMode,
 		ShowCalendar:       showCalendar,
 		CalendarID:         calendarID,
+		DateFormat:         dateFormat,
 	}
 	if err := s.db.Create(device).Error; err != nil {
 		return nil, err
@@ -118,7 +119,7 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 	return device, nil
 }
 
-func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string, layout string, displayMode string, showCalendar bool, calendarID string) (*model.Device, error) {
+func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string, layout string, displayMode string, showCalendar bool, calendarID string, dateFormat string) (*model.Device, error) {
 	var device model.Device
 	if err := s.db.First(&device, id).Error; err != nil {
 		return nil, errors.New("device not found")
@@ -182,6 +183,7 @@ func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height i
 	device.DisplayMode = displayMode
 	device.ShowCalendar = showCalendar
 	device.CalendarID = calendarID
+	device.DateFormat = dateFormat
 
 	if err := s.db.Save(&device).Error; err != nil {
 		return nil, err
@@ -356,6 +358,7 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		ShowCalendar: device.ShowCalendar,
 		Events:       events,
 		Timezone:     deviceTimezone,
+		DateFormat:   device.DateFormat,
 	})
 	if err != nil {
 		return fmt.Errorf("render failed: %w", err)

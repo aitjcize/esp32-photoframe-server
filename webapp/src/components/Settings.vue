@@ -1148,6 +1148,18 @@
                               hide-details
                             ></v-checkbox>
                           </div>
+                          <div v-if="editingDevice.show_date" class="mt-3">
+                            <v-select
+                              v-model="editingDevice.date_format"
+                              :items="dateFormatOptions"
+                              item-title="label"
+                              item-value="value"
+                              label="Date Format"
+                              variant="outlined"
+                              density="compact"
+                              hide-details
+                            ></v-select>
+                          </div>
                           <div
                             v-if="editingDevice.show_weather"
                             class="d-flex ga-2 mt-3"
@@ -1699,6 +1711,17 @@ const getLayoutPreviewSvg = (layout: string, orientation: string) => {
   }
 };
 
+const dateFormatOptions = [
+  { label: 'Mon, Jan 02 (Default)', value: '' },
+  { label: 'Monday, January 02, 2006', value: 'Monday, January 02, 2006' },
+  { label: 'DD/MM/YYYY', value: '02/01/2006' },
+  { label: 'MM/DD/YYYY', value: '01/02/2006' },
+  { label: 'DD.MM.YYYY', value: '02.01.2006' },
+  { label: 'DD-MM-YYYY', value: '02-01-2006' },
+  { label: 'YYYY-MM-DD', value: '2006-01-02' },
+  { label: 'YYYY.MM.DD', value: '2006.01.02' },
+];
+
 const layoutDescriptions: Record<string, string> = {
   photo_info:
     'Photo on top with a dedicated info strip showing date, weather, and calendar events.',
@@ -1792,6 +1815,7 @@ const openAddDeviceDialog = () => {
     display_mode: 'cover',
     show_calendar: false,
     calendar_id: '',
+    date_format: '',
   });
   isAddingDevice.value = true;
   deviceDialogPanels.value = ['general'];
@@ -1837,6 +1861,7 @@ const saveDevice = async () => {
         display_mode: editingDevice.display_mode || 'cover',
         show_calendar: editingDevice.show_calendar || false,
         calendar_id: editingDevice.calendar_id || '',
+        date_format: editingDevice.date_format || '',
       });
       showMessage('Device added successfully');
     } else {
@@ -1860,7 +1885,8 @@ const saveDevice = async () => {
         editingDevice.layout || 'photo_overlay',
         editingDevice.display_mode || 'cover',
         editingDevice.show_calendar || false,
-        editingDevice.calendar_id || ''
+        editingDevice.calendar_id || '',
+        editingDevice.date_format || ''
       );
       showMessage('Device updated successfully');
     }

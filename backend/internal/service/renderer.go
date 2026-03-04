@@ -51,6 +51,7 @@ type RenderOptions struct {
 	ShowCalendar bool
 	Events       []gcalendar.Event
 	Timezone     string // IANA timezone e.g. "Asia/Taipei" for date formatting
+	DateFormat   string // Go time format string, empty = default "Mon, Jan 02"
 }
 
 const browserIdleTimeout = 1 * time.Minute
@@ -245,7 +246,7 @@ func (s *RendererService) Render(opts RenderOptions) (image.Image, error) {
 		DPMM:         dpmm,
 		BaseUnit:     baseUnit,
 		ShowDate:     opts.ShowDate,
-		DateStr:      now.Format("Mon, Jan 02"),
+		DateStr:      now.Format(dateFormat(opts.DateFormat)),
 		DateStrLong:  now.Format("Monday, January 02, 2006"),
 		TimeStr:      now.Format("15:04"),
 		ShowWeather:  opts.ShowWeather,
@@ -405,6 +406,15 @@ func calcPhotoRatio(layout string, w, h int) float64 {
 	default:
 		return 1.0 // photo_overlay: full screen
 	}
+}
+
+// dateFormat returns the Go time format string to use for date rendering.
+// An empty string falls back to the default English short format.
+func dateFormat(fmt string) string {
+	if fmt == "" {
+		return "Mon, Jan 02"
+	}
+	return fmt
 }
 
 func limitEvents(events []gcalendar.Event, max int) []gcalendar.Event {

@@ -73,6 +73,7 @@ type Device struct {
 	DisplayMode        string    `json:"display_mode"` // "cover" or "contain"
 	ShowCalendar       bool      `json:"show_calendar"`
 	CalendarID         string    `json:"calendar_id"` // Google Calendar ID (per-device)
+	DateFormat         string    `json:"date_format"` // Go time format string, empty = default "Mon, Jan 02"
 	CreatedAt          time.Time `json:"created_at"`
 }
 

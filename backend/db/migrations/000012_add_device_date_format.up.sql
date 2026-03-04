@@ -1,0 +1,1 @@
+ALTER TABLE devices ADD COLUMN date_format TEXT NOT NULL DEFAULT '';

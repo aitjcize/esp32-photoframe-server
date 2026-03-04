@@ -169,6 +169,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		DisplayMode        string  `json:"display_mode"`
 		ShowCalendar       bool    `json:"show_calendar"`
 		CalendarID         string  `json:"calendar_id"`
+		DateFormat         string  `json:"date_format"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -182,7 +183,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		req.Layout = model.LayoutPhotoOverlay
 	}
 
-	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID)
+	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -211,6 +212,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		DisplayMode        string  `json:"display_mode"`
 		ShowCalendar       bool    `json:"show_calendar"`
 		CalendarID         string  `json:"calendar_id"`
+		DateFormat         string  `json:"date_format"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -220,7 +222,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		req.Layout = model.LayoutPhotoOverlay
 	}
 
-	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID)
+	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

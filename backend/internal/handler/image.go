@@ -320,6 +320,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		ShowCalendar: showCalendar,
 		Events:       events,
 		Timezone:     deviceTimezone,
+		DateFormat:   device.DateFormat,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "render failed: " + err.Error()})
