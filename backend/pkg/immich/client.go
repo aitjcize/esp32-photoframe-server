@@ -107,3 +107,25 @@ func (c *Client) GetThumbnail(assetID, size string) ([]byte, error) {
 	}
 	return io.ReadAll(resp.Body)
 }
+
+// DownloadOriginal fetches the original full-resolution asset.
+func (c *Client) DownloadOriginal(assetID string) ([]byte, error) {
+	req, err := http.NewRequest("GET", c.BaseURL+"/api/assets/"+assetID+"/original", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("x-api-key", c.APIKey)
+	req.Header.Set("Accept", "application/octet-stream")
+
+	// Use a longer timeout for original file downloads
+	client := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("original download returned status: %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}

@@ -659,7 +659,7 @@ func (h *ImageHandler) fetchRandomURLProxy(deviceID *uint) (image.Image, uint, e
 
 // fetchImmichPhoto retrieves the photo from Immich Service
 func (h *ImageHandler) fetchImmichPhoto(item model.Image) (image.Image, uint, error) {
-	data, err := h.immich.GetPhoto(item.ImmichAssetID, "preview")
+	data, err := h.immich.DownloadPhoto(item.ImmichAssetID)
 	if err != nil {
 		return nil, 0, err
 	}

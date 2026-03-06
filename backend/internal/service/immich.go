@@ -2,7 +2,12 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -82,6 +87,13 @@ func (s *ImmichService) ImportPhotos() error {
 			continue
 		}
 
+		// Skip RAW files — these can't be served via Immich's preview/thumbnail API
+		ext := strings.ToLower(filepath.Ext(asset.OriginalFileName))
+		switch ext {
+		case ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2":
+			continue
+		}
+
 		// Deduplicate by immich_asset_id
 		var existing model.Image
 		result := s.db.Where("immich_asset_id = ? AND source = ?", asset.ID, model.SourceImmich).First(&existing)
@@ -151,4 +163,42 @@ func (s *ImmichService) GetPhoto(assetID, size string) ([]byte, error) {
 		return nil, err
 	}
 	return s.client.GetThumbnail(assetID, size)
+}
+
+// DownloadOriginal fetches the full-resolution original image for an asset.
+func (s *ImmichService) DownloadOriginal(assetID string) ([]byte, error) {
+	if err := s.ensureClient(); err != nil {
+		return nil, err
+	}
+	return s.client.DownloadOriginal(assetID)
+}
+
+// DownloadPhoto downloads the original full-resolution image and converts it
+// to JPEG using ImageMagick (handles HEIC, RAW formats and EXIF auto-orient).
+func (s *ImmichService) DownloadPhoto(assetID string) ([]byte, error) {
+	data, err := s.DownloadOriginal(assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	tmpDir, err := os.MkdirTemp("", "immich-convert-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	inputPath := filepath.Join(tmpDir, "input")
+	outputPath := filepath.Join(tmpDir, "output.jpg")
+
+	if err := os.WriteFile(inputPath, data, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	// Use ImageMagick to convert any format to JPEG with EXIF auto-orientation
+	cmd := exec.Command("magick", inputPath, "-auto-orient", "-quality", "95", outputPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("imagemagick conversion failed: %w, output: %s", err, string(output))
+	}
+
+	return os.ReadFile(outputPath)
 }
