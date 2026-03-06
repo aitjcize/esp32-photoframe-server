@@ -402,7 +402,7 @@
                         ></v-select>
                       </v-col>
                       <v-col cols="12" sm="4">
-                        <v-btn block variant="outlined" @click="loadAlbums"
+                        <v-btn block variant="outlined" :loading="synologyStore.loading" @click="loadAlbums"
                           >Refresh Albums</v-btn
                         >
                       </v-col>
@@ -425,7 +425,7 @@
                     >
 
                     <div class="d-flex flex-wrap ga-2">
-                      <v-btn color="primary" @click="syncSynology"
+                      <v-btn color="primary" :loading="synologyStore.loading" @click="syncSynology"
                         >Sync Now</v-btn
                       >
                       <v-btn color="warning" @click="clearSynology"
@@ -486,9 +486,10 @@
                         !form.synology_account ||
                         !form.synology_password
                       "
+                      :loading="synologyStore.loading"
                       @click="testSynology"
                     >
-                      Test Connection & Login
+                      Connect
                     </v-btn>
                   </div>
                 </v-card-text>
@@ -497,7 +498,7 @@
               <!-- Immich -->
               <v-window-item value="immich">
                 <v-card-text>
-                  <div v-if="form.immich_url && form.immich_api_key">
+                  <div v-if="immichConnected">
                     <v-alert
                       type="success"
                       variant="tonal"
@@ -547,6 +548,7 @@
                         <v-btn
                           block
                           variant="outlined"
+                          :loading="immichStore.loading"
                           @click="loadImmichAlbums"
                           >Refresh Albums</v-btn
                         >
@@ -558,7 +560,7 @@
                     >
 
                     <div class="d-flex flex-wrap ga-2">
-                      <v-btn color="primary" @click="syncImmich"
+                      <v-btn color="primary" :loading="immichStore.loading" @click="syncImmich"
                         >Sync Now</v-btn
                       >
                       <v-btn color="warning" @click="clearImmich"
@@ -593,9 +595,10 @@
                     <v-btn
                       color="primary"
                       :disabled="!form.immich_url || !form.immich_api_key"
+                      :loading="immichStore.loading"
                       @click="testImmich"
                     >
-                      Test Connection & Connect
+                      Connect
                     </v-btn>
                   </div>
                 </v-card-text>
@@ -1488,6 +1491,7 @@ import ConfirmDialog from './ConfirmDialog.vue';
 const store = useSettingsStore();
 const synologyStore = useSynologyStore();
 const immichStore = useImmichStore();
+const immichConnected = ref(false);
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 const activeMainTab = ref('devices');
@@ -1502,6 +1506,7 @@ const selectedSource = ref('google_photos');
 const sourceOptions = [
   { title: 'Google Photos', value: 'google_photos' },
   { title: 'Synology Photos', value: 'synology_photos' },
+  { title: 'Immich', value: 'immich' },
   { title: 'Telegram', value: 'telegram' },
   { title: 'URL Proxy', value: 'url_proxy' },
   { title: 'AI Generation', value: 'ai_generation' },
@@ -2084,6 +2089,7 @@ onMounted(async () => {
 
   // Fetch Immich photo count and albums if connected
   if (form.immich_url && form.immich_api_key) {
+    immichConnected.value = true;
     await immichStore.fetchCount();
     try {
       await immichStore.fetchAlbums();
@@ -2312,6 +2318,7 @@ const testImmich = async () => {
   await saveSettingsInternal();
   try {
     await immichStore.testConnection();
+    immichConnected.value = true;
     showMessage('Connection Successful!');
   } catch (e: any) {
     showMessage(
@@ -2333,6 +2340,7 @@ const disconnectImmich = async () => {
   form.immich_album_id = '';
   form.immich_albums = [];
   await saveSettingsInternal();
+  immichConnected.value = false;
   immichStore.count = 0;
   immichStore.albums = [];
   showMessage('Disconnected from Immich.');

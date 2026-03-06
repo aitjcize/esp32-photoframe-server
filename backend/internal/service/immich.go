@@ -59,7 +59,8 @@ func (s *ImmichService) ListAlbums() ([]immich.Album, error) {
 	return s.client.ListAlbums()
 }
 
-// ImportPhotos fetches all image assets from the configured album and adds them to the DB
+// ImportPhotos fetches image assets and adds them to the DB.
+// ImportPhotos fetches image assets from the configured album and adds them to the DB.
 func (s *ImmichService) ImportPhotos() error {
 	if err := s.ensureClient(); err != nil {
 		return err
@@ -67,16 +68,16 @@ func (s *ImmichService) ImportPhotos() error {
 
 	albumID, _ := s.settings.Get("immich_album_id")
 	if albumID == "" {
-		return errors.New("immich album not configured")
+		return errors.New("please select an album to sync")
 	}
 
-	assets, err := s.client.GetAlbumAssets(albumID)
+	allAssets, err := s.client.GetAlbumAssets(albumID)
 	if err != nil {
 		return err
 	}
 
 	count := 0
-	for _, asset := range assets {
+	for _, asset := range allAssets {
 		if asset.Type != "IMAGE" {
 			continue
 		}
@@ -113,7 +114,7 @@ func (s *ImmichService) ImportPhotos() error {
 		count++
 	}
 
-	log.Printf("Immich ImportPhotos complete: inserted %d new photos (total assets: %d)", count, len(assets))
+	log.Printf("Immich ImportPhotos complete: inserted %d new photos (total assets: %d)", count, len(allAssets))
 	return nil
 }
 

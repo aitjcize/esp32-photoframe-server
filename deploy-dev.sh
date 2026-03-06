@@ -55,7 +55,7 @@ ssh "${HA_HOST}" "ha apps reload"
 
 # Check if add-on is already installed
 ADDON_SLUG="local_${ADDON_NAME}"
-if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" &>/dev/null; then
+if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" 2>/dev/null | grep -q "installed: true"; then
     echo "Add-on already installed, rebuilding..."
     ssh "${HA_HOST}" "ha apps rebuild ${ADDON_SLUG}"
 else
