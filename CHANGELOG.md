@@ -1,12 +1,11 @@
 # Changelog
 
-## Unreleased
+## v1.5.4
 
 ### Added
 - Immich: gallery tabs now default to Immich, reordered as Immich → Google Photos → Synology
 
 ### Fixed
-- Immich: pushing a photo to frame from gallery now works correctly (previously returned 404)
 - Synology: personal album thumbnails no longer return 404
 
 ## v1.5.3
