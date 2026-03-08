@@ -79,6 +79,8 @@ func (h *DeviceHandler) ConfigureDeviceSource(c echo.Context) error {
 		imageURL = fmt.Sprintf("http://%s/image/synology_photos", host)
 	case model.SourceAIGeneration:
 		imageURL = fmt.Sprintf("http://%s/image/ai_generation", host)
+	case model.SourceImmich:
+		imageURL = fmt.Sprintf("http://%s/image/immich", host)
 	case model.SourceTelegram: // Added telegram source
 		imageURL = fmt.Sprintf("http://%s/image/telegram", host)
 		// Update Telegram Settings (Append if not exists)

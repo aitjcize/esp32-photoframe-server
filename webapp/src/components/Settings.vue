@@ -1496,11 +1496,11 @@ const confirmDialog = ref();
 // Device Binding State
 const showBindSourceDialog = ref(false);
 const bindingDevice = ref<Device | null>(null);
-const selectedSource = ref('google_photos');
+const selectedSource = ref('immich');
 const sourceOptions = [
+  { title: 'Immich', value: 'immich' },
   { title: 'Google Photos', value: 'google_photos' },
   { title: 'Synology Photos', value: 'synology_photos' },
-  { title: 'Immich', value: 'immich' },
   { title: 'Telegram', value: 'telegram' },
   { title: 'URL Proxy', value: 'url_proxy' },
   { title: 'AI Generation', value: 'ai_generation' },
@@ -1509,7 +1509,7 @@ const isBinding = ref(false);
 
 const openBindSourceDialog = (device: Device) => {
   bindingDevice.value = device;
-  selectedSource.value = 'google_photos';
+  selectedSource.value = 'immich';
   showBindSourceDialog.value = true;
 };
 
@@ -1892,7 +1892,7 @@ const saveDevice = async () => {
     await loadDevices();
     showEditDeviceDialog.value = false;
   } catch (e: any) {
-    showMessage('Failed to save device: ' + e.message, true);
+    showMessage('Failed to save device: ' + (e.response?.data?.error || e.message), true);
   }
 };
 
@@ -1924,7 +1924,7 @@ const refreshDeviceParams = async (device: Device) => {
     await loadDevices();
     showMessage('Device parameters refreshed from device');
   } catch (e: any) {
-    showMessage('Failed to refresh parameters: ' + e.message, true);
+    showMessage('Failed to refresh parameters: ' + (e.response?.data?.error || e.message), true);
   } finally {
     deviceListLoading.value = false;
   }
