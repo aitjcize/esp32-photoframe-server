@@ -967,7 +967,17 @@
                 </v-btn>
               </div>
 
-              <v-table density="comfortable" class="border rounded">
+              <div
+                v-if="deviceListLoading && availableDevices.length === 0"
+                class="d-flex justify-center align-center pa-10"
+              >
+                <v-progress-circular
+                  indeterminate
+                  color="primary"
+                ></v-progress-circular>
+              </div>
+
+              <v-table v-else density="comfortable" class="border rounded">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -1892,7 +1902,10 @@ const saveDevice = async () => {
     await loadDevices();
     showEditDeviceDialog.value = false;
   } catch (e: any) {
-    showMessage('Failed to save device: ' + (e.response?.data?.error || e.message), true);
+    showMessage(
+      'Failed to save device: ' + (e.response?.data?.error || e.message),
+      true
+    );
   }
 };
 
@@ -1924,7 +1937,10 @@ const refreshDeviceParams = async (device: Device) => {
     await loadDevices();
     showMessage('Device parameters refreshed from device');
   } catch (e: any) {
-    showMessage('Failed to refresh parameters: ' + (e.response?.data?.error || e.message), true);
+    showMessage(
+      'Failed to refresh parameters: ' + (e.response?.data?.error || e.message),
+      true
+    );
   } finally {
     deviceListLoading.value = false;
   }
@@ -2071,25 +2087,34 @@ onMounted(async () => {
     }
   }
 
+  // Run independent fetches in parallel
+  const parallelFetches: Promise<void>[] = [
+    authStore.fetchTokens(),
+    loadDevices(),
+  ];
+
   // Fetch Synology photo count if connected
   if (form.synology_sid) {
-    await synologyStore.fetchCount();
+    parallelFetches.push(synologyStore.fetchCount());
   }
 
   // Fetch Immich photo count and albums if connected
   if (form.immich_url && form.immich_api_key) {
     immichConnected.value = true;
-    await immichStore.fetchCount();
-    try {
-      await immichStore.fetchAlbums();
-      form.immich_albums = immichStore.albums;
-    } catch (e) {
-      // Non-fatal: album names will be shown as UUIDs until user clicks Refresh
-    }
+    parallelFetches.push(
+      (async () => {
+        await immichStore.fetchCount();
+        try {
+          await immichStore.fetchAlbums();
+          form.immich_albums = immichStore.albums;
+        } catch (e) {
+          // Non-fatal: album names will be shown as UUIDs until user clicks Refresh
+        }
+      })()
+    );
   }
 
-  await authStore.fetchTokens();
-  await loadDevices();
+  await Promise.all(parallelFetches);
 
   // Parse URL params for deep linking (e.g. from OAuth callback)
   const params = new URLSearchParams(window.location.search);
