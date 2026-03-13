@@ -55,6 +55,25 @@
           >
             Add Photos via Google
           </v-btn>
+          <v-btn
+            v-if="galleryStore.source === 'telegram'"
+            color="primary"
+            variant="flat"
+            height="40"
+            :loading="galleryStore.loading"
+            :disabled="galleryStore.loading"
+            prepend-icon="mdi-upload"
+            @click="triggerFileUpload"
+          >
+            Upload Photo
+          </v-btn>
+          <input
+            type="file"
+            ref="fileInput"
+            style="display: none"
+            accept="image/*"
+            @change="handleFileUpload"
+          />
         </div>
       </div>
 
@@ -207,6 +226,10 @@
           <span v-if="galleryStore.source === 'google_photos'">
             Get started by adding photos from Google Photos.
           </span>
+          <span v-else-if="galleryStore.source === 'telegram'">
+            Get started by sending photos to your Telegram Bot or uploading them
+            directly here.
+          </span>
           <span v-else>
             Use the <b>Sync Now</b> button above to import photos from Synology.
           </span>
@@ -218,6 +241,14 @@
           @click="galleryStore.startPicker"
         >
           Add Photos
+        </v-btn>
+        <v-btn
+          v-if="galleryStore.source === 'telegram'"
+          color="primary"
+          prepend-icon="mdi-upload"
+          @click="triggerFileUpload"
+        >
+          Upload Photo
         </v-btn>
       </div>
     </div>
@@ -277,6 +308,8 @@ import { useSettingsStore } from '../stores/settings';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
 import { listDevices, pushToDevice, type Device } from '../api';
+
+const fileInput = ref<HTMLInputElement | null>(null);
 
 const store = useSettingsStore();
 const authStore = useAuthStore();
@@ -375,6 +408,26 @@ const getThumbnailUrl = (url: string) => {
   // If url already has params, append with &
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}token=${token}`;
+};
+
+const triggerFileUpload = () => {
+  fileInput.value?.click();
+};
+
+const handleFileUpload = async (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  if (!input.files || input.files.length === 0) return;
+
+  const file = input.files[0];
+  try {
+    await galleryStore.uploadTelegramPhoto(file, '');
+    galleryStore.importMessage = 'Photo uploaded successfully!';
+  } catch (e: any) {
+    galleryStore.importMessage = 'Failed to upload photo';
+  } finally {
+    // Reset input so change event triggers again for same file
+    input.value = '';
+  }
 };
 
 onMounted(async () => {

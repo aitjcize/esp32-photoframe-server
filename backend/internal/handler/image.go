@@ -197,17 +197,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 	var servedImageIDs []uint // Track which IDs were served (1 or 2 if collage)
 
-	if source == model.SourceTelegram {
-		// Serve Telegram Photo (always single, no collage)
-		imgPath := filepath.Join(h.dataDir, "photos", "telegram_last.jpg")
-		f, fsErr := os.Open(imgPath)
-		if fsErr != nil {
-			img, err = h.fetchPlaceholder()
-		} else {
-			defer f.Close()
-			img, _, err = image.Decode(f)
-		}
-	} else if source == model.SourceAIGeneration {
+	if source == model.SourceAIGeneration {
 		// AI Generation: generate fresh image from device config
 		if !deviceFound {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "device not found - AI generation requires device config"})
@@ -587,6 +577,43 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 
 	if len(excludeIDs) > 0 {
 		query = query.Where("id NOT IN ?", excludeIDs)
+	}
+
+	// 1. Check for Pushed Image (forced next)
+	if sourceFilter == model.SourceTelegram {
+		// A. Check for Device-specific push
+		if deviceID != nil {
+			var dev model.Device
+			if err := h.db.First(&dev, *deviceID).Error; err == nil && dev.PushedImageID != 0 {
+				var pushedImg model.Image
+				if err := h.db.Where("id = ? AND source = ?", dev.PushedImageID, model.SourceTelegram).First(&pushedImg).Error; err == nil {
+					// Clear pushed_image_id after use
+					h.db.Model(&dev).Update("pushed_image_id", 0)
+					img, err := h.loadImageFromRecord(pushedImg)
+					if err == nil {
+						return img, pushedImg.ID, nil
+					}
+				}
+			}
+		}
+
+		// B. Check for Global push (fallback)
+		pushedIDStr, _ := h.settings.Get("telegram_pushed_image_id")
+		if pushedIDStr != "" {
+			pushedID, _ := strconv.Atoi(pushedIDStr)
+			var pushedImg model.Image
+			if err := h.db.Where("id = ? AND source = ?", uint(pushedID), model.SourceTelegram).First(&pushedImg).Error; err == nil {
+				// Clear global pushed_image_id after use
+				h.settings.Set("telegram_pushed_image_id", "")
+				img, err := h.loadImageFromRecord(pushedImg)
+				if err == nil {
+					return img, pushedImg.ID, nil
+				}
+			} else {
+				// ID no longer valid, clear it
+				h.settings.Set("telegram_pushed_image_id", "")
+			}
+		}
 	}
 
 	query, earlyResult, err := h.applySourceFilter(query, sourceFilter, deviceID)

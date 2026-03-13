@@ -77,6 +77,26 @@ export const useGalleryStore = defineStore('gallery', {
       }
     },
 
+    async uploadTelegramPhoto(file: File, caption: string) {
+      this.loading = true;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('caption', caption);
+        await api.post('gallery/telegram/upload', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+        await this.fetchPhotos();
+      } catch (e) {
+        console.error('Failed to upload photo', e);
+        throw e;
+      } finally {
+        this.loading = false;
+      }
+    },
+
     async deleteAllPhotos() {
       try {
         const res = await api.delete(`/gallery/photos?source=${this.source}`);

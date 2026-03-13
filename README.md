@@ -7,7 +7,7 @@ A image server for the [ESP32 PhotoFrame](https://github.com/aitjcize/esp32-phot
 - **Multiple Data Sources**:
     - **Google Photos**: Uses the Picker API to securely select albums and photos.
     - **Synology Photos**: Connect directly to your Synology NAS (supports DSM 7 Personal and Shared spaces).
-    - **Telegram Bot**: Send photos directly to your frame via a Telegram bot.
+    - **Telegram Bot**: Send photos directly to your frame via a Telegram bot. Supports multiple photos, random rotation, and remote management.
     - **URL Proxy**: Display images from any URL.
     - **AI Generation**: Generate unique images using OpenAI (GPT Image, DALL-E) or Google Gemini.
 - **Smart Image Processing**:
@@ -144,7 +144,19 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
 3. Go to **Settings** → **Data Sources** in the dashboard.
 4. Select **Source: Telegram Bot**.
 5. Enter your Bot Token and save.
-6. Send a photo to your bot on Telegram. The frame will update to show this photo immediately.
+6. **Whitelisting**: The first user to send `/start` to the bot is automatically whitelisted. Additional users can be added by comma-separating their IDs in the "Authorized Users" setting in the dashboard.
+7. **Multiple Photos & Rotation**: Every photo sent to the bot is saved and added to the rotation. The frame will display a random photo from the Telegram collection each time it requests an update.
+8. **Management Commands**:
+   - `/list [page]` - List saved photos (10 per page).
+   - `/get <id1> <id2>...` - Retrieve photos from the server.
+   - `/next <id>` - Force the specific photo ID to be shown next.
+   - `/delete <id1> <id2>...` - Delete photos from the rotation.
+   - `/clear` - Remove all Telegram photos.
+9. **Captions**: You can include a caption when sending a photo. Captions are saved per-image and can be displayed using the overlay system.
+10. **Instant Push**:
+   - Enable `Push to Device` in settings.
+   - Enter comma-separated Device IDs in the `Target Device ID` field (e.g., `1, 2`).
+   - New photos will be immediately pushed to these devices if they are online.
 
 ### URL Proxy Setup
 
@@ -196,7 +208,7 @@ http(s)://<hostname/IP address>:9607/image/<source>
 
 - **`GET /image/google_photos`**: Returns a random image from **Google Photos**.
 - **`GET /image/synology_photos`**: Returns a random image from **Synology Photos**.
-- **`GET /image/telegram`**: Returns the last photo sent via **Telegram Bot**.
+- **`GET /image/telegram`**: Returns a **random** photo from photos sent via **Telegram Bot**. Supports Smart Collage.
 - **`GET /image/url_proxy`**: Returns a random image from configured URLs.
 - **`GET /image/ai_generation`**: Returns a newly generated AI image based on device prompt.
 

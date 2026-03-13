@@ -298,6 +298,7 @@ func main() {
 	protectedApi.GET("/gallery/thumbnail/:id", gh.GetThumbnail)
 	protectedApi.DELETE("/gallery/photos/:id", gh.DeletePhoto)
 	protectedApi.DELETE("/gallery/photos", gh.DeletePhotos)
+	protectedApi.POST("/gallery/telegram/upload", gh.UploadTelegramPhoto)
 	// URL Proxy
 	protectedApi.POST("/gallery/urls", gh.CreateURLSource)
 	protectedApi.GET("/gallery/urls", gh.ListURLSources)

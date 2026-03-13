@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.6.0 (Coming Soon)
+
+### Added
+- Telegram Bot: Support for multiple photos and random rotation
+- Telegram Bot: Advanced management commands (`/list`, `/get`, `/delete`, `/clear`)
+- Telegram Bot: Added inline "Delete" button for received photos
+- Telegram Bot: Automatic whitelisting for the first user
+- Telegram Bot: Per-photo caption saving and display support
+- Telegram Bot: Instant push to multiple devices with real-time feedback
+- Image: Support for "Smart Collage" with Telegram photos
+
 ## v1.5.4
 
 ### Added

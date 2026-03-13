@@ -29,12 +29,14 @@ type Image struct {
 	Orientation     string         `json:"orientation"` // "landscape", "portrait"
 	UserID          int64          `json:"user_id"`
 	Status          string         `json:"status"` // pending, shown
-	Source          string         `json:"source"` // "local", "google_photos", "synology_photos"
-	SynologyPhotoID int            `json:"synology_id"`
-	ThumbnailKey    string         `json:"thumbnail_key"`   // Cache key for Synology
-	ImmichAssetID   string         `json:"immich_asset_id"` // UUID for Immich assets
-	CreatedAt       time.Time      `json:"created_at"`
-	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
+	Source            string         `json:"source"` // "local", "google_photos", "synology_photos"
+	SynologyPhotoID   int            `json:"synology_id"`
+	ThumbnailKey      string         `json:"thumbnail_key"`   // Cache key for Synology
+	ImmichAssetID     string         `json:"immich_asset_id"` // UUID for Immich assets
+	TelegramMessageID int            `json:"telegram_message_id"`
+	TelegramBotMessageID int         `json:"telegram_bot_message_id"`
+	CreatedAt         time.Time      `json:"created_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type GoogleAuth struct {
@@ -72,6 +74,7 @@ type Device struct {
 	ShowCalendar       bool      `json:"show_calendar"`
 	CalendarID         string    `json:"calendar_id"` // Google Calendar ID (per-device)
 	DateFormat         string    `json:"date_format"` // Go time format string, empty = default "Mon, Jan 02"
+	PushedImageID      uint      `json:"pushed_image_id"`
 	CreatedAt          time.Time `json:"created_at"`
 }
 

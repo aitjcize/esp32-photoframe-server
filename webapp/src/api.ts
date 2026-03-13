@@ -213,6 +213,18 @@ export const deletePhoto = async (id: number) => {
   return response.data;
 };
 
+export const uploadTelegramPhoto = async (file: File, caption: string) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('caption', caption);
+  const response = await api.post('gallery/telegram/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
 export const updateAccount = async (
   oldPassword: string,
   newUsername?: string,

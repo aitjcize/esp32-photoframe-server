@@ -93,6 +93,8 @@ func NewRendererService() (*RendererService, error) {
 	fontPaths := []string{
 		"/usr/share/fonts/material/MaterialSymbolsOutlined.ttf",
 		"/usr/share/fonts/material/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf",
+		"bin/fonts/MaterialSymbolsOutlined.ttf",
+		"../bin/fonts/MaterialSymbolsOutlined.ttf",
 	}
 	for _, fontPath := range fontPaths {
 		fontData, err := os.ReadFile(fontPath)

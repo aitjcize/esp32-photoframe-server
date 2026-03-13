@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/draw"
 	"image/jpeg"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -215,7 +216,7 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 	}
 
 	// If local, delete file
-	if item.Source == model.SourceGooglePhotos {
+	if item.Source == model.SourceGooglePhotos || item.Source == model.SourceTelegram {
 		if item.FilePath != "" {
 			os.Remove(item.FilePath)
 		}
@@ -248,7 +249,7 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 	}
 
 	for _, item := range items {
-		if item.Source == model.SourceGooglePhotos {
+		if item.Source == model.SourceGooglePhotos || item.Source == model.SourceTelegram {
 			if item.FilePath != "" {
 				os.Remove(item.FilePath)
 			}
@@ -403,4 +404,70 @@ func (h *GalleryHandler) UpdateURLSource(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, src)
+}
+
+func (h *GalleryHandler) UploadTelegramPhoto(c echo.Context) error {
+	file, err := c.FormFile("file")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "failed to get file"})
+	}
+
+	caption := c.FormValue("caption")
+
+	// Create directory if not exists
+	photosDir := filepath.Join(h.dataDir, "photos")
+	if err := os.MkdirAll(photosDir, 0755); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create photos directory"})
+	}
+
+	// Target file path (unique)
+	filename := fmt.Sprintf("web_upload_%d.jpg", time.Now().UnixNano())
+	destPath := filepath.Join(photosDir, filename)
+
+	src, err := file.Open()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to open uploaded file"})
+	}
+	defer src.Close()
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create destination file"})
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save file"})
+	}
+
+	// Get Image dimensions and orientation
+	width, height := 0, 0
+	orientation := "landscape"
+	if f, err := os.Open(destPath); err == nil {
+		if img, _, err := image.DecodeConfig(f); err == nil {
+			width = img.Width
+			height = img.Height
+			if height > width {
+				orientation = "portrait"
+			}
+		}
+		f.Close()
+	}
+
+	// Create DB Record
+	img := model.Image{
+		FilePath:    destPath,
+		Caption:     caption,
+		Source:      model.SourceTelegram,
+		Width:       width,
+		Height:      height,
+		Orientation: orientation,
+	}
+
+	if err := h.db.Create(&img).Error; err != nil {
+		os.Remove(destPath)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save to database"})
+	}
+
+	return c.JSON(http.StatusCreated, img)
 }
