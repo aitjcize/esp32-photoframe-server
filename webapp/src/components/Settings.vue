@@ -631,6 +631,16 @@
                       class="mt-4"
                     ></v-text-field>
 
+                    <v-text-field
+                      v-model="form.telegram_auth_users"
+                      label="Authorized User IDs (Whitelist)"
+                      placeholder="e.g. 12345678, 87654321"
+                      variant="outlined"
+                      class="mt-4"
+                      hint="Comma-separated Telegram User IDs. Leave empty to allow anyone."
+                      persistent-hint
+                    ></v-text-field>
+
                     <v-divider class="my-4"></v-divider>
 
                     <h3 class="text-subtitle-1 font-weight-bold mb-2">
@@ -2000,6 +2010,7 @@ const form = reactive({
   immich_album_id: '',
   immich_albums: [] as any[],
   telegram_bot_token: '',
+  telegram_auth_users: '',
   telegram_push_enabled: false,
   telegram_target_device_id: [] as number[],
   openai_api_key: '',
@@ -2038,6 +2049,7 @@ onMounted(async () => {
     google_calendar_connected:
       store.settings.google_calendar_connected || 'false',
     telegram_bot_token: store.settings.telegram_bot_token || '',
+    telegram_auth_users: store.settings.telegram_auth_users || '',
     telegram_push_enabled: store.settings.telegram_push_enabled === 'true',
     telegram_target_device_id: store.settings.telegram_target_device_id
       ? store.settings.telegram_target_device_id
@@ -2120,6 +2132,7 @@ const saveSettingsInternal = async () => {
     google_client_id: form.google_client_id,
     google_client_secret: form.google_client_secret,
     telegram_bot_token: form.telegram_bot_token,
+    telegram_auth_users: form.telegram_auth_users,
     telegram_push_enabled: String(form.telegram_push_enabled),
     telegram_target_device_id: Array.isArray(form.telegram_target_device_id)
       ? form.telegram_target_device_id.join(',')
