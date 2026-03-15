@@ -459,7 +459,7 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	// 1. Try with full exclusions (history + id1)
 	img2, id2, err := h.fetchRandomPhotoWithType(targetType, sourceFilter, excludeWithHistory, deviceID)
 	if err != nil || id2 == id1 {
-		fmt.Printf("SmartCollage: query with history exclusion failed for %s: %v, retrying without history\n", targetType, err)
+		log.Printf("SmartCollage: query with history exclusion failed for %s: %v, retrying without history", targetType, err)
 		// 2. Try with only id1 excluded (ignore history)
 		img2, id2, err = h.fetchRandomPhotoWithType(targetType, sourceFilter, []uint{id1}, deviceID)
 	}
@@ -467,7 +467,7 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	if err == nil && id2 != id1 {
 		servedIDs = append(servedIDs, id2)
 	} else {
-		fmt.Printf("SmartCollage: no different %s photo found, using same photo twice\n", targetType)
+		log.Printf("SmartCollage: no different %s photo found, using same photo twice", targetType)
 		img2 = img1
 		servedIDs = append(servedIDs, id1)
 	}
@@ -615,7 +615,7 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 
 	img, err := h.loadImageFromRecord(item)
 	if err != nil {
-		fmt.Printf("Warning: Failed to load image id=%d: %v\n", item.ID, err)
+		log.Printf("Warning: Failed to load image id=%d: %v", item.ID, err)
 		img, err := h.fetchPlaceholder()
 		return img, 0, err
 	}
