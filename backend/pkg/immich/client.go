@@ -1,9 +1,11 @@
 package immich
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -17,16 +19,41 @@ type Client struct {
 	downloadClient *http.Client
 }
 
+// newTransport creates an HTTP transport that prefers IPv4 to avoid issues
+// with .local mDNS hostnames resolving to link-local IPv6 addresses (fe80::)
+// which fail without a zone ID.
+func newTransport() *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Try IPv4 first to avoid link-local IPv6 issues
+			if conn, err := dialer.DialContext(ctx, "tcp4", addr); err == nil {
+				return conn, nil
+			}
+			return dialer.DialContext(ctx, network, addr)
+		},
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+}
+
 // NewClient creates a new Immich client
 func NewClient(baseURL, apiKey string) *Client {
+	transport := newTransport()
 	return &Client{
 		BaseURL: strings.TrimSuffix(baseURL, "/"),
 		APIKey:  apiKey,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 		downloadClient: &http.Client{
-			Timeout: 2 * time.Minute,
+			Timeout:   2 * time.Minute,
+			Transport: transport,
 		},
 	}
 }
