@@ -262,8 +262,8 @@ func main() {
 	// We need to support ?token= or Authorization header.
 
 	// Image Route (Protected)
-	//e.GET("/image/:source", ih.ServeImage, authMiddleware)
-	e.GET("/image/:source", ih.ServeImage)
+	e.GET("/image/:source", ih.ServeImage, authMiddleware)
+	//e.GET("/image/:source", ih.ServeImage)
 
 	// Thumbnail likely needs protection too, or obscure IDs. For now, keep public as they are temporary?
 	// User said "access the /image/<source>/ endpoint. This one... people can't just access".
