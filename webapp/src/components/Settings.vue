@@ -978,7 +978,17 @@
                 </v-btn>
               </div>
 
-              <v-table density="comfortable" class="border rounded">
+              <div
+                v-if="deviceListLoading && availableDevices.length === 0"
+                class="d-flex justify-center align-center pa-10"
+              >
+                <v-progress-circular
+                  indeterminate
+                  color="primary"
+                ></v-progress-circular>
+              </div>
+
+              <v-table v-else density="comfortable" class="border rounded">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -1507,11 +1517,11 @@ const confirmDialog = ref();
 // Device Binding State
 const showBindSourceDialog = ref(false);
 const bindingDevice = ref<Device | null>(null);
-const selectedSource = ref('google_photos');
+const selectedSource = ref('immich');
 const sourceOptions = [
+  { title: 'Immich', value: 'immich' },
   { title: 'Google Photos', value: 'google_photos' },
   { title: 'Synology Photos', value: 'synology_photos' },
-  { title: 'Immich', value: 'immich' },
   { title: 'Telegram', value: 'telegram' },
   { title: 'URL Proxy', value: 'url_proxy' },
   { title: 'AI Generation', value: 'ai_generation' },
@@ -1520,7 +1530,7 @@ const isBinding = ref(false);
 
 const openBindSourceDialog = (device: Device) => {
   bindingDevice.value = device;
-  selectedSource.value = 'google_photos';
+  selectedSource.value = 'immich';
   showBindSourceDialog.value = true;
 };
 
@@ -1903,7 +1913,10 @@ const saveDevice = async () => {
     await loadDevices();
     showEditDeviceDialog.value = false;
   } catch (e: any) {
-    showMessage('Failed to save device: ' + e.message, true);
+    showMessage(
+      'Failed to save device: ' + (e.response?.data?.error || e.message),
+      true
+    );
   }
 };
 
@@ -1935,7 +1948,10 @@ const refreshDeviceParams = async (device: Device) => {
     await loadDevices();
     showMessage('Device parameters refreshed from device');
   } catch (e: any) {
-    showMessage('Failed to refresh parameters: ' + e.message, true);
+    showMessage(
+      'Failed to refresh parameters: ' + (e.response?.data?.error || e.message),
+      true
+    );
   } finally {
     deviceListLoading.value = false;
   }
@@ -2086,25 +2102,34 @@ onMounted(async () => {
     }
   }
 
+  // Run independent fetches in parallel
+  const parallelFetches: Promise<void>[] = [
+    authStore.fetchTokens(),
+    loadDevices(),
+  ];
+
   // Fetch Synology photo count if connected
   if (form.synology_sid) {
-    await synologyStore.fetchCount();
+    parallelFetches.push(synologyStore.fetchCount());
   }
 
   // Fetch Immich photo count and albums if connected
   if (form.immich_url && form.immich_api_key) {
     immichConnected.value = true;
-    await immichStore.fetchCount();
-    try {
-      await immichStore.fetchAlbums();
-      form.immich_albums = immichStore.albums;
-    } catch (e) {
-      // Non-fatal: album names will be shown as UUIDs until user clicks Refresh
-    }
+    parallelFetches.push(
+      (async () => {
+        await immichStore.fetchCount();
+        try {
+          await immichStore.fetchAlbums();
+          form.immich_albums = immichStore.albums;
+        } catch (e) {
+          // Non-fatal: album names will be shown as UUIDs until user clicks Refresh
+        }
+      })()
+    );
   }
 
-  await authStore.fetchTokens();
-  await loadDevices();
+  await Promise.all(parallelFetches);
 
   // Parse URL params for deep linking (e.g. from OAuth callback)
   const params = new URLSearchParams(window.location.search);

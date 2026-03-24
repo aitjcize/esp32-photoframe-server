@@ -11,6 +11,20 @@
 - Telegram Bot: Instant push to multiple devices with real-time feedback
 - Image: Support for "Smart Collage" with Telegram photos
 
+## v1.5.6
+
+### Added
+- Loading spinner for device list and gallery source switching
+
+### Fixed
+- Immich: fix concurrent image request failures by adding preview API fallback
+- Immich: fix connection failures with .local mDNS hostnames resolving to link-local IPv6
+- Immich: fix data race on shared client during concurrent requests
+- Immich: fix source binding for device configuration
+- Immich: include response body in error messages for better debugging
+- Synology: fix .local mDNS IPv6 link-local connection issues
+- Parallelize initialization fetches for faster startup
+
 ## v1.5.4
 
 ### Added

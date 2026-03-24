@@ -7,22 +7,31 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/mdns"
 )
 
 // Client is an Immich API client using API key authentication
 type Client struct {
-	BaseURL    string
-	APIKey     string
-	httpClient *http.Client
+	BaseURL        string
+	APIKey         string
+	httpClient     *http.Client
+	downloadClient *http.Client
 }
 
 // NewClient creates a new Immich client
 func NewClient(baseURL, apiKey string) *Client {
+	transport := mdns.NewTransport()
 	return &Client{
 		BaseURL: strings.TrimSuffix(baseURL, "/"),
 		APIKey:  apiKey,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
+		},
+		downloadClient: &http.Client{
+			Timeout:   2 * time.Minute,
+			Transport: transport,
 		},
 	}
 }
@@ -103,7 +112,8 @@ func (c *Client) GetThumbnail(assetID, size string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("thumbnail fetch returned status: %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("thumbnail fetch returned status %d: %s", resp.StatusCode, string(body))
 	}
 	return io.ReadAll(resp.Body)
 }
@@ -117,15 +127,14 @@ func (c *Client) DownloadOriginal(assetID string) ([]byte, error) {
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("Accept", "application/octet-stream")
 
-	// Use a longer timeout for original file downloads
-	client := &http.Client{Timeout: 2 * time.Minute}
-	resp, err := client.Do(req)
+	resp, err := c.downloadClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("original download returned status: %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("original download returned status %d: %s", resp.StatusCode, string(body))
 	}
 	return io.ReadAll(resp.Body)
 }

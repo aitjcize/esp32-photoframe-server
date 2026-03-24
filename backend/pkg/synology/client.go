@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/mdns"
 )
 
 type Client struct {
@@ -28,7 +30,7 @@ func NewClient(baseURL, account, password string, insecure bool) (*Client, error
 		return nil, err
 	}
 
-	transport := &http.Transport{}
+	transport := mdns.NewTransport()
 	if insecure {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
