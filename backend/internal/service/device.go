@@ -6,6 +6,7 @@ import (
 	"image"
 	"log"
 	"os"
+	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
@@ -60,7 +61,7 @@ func (s *DeviceService) ListDevices() ([]model.Device, error) {
 	return devices, nil
 }
 
-func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, layout string, displayMode string, showCalendar bool, calendarID string, dateFormat string) (*model.Device, error) {
+func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage, showDate bool, dateSource string, showWeather bool, weatherLat, weatherLon float64, layout string, displayMode string, showCalendar bool, calendarID string, dateFormat string) (*model.Device, error) {
 	sysInfo, err := s.pfClient.FetchSystemInfo(host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch system info: %w", err)
@@ -95,6 +96,10 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 		displayMode = "cover"
 	}
 
+	if dateSource == "" {
+		dateSource = model.DateSourceCurrent
+	}
+
 	device := &model.Device{
 		Name:               name,
 		Host:               host,
@@ -104,6 +109,7 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 		UseDeviceParameter: useDeviceParameter,
 		EnableCollage:      enableCollage,
 		ShowDate:           showDate,
+		DateSource:         dateSource,
 		ShowWeather:        showWeather,
 		WeatherLat:         weatherLat,
 		WeatherLon:         weatherLon,
@@ -119,7 +125,7 @@ func (s *DeviceService) AddDevice(host string, useDeviceParameter, enableCollage
 	return device, nil
 }
 
-func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string, layout string, displayMode string, showCalendar bool, calendarID string, dateFormat string) (*model.Device, error) {
+func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height int, orientation string, useDeviceParameter, enableCollage, showDate bool, dateSource string, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string, layout string, displayMode string, showCalendar bool, calendarID string, dateFormat string) (*model.Device, error) {
 	var device model.Device
 	if err := s.db.First(&device, id).Error; err != nil {
 		return nil, errors.New("device not found")
@@ -162,6 +168,10 @@ func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height i
 		return nil, errors.New("device dimensions are required")
 	}
 
+	if dateSource == "" {
+		dateSource = model.DateSourceCurrent
+	}
+
 	device.Name = name
 	device.Host = host
 	device.Width = width
@@ -170,6 +180,7 @@ func (s *DeviceService) UpdateDevice(id uint, name, host string, width, height i
 	device.UseDeviceParameter = useDeviceParameter
 	device.EnableCollage = enableCollage
 	device.ShowDate = showDate
+	device.DateSource = dateSource
 	device.ShowWeather = showWeather
 	device.WeatherLat = weatherLat
 	device.WeatherLon = weatherLon
@@ -205,7 +216,7 @@ func (s *DeviceService) PushToDevice(deviceID uint, imagePath string) error {
 		return errors.New("device not found")
 	}
 
-	if err := s.PushToHost(&device, imagePath, nil); err != nil {
+	if err := s.PushToHost(&device, imagePath, nil, nil); err != nil {
 		return err
 	}
 
@@ -231,7 +242,8 @@ func (s *DeviceService) GetDeviceConfig(deviceID uint) (*photoframe.DeviceConfig
 // PushToHost processes an image file and pushes it to a target host
 // This encapsulates the logic previously in Telegram bot
 // Now includes fetching device parameters if configured
-func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extraOpts map[string]string) error {
+// photoDate is the original photo creation date (used when device.DateSource=="photo").
+func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extraOpts map[string]string, photoDate *time.Time) error {
 	// 0. Fetch Device Parameters if enabled
 	processingOpts := make(map[string]string)
 	for k, v := range extraOpts {
@@ -358,6 +370,8 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 			NativeHeight: nativeH,
 			Photo:        srcImg,
 			ShowDate:     device.ShowDate,
+			DateSource:   device.DateSource,
+			PhotoDate:    photoDate,
 			ShowWeather:  device.ShowWeather,
 			Weather:      weatherData,
 			ShowCalendar: device.ShowCalendar,

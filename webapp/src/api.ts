@@ -62,6 +62,7 @@ export interface Device {
   use_device_parameter: boolean;
   enable_collage: boolean;
   show_date?: boolean;
+  date_source?: string;
   show_weather?: boolean;
   weather_lat?: number;
   weather_lon?: number;
@@ -87,6 +88,7 @@ export const addDevice = async (params: {
   use_device_parameter: boolean;
   enable_collage: boolean;
   show_date: boolean;
+  date_source?: string;
   show_weather: boolean;
   weather_lat: number;
   weather_lon: number;
@@ -110,6 +112,7 @@ export const updateDevice = async (
   useDeviceParameter: boolean,
   enableCollage: boolean,
   showDate: boolean,
+  dateSource: string,
   showWeather: boolean,
   weatherLat: number,
   weatherLon: number,
@@ -131,6 +134,7 @@ export const updateDevice = async (
     use_device_parameter: useDeviceParameter,
     enable_collage: enableCollage,
     show_date: showDate,
+    date_source: dateSource || 'current',
     show_weather: showWeather,
     weather_lat: weatherLat,
     weather_lon: weatherLon,

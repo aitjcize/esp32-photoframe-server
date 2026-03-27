@@ -178,6 +178,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 	var img image.Image
 	var err error
+	var photoTakenAt *time.Time // Photo creation date from metadata
 
 	// 1.5. Get Device History for Exclusion
 	var excludeIDs []uint
@@ -207,6 +208,14 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			defer f.Close()
 			img, _, err = image.Decode(f)
 		}
+		// For Telegram: look up the last telegram image record to get its PhotoTakenAt
+		if err == nil {
+			var telegramImg model.Image
+			if dbErr := h.db.Where("source = ?", model.SourceTelegram).
+				Order("created_at desc").Limit(1).First(&telegramImg).Error; dbErr == nil {
+				photoTakenAt = telegramImg.PhotoTakenAt
+			}
+		}
 	} else if source == model.SourceAIGeneration {
 		// AI Generation: generate fresh image from device config
 		if !deviceFound {
@@ -218,16 +227,27 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		if deviceFound {
 			devID = &device.ID
 		}
-		img, servedImageIDs, err = h.fetchSmartCollage(logicalW, logicalH, source, excludeIDs, devID)
+		var collageIDs []uint
+		img, collageIDs, err = h.fetchSmartCollage(logicalW, logicalH, source, excludeIDs, devID)
+		servedImageIDs = collageIDs
+		// For collage, use the first image's PhotoTakenAt
+		if err == nil && len(collageIDs) > 0 && collageIDs[0] != 0 {
+			var firstImg model.Image
+			if dbErr := h.db.First(&firstImg, collageIDs[0]).Error; dbErr == nil {
+				photoTakenAt = firstImg.PhotoTakenAt
+			}
+		}
 	} else {
 		var id uint
 		var devID *uint
 		if deviceFound {
 			devID = &device.ID
 		}
-		img, id, err = h.fetchRandomPhoto(source, excludeIDs, devID)
+		var imgRecord model.Image
+		img, id, err = h.fetchRandomPhotoWithRecord(source, excludeIDs, devID, &imgRecord)
 		if err == nil {
 			servedImageIDs = append(servedImageIDs, id)
+			photoTakenAt = imgRecord.PhotoTakenAt
 		}
 	}
 
@@ -308,6 +328,11 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			}
 		}
 
+		dateSource := ""
+		if deviceFound {
+			dateSource = device.DateSource
+		}
+
 		var renderErr error
 		imgWithOverlay, renderErr = h.renderer.Render(service.RenderOptions{
 			Layout:       layout,
@@ -318,6 +343,8 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			NativeHeight: nativeH,
 			Photo:        img,
 			ShowDate:     showDate,
+			DateSource:   dateSource,
+			PhotoDate:    photoTakenAt,
 			ShowWeather:  showWeather,
 			Weather:      weatherData,
 			ShowCalendar: showCalendar,
@@ -583,6 +610,12 @@ func (h *ImageHandler) resolvePath(path string) string {
 // fetchRandomPhoto fetches a random photo from the given source, excluding
 // the given IDs. Falls back to ignoring exclusions, then to a placeholder.
 func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, deviceID *uint) (image.Image, uint, error) {
+	return h.fetchRandomPhotoWithRecord(sourceFilter, excludeIDs, deviceID, nil)
+}
+
+// fetchRandomPhotoWithRecord is like fetchRandomPhoto but also populates the provided
+// model.Image record (if non-nil) so callers can access metadata like PhotoTakenAt.
+func (h *ImageHandler) fetchRandomPhotoWithRecord(sourceFilter string, excludeIDs []uint, deviceID *uint, record *model.Image) (image.Image, uint, error) {
 	query := h.db.Order("RANDOM()")
 
 	if len(excludeIDs) > 0 {
@@ -611,6 +644,10 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 			img, err := h.fetchPlaceholder()
 			return img, 0, err
 		}
+	}
+
+	if record != nil {
+		*record = item
 	}
 
 	img, err := h.loadImageFromRecord(item)

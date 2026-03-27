@@ -33,6 +33,7 @@ type Image struct {
 	SynologyPhotoID int            `json:"synology_id"`
 	ThumbnailKey    string         `json:"thumbnail_key"`   // Cache key for Synology
 	ImmichAssetID   string         `json:"immich_asset_id"` // UUID for Immich assets
+	PhotoTakenAt    *time.Time     `json:"photo_taken_at"`  // Original photo creation/taken date (from EXIF or API metadata)
 	CreatedAt       time.Time      `json:"created_at"`
 	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
 }
@@ -61,6 +62,7 @@ type Device struct {
 	Orientation        string    `json:"orientation"`
 	EnableCollage      bool      `json:"enable_collage"` // Per-device collage setting
 	ShowDate           bool      `json:"show_date"`
+	DateSource         string    `json:"date_source"` // "current" (default) or "photo" (use photo creation date)
 	ShowWeather        bool      `json:"show_weather"`
 	WeatherLat         float64   `json:"weather_lat"`
 	WeatherLon         float64   `json:"weather_lon"`
@@ -79,6 +81,11 @@ const (
 	LayoutPhotoInfo    = "photo_info"
 	LayoutPhotoOverlay = "photo_overlay"
 	LayoutSidePanel    = "side_panel"
+)
+
+const (
+	DateSourceCurrent = "current" // Show current date/time (default behavior)
+	DateSourcePhoto   = "photo"   // Show photo's creation/taken date
 )
 
 type DeviceHistory struct {

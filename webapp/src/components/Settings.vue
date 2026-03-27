@@ -1157,6 +1157,20 @@
                           </div>
                           <div v-if="editingDevice.show_date" class="mt-3">
                             <v-select
+                              v-model="editingDevice.date_source"
+                              :items="[
+                                { label: 'Current date', value: 'current' },
+                                { label: 'Photo creation date', value: 'photo' },
+                              ]"
+                              item-title="label"
+                              item-value="value"
+                              label="Date Source"
+                              variant="outlined"
+                              density="compact"
+                              hide-details
+                              class="mb-3"
+                            ></v-select>
+                            <v-select
                               v-model="editingDevice.date_format"
                               :items="dateFormatOptions"
                               item-title="label"
@@ -1814,6 +1828,7 @@ const openAddDeviceDialog = () => {
     use_device_parameter: false,
     enable_collage: false,
     show_date: true,
+    date_source: 'current',
     show_weather: true,
     weather_lat: null,
     weather_lon: null,
@@ -1863,6 +1878,7 @@ const saveDevice = async () => {
         use_device_parameter: editingDevice.use_device_parameter!,
         enable_collage: editingDevice.enable_collage!,
         show_date: editingDevice.show_date!,
+        date_source: editingDevice.date_source || 'current',
         show_weather: editingDevice.show_weather!,
         weather_lat: editingDevice.weather_lat || 0,
         weather_lon: editingDevice.weather_lon || 0,
@@ -1885,6 +1901,7 @@ const saveDevice = async () => {
         editingDevice.use_device_parameter!,
         editingDevice.enable_collage!,
         editingDevice.show_date!,
+        editingDevice.date_source || 'current',
         editingDevice.show_weather!,
         editingDevice.weather_lat || 0,
         editingDevice.weather_lon || 0,
@@ -1923,6 +1940,7 @@ const refreshDeviceParams = async (device: Device) => {
       true, // Ensure enabled
       device.enable_collage,
       device.show_date!,
+      device.date_source || 'current',
       device.show_weather!,
       device.weather_lat || 0,
       device.weather_lon || 0,

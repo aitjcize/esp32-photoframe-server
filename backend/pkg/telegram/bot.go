@@ -18,7 +18,7 @@ type SettingsProvider interface {
 }
 
 type Pusher interface {
-	PushToHost(device *model.Device, imagePath string, extraOpts map[string]string) error
+	PushToHost(device *model.Device, imagePath string, extraOpts map[string]string, photoDate *time.Time) error
 }
 
 type Bot struct {
@@ -94,6 +94,20 @@ func (bot *Bot) handlePhoto(c tele.Context) error {
 	setting.Value = caption
 	bot.db.Save(&setting)
 
+	// Record the photo in the DB with its message timestamp (for PhotoTakenAt)
+	msgTime := c.Message().Time()
+	// Upsert: delete old telegram record and create a fresh one
+	bot.db.Unscoped().Where("source = ? AND file_path = ?", model.SourceTelegram, destPath).Delete(&model.Image{})
+	telegramImg := model.Image{
+		FilePath:     destPath,
+		Source:       model.SourceTelegram,
+		Status:       "pending",
+		Caption:      caption,
+		PhotoTakenAt: &msgTime,
+		CreatedAt:    time.Now(),
+	}
+	bot.db.Create(&telegramImg)
+
 	// Check if Push to Device is enabled
 	pushEnabled, _ := bot.settings.Get("telegram_push_enabled")
 	targetDeviceIDStr, _ := bot.settings.Get("telegram_target_device_id")
@@ -124,7 +138,7 @@ func (bot *Bot) handlePhoto(c tele.Context) error {
 				continue
 			}
 
-			err = bot.pusher.PushToHost(&device, destPath, nil)
+			err = bot.pusher.PushToHost(&device, destPath, nil, &msgTime)
 			if err != nil {
 				log.Printf("Failed to push to device %s: %v", device.Name, err)
 				failDevices = append(failDevices, device.Name)

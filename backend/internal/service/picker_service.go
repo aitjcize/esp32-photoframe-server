@@ -27,10 +27,15 @@ type PickedMediaItem struct {
 	MediaFile MediaFile `json:"mediaFile"`
 }
 
+type MediaMetadata struct {
+	CreationTime string `json:"creationTime"` // RFC3339 timestamp e.g. "2024-01-15T10:30:00Z"
+}
+
 type MediaFile struct {
-	BaseUrl  string `json:"baseUrl"`
-	MimeType string `json:"mimeType"`
-	Filename string `json:"filename"`
+	BaseUrl       string        `json:"baseUrl"`
+	MimeType      string        `json:"mimeType"`
+	Filename      string        `json:"filename"`
+	MediaMetadata MediaMetadata `json:"mediaMetadata"`
 }
 
 type MediaItemsResponse struct {
@@ -289,7 +294,7 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 		}
 
 		// Add to DB queue
-		image := model.Image{
+		newImage := model.Image{
 			FilePath:    localPath,
 			Source:      model.SourceGooglePhotos, // Set source to google
 			UserID:      1,                        // Default user
@@ -300,7 +305,13 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 			Height:      height,
 			Orientation: orientation,
 		}
-		s.db.Create(&image)
+		// Populate PhotoTakenAt from picker API metadata
+		if item.MediaFile.MediaMetadata.CreationTime != "" {
+			if t, err := time.Parse(time.RFC3339, item.MediaFile.MediaMetadata.CreationTime); err == nil {
+				newImage.PhotoTakenAt = &t
+			}
+		}
+		s.db.Create(&newImage)
 		count++
 
 		// Update Progress

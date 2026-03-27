@@ -46,6 +46,8 @@ type RenderOptions struct {
 	NativeHeight int    // Physical panel height (for DPI calc)
 	Photo        image.Image
 	ShowDate     bool
+	DateSource   string     // "current" (default) or "photo" (use PhotoDate if set)
+	PhotoDate    *time.Time // Original photo creation date (used when DateSource=="photo")
 	ShowWeather  bool
 	Weather      *weather.CurrentWeather
 	ShowCalendar bool
@@ -229,7 +231,13 @@ func (s *RendererService) Render(opts RenderOptions) (image.Image, error) {
 	baseUnit := 4.8 * math.Pow(float64(minDim)/480.0, 0.62)
 
 	// Use device timezone for date formatting if available.
-	now := time.Now()
+	// When DateSource=="photo" and a PhotoDate is provided, use it; otherwise fall back to now.
+	var now time.Time
+	if opts.DateSource == "photo" && opts.PhotoDate != nil {
+		now = *opts.PhotoDate
+	} else {
+		now = time.Now()
+	}
 	if opts.Timezone != "" {
 		if loc, err := time.LoadLocation(opts.Timezone); err == nil {
 			now = now.In(loc)

@@ -164,6 +164,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		UseDeviceParameter bool    `json:"use_device_parameter"`
 		EnableCollage      bool    `json:"enable_collage"`
 		ShowDate           bool    `json:"show_date"`
+		DateSource         string  `json:"date_source"`
 		ShowWeather        bool    `json:"show_weather"`
 		WeatherLat         float64 `json:"weather_lat"`
 		WeatherLon         float64 `json:"weather_lon"`
@@ -185,7 +186,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		req.Layout = model.LayoutPhotoOverlay
 	}
 
-	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
+	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.DateSource, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -204,6 +205,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		UseDeviceParameter bool    `json:"use_device_parameter"`
 		EnableCollage      bool    `json:"enable_collage"`
 		ShowDate           bool    `json:"show_date"`
+		DateSource         string  `json:"date_source"`
 		ShowWeather        bool    `json:"show_weather"`
 		WeatherLat         float64 `json:"weather_lat"`
 		WeatherLon         float64 `json:"weather_lon"`
@@ -224,7 +226,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		req.Layout = model.LayoutPhotoOverlay
 	}
 
-	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
+	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.DateSource, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}

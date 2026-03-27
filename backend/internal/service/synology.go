@@ -262,6 +262,12 @@ func (s *SynologyService) ImportPhotos() error {
 				Status:          "pending",
 			}
 
+			// Populate PhotoTakenAt from Synology's Time field (Unix timestamp)
+			if p.Time > 0 {
+				t := time.Unix(p.Time, 0)
+				img.PhotoTakenAt = &t
+			}
+
 			// Use XL cache key if available
 			if p.Additional.Thumbnail.XL != "" {
 				img.ThumbnailKey = p.Additional.Thumbnail.XL
