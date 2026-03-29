@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/go:1-bookworm
+FROM debian:bookworm
 
 # Install additional OS packages.
 # Dependencies for image processing (matching the Alpine packages in production Dockerfile)

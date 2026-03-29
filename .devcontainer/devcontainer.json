@@ -4,6 +4,13 @@
 		"dockerfile": "Dockerfile"
 	},
 	"features": {
+		"ghcr.io/devcontainers/features/common-utils:1": {
+			"configureZshAsDefaultShell": true,
+			"username": "vscode"
+		},
+		"ghcr.io/devcontainers/features/go:1": {
+			"version": "latest"
+		},
 		"ghcr.io/devcontainers/features/node:1": {
 			"version": "20"
 		}
