@@ -76,8 +76,19 @@
         {{ galleryStore.importMessage }}
       </v-alert>
 
+      <!-- Loading Spinner -->
+      <div
+        v-if="galleryStore.loading"
+        class="d-flex justify-center align-center pa-10"
+      >
+        <v-progress-circular
+          indeterminate
+          color="primary"
+        ></v-progress-circular>
+      </div>
+
       <!-- Photo Grid -->
-      <v-row v-if="galleryStore.photos.length > 0">
+      <v-row v-else-if="galleryStore.photos.length > 0">
         <v-col
           v-for="photo in galleryStore.photos"
           :key="photo.id"
@@ -195,7 +206,10 @@
       </div>
 
       <!-- Empty State -->
-      <div v-if="galleryStore.totalPhotos === 0" class="text-center py-10">
+      <div
+        v-if="!galleryStore.loading && galleryStore.totalPhotos === 0"
+        class="text-center py-10"
+      >
         <v-icon
           icon="mdi-image-off-outline"
           size="64"

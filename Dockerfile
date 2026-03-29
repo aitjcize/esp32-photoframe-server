@@ -51,7 +51,9 @@ RUN apk add --no-cache \
     chromium \
     nss \
     freetype \
-    harfbuzz
+    harfbuzz \
+    imagemagick \
+    libheif
 
 # Create directories
 RUN mkdir -p /app/bin /app/static /app/data

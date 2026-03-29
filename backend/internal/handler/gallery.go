@@ -21,13 +21,15 @@ import (
 type GalleryHandler struct {
 	db       *gorm.DB
 	synology *service.SynologyService
+	immich   *service.ImmichService
 	dataDir  string
 }
 
-func NewGalleryHandler(db *gorm.DB, synology *service.SynologyService, dataDir string) *GalleryHandler {
+func NewGalleryHandler(db *gorm.DB, synology *service.SynologyService, immich *service.ImmichService, dataDir string) *GalleryHandler {
 	return &GalleryHandler{
 		db:       db,
 		synology: synology,
+		immich:   immich,
 		dataDir:  dataDir,
 	}
 }
@@ -125,6 +127,19 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		}
 		c.Response().Header().Set("Content-Type", "image/jpeg")
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
+		_, err = c.Response().Write(thumbBytes)
+		return err
+	}
+
+	// Case 1b: Immich (Proxy)
+	if item.Source == model.SourceImmich {
+		thumbBytes, err := h.immich.GetPhoto(item.ImmichAssetID, "thumbnail")
+		if err != nil {
+			fmt.Printf("Failed to fetch immich thumbnail (asset=%s): %v\n", item.ImmichAssetID, err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch immich thumbnail"})
+		}
+		c.Response().Header().Set("Content-Type", "image/jpeg")
+		c.Response().Header().Set("Cache-Control", "public, max-age=86400")
 		_, err = c.Response().Write(thumbBytes)
 		return err
 	}

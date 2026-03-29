@@ -120,11 +120,11 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 		return nil, err
 	}
 
-	// 1. Find photo in DB to get space and stored cache key
+	// 1. Find photo in DB to get stored cache key
 	var img model.Image
 	if err := s.db.Where("synology_photo_id = ? AND source = ?", id, model.SourceSynologyPhotos).First(&img).Error; err != nil {
 		// Fallback if not found in DB
-		return s.client.GetPhoto(id, cacheKeyStr, size, "personal", 0, s.client.SynoToken)
+		return s.client.GetPhoto(id, cacheKeyStr, size, 0, s.client.SynoToken)
 	}
 
 	// 2. Get albumID from settings for the request
@@ -137,8 +137,7 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 		}
 	}
 
-	// Use stored ThumbnailKey (cache_key), SynologySpace, albumID, and SynoToken
-	return s.client.GetPhoto(id, img.ThumbnailKey, size, img.SynologySpace, albumID, s.client.SynoToken)
+	return s.client.GetPhoto(id, img.ThumbnailKey, size, albumID, s.client.SynoToken)
 }
 
 func (s *SynologyService) ListAlbums() ([]synology.Album, error) {
@@ -177,27 +176,21 @@ func (s *SynologyService) ImportPhotos() error {
 	limit := 500 // Fetch 500 at a time
 	totalFetched := 0
 
-	// Get album ID from settings
+	// Get album ID from settings (required)
 	albumIDStr, _ := s.settings.Get("synology_album_id")
-	var albumID int
-	if albumIDStr != "" {
-		id, err := strconv.Atoi(albumIDStr)
-		if err == nil {
-			albumID = id
-		}
+	if albumIDStr == "" {
+		return errors.New("please select an album to sync")
+	}
+	albumID, err := strconv.Atoi(albumIDStr)
+	if err != nil {
+		return errors.New("invalid album ID")
 	}
 
-	// Get space from settings
-	space, _ := s.settings.Get("synology_space")
-	if space == "" {
-		space = "personal" // default
-	}
-
-	log.Printf("Synology ImportPhotos: albumID=%d, space=%s, limit=%d", albumID, space, limit)
+	log.Printf("Synology ImportPhotos: albumID=%d, limit=%d", albumID, limit)
 
 	// Fetch all photos (up to 1000 total for now)
 	for offset < 1000 {
-		photos, err := s.client.ListPhotos(offset, limit, albumID, space)
+		photos, err := s.client.ListPhotos(offset, limit, albumID)
 		if err != nil {
 			log.Printf("Synology ListPhotos error: %v", err)
 			// Check if it's an auth error (code 119 = session expired)
@@ -259,7 +252,6 @@ func (s *SynologyService) ImportPhotos() error {
 			// Create
 			img := model.Image{
 				SynologyPhotoID: p.ID,
-				SynologySpace:   space,
 				Source:          model.SourceSynologyPhotos,
 				FilePath:        p.Filename,
 				ThumbnailKey:    p.Additional.Thumbnail.M,
@@ -268,6 +260,12 @@ func (s *SynologyService) ImportPhotos() error {
 				Orientation:     orientation,
 				CreatedAt:       time.Now(),
 				Status:          "pending",
+			}
+
+			// Populate PhotoTakenAt from Synology's Time field (Unix timestamp)
+			if p.Time > 0 {
+				t := time.Unix(p.Time, 0)
+				img.PhotoTakenAt = &t
 			}
 
 			// Use XL cache key if available

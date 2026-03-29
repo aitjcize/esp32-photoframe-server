@@ -36,6 +36,7 @@ type ImageHandlerDeps struct {
 	Google         *googlephotos.Client
 	CalendarGoogle *googlephotos.Client
 	Synology       *service.SynologyService
+	Immich         *service.ImmichService
 	AIGen          *service.AIGenerationService
 	Weather        *weather.Client
 	Calendar       *gcalendar.Client
@@ -50,6 +51,7 @@ type ImageHandler struct {
 	google         *googlephotos.Client
 	calendarGoogle *googlephotos.Client
 	synology       *service.SynologyService
+	immich         *service.ImmichService
 	aiGen          *service.AIGenerationService
 	weather        *weather.Client
 	calendar       *gcalendar.Client
@@ -65,6 +67,7 @@ func NewImageHandler(deps ImageHandlerDeps) *ImageHandler {
 		google:         deps.Google,
 		calendarGoogle: deps.CalendarGoogle,
 		synology:       deps.Synology,
+		immich:         deps.Immich,
 		aiGen:          deps.AIGen,
 		weather:        deps.Weather,
 		calendar:       deps.Calendar,
@@ -103,6 +106,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 	enableCollage := false
 	showDate := false
+	showPhotoDate := false
 	showWeather := false
 	var lat, lon float64
 
@@ -113,6 +117,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 		enableCollage = device.EnableCollage
 		showDate = device.ShowDate
+		showPhotoDate = device.ShowPhotoDate
 		showWeather = device.ShowWeather
 		lat = device.WeatherLat
 		lon = device.WeatherLon
@@ -175,6 +180,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 	var img image.Image
 	var err error
+	var photoTakenAt *time.Time
 
 	// 1.5. Get Device History for Exclusion
 	var excludeIDs []uint
@@ -238,6 +244,14 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch photo: " + err.Error()})
 	}
 
+	// Look up PhotoTakenAt from the first served image
+	if deviceFound && device.ShowPhotoDate && len(servedImageIDs) > 0 && servedImageIDs[0] != 0 {
+		var servedImg model.Image
+		if dbErr := h.db.Select("photo_taken_at").First(&servedImg, servedImageIDs[0]).Error; dbErr == nil {
+			photoTakenAt = servedImg.PhotoTakenAt
+		}
+	}
+
 	// 1.6. Record History
 	if deviceFound && len(servedImageIDs) > 0 {
 		go func(devID uint, imgIDs []uint) {
@@ -270,56 +284,65 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	}
 
 	// 2. Render layout (photo + overlay + calendar)
-	// Fetch weather data if needed
-	var weatherData *weather.CurrentWeather
-	var deviceTimezone string
-	if showWeather && lat != 0 && lon != 0 {
-		latStr := fmt.Sprintf("%f", lat)
-		lonStr := fmt.Sprintf("%f", lon)
-		var weatherErr error
-		weatherData, weatherErr = h.weather.GetWeather(latStr, lonStr)
-		if weatherErr != nil {
-			log.Printf("Failed to fetch weather data: %v", weatherErr)
-		}
-		if weatherData != nil {
-			deviceTimezone = weatherData.Timezone
-		}
-	}
+	needsOverlay := showDate || showPhotoDate || showWeather || showCalendar
+	var imgWithOverlay image.Image
 
-	// Fetch calendar events if enabled
-	var events []gcalendar.Event
-	if showCalendar && h.calendar != nil && h.calendarGoogle != nil {
-		httpClient, err := h.calendarGoogle.GetClient()
-		if err == nil {
-			calendarID := device.CalendarID
-			if calendarID == "" {
-				calendarID = "primary"
+	if needsOverlay {
+		var weatherData *weather.CurrentWeather
+		var deviceTimezone string
+		if showWeather && lat != 0 && lon != 0 {
+			latStr := fmt.Sprintf("%f", lat)
+			lonStr := fmt.Sprintf("%f", lon)
+			var weatherErr error
+			weatherData, weatherErr = h.weather.GetWeather(latStr, lonStr)
+			if weatherErr != nil {
+				log.Printf("Failed to fetch weather data: %v", weatherErr)
 			}
-			var calErr error
-			events, calErr = h.calendar.GetTodayEvents(httpClient, calendarID, deviceTimezone)
-			if calErr != nil {
-				log.Printf("Failed to fetch calendar events: %v", calErr)
+			if weatherData != nil {
+				deviceTimezone = weatherData.Timezone
 			}
 		}
-	}
 
-	imgWithOverlay, err := h.renderer.Render(service.RenderOptions{
-		Layout:       layout,
-		DisplayMode:  displayMode,
-		Width:        logicalW,
-		Height:       logicalH,
-		NativeWidth:  nativeW,
-		NativeHeight: nativeH,
-		Photo:        img,
-		ShowDate:     showDate,
-		ShowWeather:  showWeather,
-		Weather:      weatherData,
-		ShowCalendar: showCalendar,
-		Events:       events,
-		Timezone:     deviceTimezone,
-	})
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "render failed: " + err.Error()})
+		var events []gcalendar.Event
+		if showCalendar && h.calendar != nil && h.calendarGoogle != nil {
+			httpClient, err := h.calendarGoogle.GetClient()
+			if err == nil {
+				calendarID := device.CalendarID
+				if calendarID == "" {
+					calendarID = "primary"
+				}
+				var calErr error
+				events, calErr = h.calendar.GetTodayEvents(httpClient, calendarID, deviceTimezone)
+				if calErr != nil {
+					log.Printf("Failed to fetch calendar events: %v", calErr)
+				}
+			}
+		}
+
+		var renderErr error
+		imgWithOverlay, renderErr = h.renderer.Render(service.RenderOptions{
+			Layout:        layout,
+			DisplayMode:   displayMode,
+			Width:         logicalW,
+			Height:        logicalH,
+			NativeWidth:   nativeW,
+			NativeHeight:  nativeH,
+			Photo:         img,
+			ShowDate:      showDate,
+			ShowPhotoDate: showPhotoDate,
+			PhotoDate:     photoTakenAt,
+			ShowWeather:   showWeather,
+			Weather:      weatherData,
+			ShowCalendar: showCalendar,
+			Events:       events,
+			Timezone:     deviceTimezone,
+			DateFormat:   device.DateFormat,
+		})
+		if renderErr != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "render failed: " + renderErr.Error()})
+		}
+	} else {
+		imgWithOverlay = img
 	}
 
 	// 3. Tone Mapping + Thumbnail (CLI)
@@ -449,7 +472,7 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	// 1. Try with full exclusions (history + id1)
 	img2, id2, err := h.fetchRandomPhotoWithType(targetType, sourceFilter, excludeWithHistory, deviceID)
 	if err != nil || id2 == id1 {
-		fmt.Printf("SmartCollage: query with history exclusion failed for %s: %v, retrying without history\n", targetType, err)
+		log.Printf("SmartCollage: query with history exclusion failed for %s: %v, retrying without history", targetType, err)
 		// 2. Try with only id1 excluded (ignore history)
 		img2, id2, err = h.fetchRandomPhotoWithType(targetType, sourceFilter, []uint{id1}, deviceID)
 	}
@@ -457,7 +480,7 @@ func (h *ImageHandler) fetchSmartCollage(screenW, screenH int, sourceFilter stri
 	if err == nil && id2 != id1 {
 		servedIDs = append(servedIDs, id2)
 	} else {
-		fmt.Printf("SmartCollage: no different %s photo found, using same photo twice\n", targetType)
+		log.Printf("SmartCollage: no different %s photo found, using same photo twice", targetType)
 		img2 = img1
 		servedIDs = append(servedIDs, id1)
 	}
@@ -605,7 +628,7 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 
 	img, err := h.loadImageFromRecord(item)
 	if err != nil {
-		fmt.Printf("Warning: Failed to load image id=%d: %v\n", item.ID, err)
+		log.Printf("Warning: Failed to load image id=%d: %v", item.ID, err)
 		img, err := h.fetchPlaceholder()
 		return img, 0, err
 	}
@@ -617,7 +640,7 @@ func (h *ImageHandler) fetchRandomPhoto(sourceFilter string, excludeIDs []uint, 
 // earlyResult (the caller should return immediately).
 func (h *ImageHandler) applySourceFilter(query *gorm.DB, sourceFilter string, deviceID *uint) (*gorm.DB, image.Image, error) {
 	switch sourceFilter {
-	case model.SourceGooglePhotos, model.SourceSynologyPhotos, model.SourceTelegram:
+	case model.SourceGooglePhotos, model.SourceSynologyPhotos, model.SourceTelegram, model.SourceImmich:
 		return query.Where("source = ?", sourceFilter), nil, nil
 	case model.SourceURLProxy:
 		img, _, err := h.fetchRandomURLProxy(deviceID)
@@ -647,11 +670,29 @@ func (h *ImageHandler) fetchRandomURLProxy(deviceID *uint) (image.Image, uint, e
 	return h.fetchURLPhoto(urlSource.URL)
 }
 
+// fetchImmichPhoto retrieves the photo from Immich Service
+func (h *ImageHandler) fetchImmichPhoto(item model.Image) (image.Image, uint, error) {
+	data, err := h.immich.DownloadPhoto(item.ImmichAssetID)
+	if err != nil {
+		return nil, 0, err
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, err
+	}
+	return img, item.ID, nil
+}
+
 // loadImageFromRecord loads an image from a database record, handling both
-// local files and Synology photos.
+// local files and Synology/Immich photos.
 func (h *ImageHandler) loadImageFromRecord(item model.Image) (image.Image, error) {
 	if item.Source == model.SourceSynologyPhotos {
 		img, _, err := h.fetchSynologyPhoto(item)
+		return img, err
+	}
+
+	if item.Source == model.SourceImmich {
+		img, _, err := h.fetchImmichPhoto(item)
 		return img, err
 	}
 

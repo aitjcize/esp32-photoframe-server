@@ -62,6 +62,7 @@ export interface Device {
   use_device_parameter: boolean;
   enable_collage: boolean;
   show_date?: boolean;
+  show_photo_date?: boolean;
   show_weather?: boolean;
   weather_lat?: number;
   weather_lon?: number;
@@ -72,6 +73,7 @@ export interface Device {
   display_mode?: string;
   show_calendar?: boolean;
   calendar_id?: string;
+  date_format?: string;
   created_at: string;
   model?: any;
 }
@@ -86,6 +88,7 @@ export const addDevice = async (params: {
   use_device_parameter: boolean;
   enable_collage: boolean;
   show_date: boolean;
+  show_photo_date?: boolean;
   show_weather: boolean;
   weather_lat: number;
   weather_lon: number;
@@ -93,6 +96,7 @@ export const addDevice = async (params: {
   display_mode?: string;
   show_calendar?: boolean;
   calendar_id?: string;
+  date_format?: string;
 }) => {
   const response = await api.post('devices', params);
   return response.data;
@@ -108,6 +112,7 @@ export const updateDevice = async (
   useDeviceParameter: boolean,
   enableCollage: boolean,
   showDate: boolean,
+  showPhotoDate: boolean,
   showWeather: boolean,
   weatherLat: number,
   weatherLon: number,
@@ -117,7 +122,8 @@ export const updateDevice = async (
   layout?: string,
   displayMode?: string,
   showCalendar?: boolean,
-  calendarId?: string
+  calendarId?: string,
+  dateFormat?: string
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -128,6 +134,7 @@ export const updateDevice = async (
     use_device_parameter: useDeviceParameter,
     enable_collage: enableCollage,
     show_date: showDate,
+    show_photo_date: showPhotoDate,
     show_weather: showWeather,
     weather_lat: weatherLat,
     weather_lon: weatherLon,
@@ -138,6 +145,7 @@ export const updateDevice = async (
     display_mode: displayMode || 'cover',
     show_calendar: showCalendar || false,
     calendar_id: calendarId || '',
+    date_format: dateFormat || '',
   });
   return response.data;
 };

@@ -4,6 +4,7 @@
     <!-- Gallery Card -->
     <v-card class="mb-6">
       <v-tabs v-model="galleryTab" color="primary">
+        <v-tab value="immich">Immich</v-tab>
         <v-tab value="google_photos">Google Photos</v-tab>
         <v-tab value="synology_photos">Synology</v-tab>
       </v-tabs>
@@ -45,6 +46,7 @@
               density="compact"
               class="mb-4"
             >
+              <v-tab value="immich">Immich</v-tab>
               <v-tab value="google">Google</v-tab>
               <v-tab value="synology_photos">Synology</v-tab>
               <v-tab value="telegram">Telegram</v-tab>
@@ -395,35 +397,28 @@
                           label="Sync Album"
                           variant="outlined"
                           density="compact"
-                          hint="Select an album to limit sync"
+                          hint="Select an album to sync photos from"
                           persistent-hint
+                          :rules="[(v: any) => !!v || 'Album is required']"
+                          @update:model-value="saveSettingsInternal()"
                         ></v-select>
                       </v-col>
                       <v-col cols="12" sm="4">
-                        <v-btn block variant="outlined" @click="loadAlbums"
+                        <v-btn
+                          block
+                          variant="outlined"
+                          :loading="synologyStore.loading"
+                          @click="loadAlbums"
                           >Refresh Albums</v-btn
                         >
                       </v-col>
                     </v-row>
 
-                    <v-select
-                      v-model="form.synology_space"
-                      :items="[
-                        { title: 'Personal Space', value: 'personal' },
-                        { title: 'Shared Space', value: 'shared' },
-                      ]"
-                      label="Photo Space"
-                      variant="outlined"
-                      density="compact"
-                      class="mt-4"
-                    ></v-select>
-
-                    <v-btn color="grey-darken-1" class="mt-2 mb-4" @click="save"
-                      >Save Album Selection</v-btn
-                    >
-
-                    <div class="d-flex flex-wrap ga-2">
-                      <v-btn color="primary" @click="syncSynology"
+                    <div class="d-flex flex-wrap ga-2 mt-4">
+                      <v-btn
+                        color="primary"
+                        :loading="synologyStore.loading"
+                        @click="syncSynology"
                         >Sync Now</v-btn
                       >
                       <v-btn color="warning" @click="clearSynology"
@@ -484,9 +479,120 @@
                         !form.synology_account ||
                         !form.synology_password
                       "
+                      :loading="synologyStore.loading"
                       @click="testSynology"
                     >
-                      Test Connection & Login
+                      Connect
+                    </v-btn>
+                  </div>
+                </v-card-text>
+              </v-window-item>
+
+              <!-- Immich -->
+              <v-window-item value="immich">
+                <v-card-text>
+                  <div v-if="immichConnected">
+                    <v-alert
+                      type="success"
+                      variant="tonal"
+                      class="mb-4"
+                      density="compact"
+                      icon="mdi-check-circle"
+                    >
+                      Connected to Immich ({{ form.immich_url }})
+                      <div
+                        v-if="immichStore.count !== null"
+                        class="text-caption mt-1"
+                      >
+                        {{ immichStore.count }} photo{{
+                          immichStore.count !== 1 ? 's' : ''
+                        }}
+                        synced
+                      </div>
+                    </v-alert>
+
+                    <v-text-field
+                      :model-value="getImageUrl('immich')"
+                      label="Image Endpoint URL (for firmware config)"
+                      readonly
+                      variant="outlined"
+                      density="compact"
+                      append-inner-icon="mdi-content-copy"
+                      @click:append-inner="
+                        copyToClipboard(getImageUrl('immich'))
+                      "
+                    ></v-text-field>
+
+                    <v-row class="mt-2">
+                      <v-col cols="12" sm="8">
+                        <v-select
+                          v-model="form.immich_album_id"
+                          :items="immichAlbumOptions"
+                          item-title="name"
+                          item-value="id"
+                          label="Sync Album"
+                          variant="outlined"
+                          density="compact"
+                          hint="Select an album to sync photos from"
+                          persistent-hint
+                          :rules="[(v: any) => !!v || 'Album is required']"
+                          @update:model-value="saveSettingsInternal()"
+                        ></v-select>
+                      </v-col>
+                      <v-col cols="12" sm="4">
+                        <v-btn
+                          block
+                          variant="outlined"
+                          :loading="immichStore.loading"
+                          @click="loadImmichAlbums"
+                          >Refresh Albums</v-btn
+                        >
+                      </v-col>
+                    </v-row>
+
+                    <div class="d-flex flex-wrap ga-2 mt-4">
+                      <v-btn
+                        color="primary"
+                        :loading="immichStore.loading"
+                        @click="syncImmich"
+                        >Sync Now</v-btn
+                      >
+                      <v-btn color="warning" @click="clearImmich"
+                        >Clear All Photos</v-btn
+                      >
+                      <v-btn
+                        color="error"
+                        variant="text"
+                        @click="disconnectImmich"
+                        >Disconnect</v-btn
+                      >
+                    </div>
+                  </div>
+
+                  <div v-else>
+                    <v-text-field
+                      v-model="form.immich_url"
+                      label="Immich Server URL"
+                      placeholder="http://192.168.1.10:2283"
+                      variant="outlined"
+                      class="mb-2"
+                    ></v-text-field>
+
+                    <v-text-field
+                      v-model="form.immich_api_key"
+                      label="API Key"
+                      type="password"
+                      variant="outlined"
+                      class="mb-4"
+                    ></v-text-field>
+
+                    <v-btn
+                      color="primary"
+                      :disabled="!form.immich_url || !form.immich_api_key"
+                      :loading="immichStore.loading"
+                      @click="testImmich"
+                    >
+                      Connect
                     </v-btn>
                   </div>
                 </v-card-text>
@@ -861,7 +967,17 @@
                 </v-btn>
               </div>
 
-              <v-table density="comfortable" class="border rounded">
+              <div
+                v-if="deviceListLoading && availableDevices.length === 0"
+                class="d-flex justify-center align-center pa-10"
+              >
+                <v-progress-circular
+                  indeterminate
+                  color="primary"
+                ></v-progress-circular>
+              </div>
+
+              <v-table v-else density="comfortable" class="border rounded">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -1014,6 +1130,7 @@
                               {{
                                 [
                                   editingDevice.show_date ? 'Date' : '',
+                                  editingDevice.show_photo_date ? 'Photo Date' : '',
                                   editingDevice.show_weather ? 'Weather' : '',
                                 ]
                                   .filter(Boolean)
@@ -1023,10 +1140,17 @@
                           </div>
                         </v-expansion-panel-title>
                         <v-expansion-panel-text>
-                          <div class="d-flex ga-4 mt-2">
+                          <div class="d-flex ga-4 mt-2 flex-wrap">
                             <v-checkbox
                               v-model="editingDevice.show_date"
                               label="Show Date"
+                              color="primary"
+                              density="compact"
+                              hide-details
+                            ></v-checkbox>
+                            <v-checkbox
+                              v-model="editingDevice.show_photo_date"
+                              label="Show Photo Date"
                               color="primary"
                               density="compact"
                               hide-details
@@ -1038,6 +1162,27 @@
                               density="compact"
                               hide-details
                             ></v-checkbox>
+                          </div>
+                          <v-alert
+                            v-if="editingDevice.show_photo_date"
+                            type="info"
+                            variant="tonal"
+                            density="compact"
+                            class="mt-2"
+                          >
+                            If photos were synced before this feature was added, resync your image source to populate photo creation dates.
+                          </v-alert>
+                          <div v-if="editingDevice.show_date" class="mt-3">
+                            <v-select
+                              v-model="editingDevice.date_format"
+                              :items="dateFormatOptions"
+                              item-title="label"
+                              item-value="value"
+                              label="Date Format"
+                              variant="outlined"
+                              density="compact"
+                              hide-details
+                            ></v-select>
                           </div>
                           <div
                             v-if="editingDevice.show_weather"
@@ -1339,6 +1484,7 @@
 import { onMounted, reactive, ref, computed, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useSynologyStore } from '../stores/synology';
+import { useImmichStore } from '../stores/immich';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
 import {
@@ -1365,18 +1511,21 @@ import ConfirmDialog from './ConfirmDialog.vue';
 
 const store = useSettingsStore();
 const synologyStore = useSynologyStore();
+const immichStore = useImmichStore();
+const immichConnected = ref(false);
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 const activeMainTab = ref('devices');
-const activeDataSourceTab = ref('google');
-const galleryTab = ref('google_photos');
+const activeDataSourceTab = ref('immich');
+const galleryTab = ref('immich');
 const confirmDialog = ref();
 
 // Device Binding State
 const showBindSourceDialog = ref(false);
 const bindingDevice = ref<Device | null>(null);
-const selectedSource = ref('google_photos');
+const selectedSource = ref('immich');
 const sourceOptions = [
+  { title: 'Immich', value: 'immich' },
   { title: 'Google Photos', value: 'google_photos' },
   { title: 'Synology Photos', value: 'synology_photos' },
   { title: 'Telegram', value: 'telegram' },
@@ -1387,7 +1536,7 @@ const isBinding = ref(false);
 
 const openBindSourceDialog = (device: Device) => {
   bindingDevice.value = device;
-  selectedSource.value = 'google_photos';
+  selectedSource.value = 'immich';
   showBindSourceDialog.value = true;
 };
 
@@ -1588,6 +1737,17 @@ const getLayoutPreviewSvg = (layout: string, orientation: string) => {
   }
 };
 
+const dateFormatOptions = [
+  { label: 'Mon, Jan 02 (Default)', value: '' },
+  { label: 'Monday, January 02, 2006', value: 'Monday, January 02, 2006' },
+  { label: 'DD/MM/YYYY', value: '02/01/2006' },
+  { label: 'MM/DD/YYYY', value: '01/02/2006' },
+  { label: 'DD.MM.YYYY', value: '02.01.2006' },
+  { label: 'DD-MM-YYYY', value: '02-01-2006' },
+  { label: 'YYYY-MM-DD', value: '2006-01-02' },
+  { label: 'YYYY.MM.DD', value: '2006.01.02' },
+];
+
 const layoutDescriptions: Record<string, string> = {
   photo_info:
     'Photo on top with a dedicated info strip showing date, weather, and calendar events.',
@@ -1671,6 +1831,7 @@ const openAddDeviceDialog = () => {
     use_device_parameter: false,
     enable_collage: false,
     show_date: true,
+    show_photo_date: false,
     show_weather: true,
     weather_lat: null,
     weather_lon: null,
@@ -1681,6 +1842,7 @@ const openAddDeviceDialog = () => {
     display_mode: 'cover',
     show_calendar: false,
     calendar_id: '',
+    date_format: '',
   });
   isAddingDevice.value = true;
   deviceDialogPanels.value = ['general'];
@@ -1719,6 +1881,7 @@ const saveDevice = async () => {
         use_device_parameter: editingDevice.use_device_parameter!,
         enable_collage: editingDevice.enable_collage!,
         show_date: editingDevice.show_date!,
+        show_photo_date: editingDevice.show_photo_date || false,
         show_weather: editingDevice.show_weather!,
         weather_lat: editingDevice.weather_lat || 0,
         weather_lon: editingDevice.weather_lon || 0,
@@ -1726,6 +1889,7 @@ const saveDevice = async () => {
         display_mode: editingDevice.display_mode || 'cover',
         show_calendar: editingDevice.show_calendar || false,
         calendar_id: editingDevice.calendar_id || '',
+        date_format: editingDevice.date_format || '',
       });
       showMessage('Device added successfully');
     } else {
@@ -1740,6 +1904,7 @@ const saveDevice = async () => {
         editingDevice.use_device_parameter!,
         editingDevice.enable_collage!,
         editingDevice.show_date!,
+        editingDevice.show_photo_date || false,
         editingDevice.show_weather!,
         editingDevice.weather_lat || 0,
         editingDevice.weather_lon || 0,
@@ -1749,14 +1914,18 @@ const saveDevice = async () => {
         editingDevice.layout || 'photo_overlay',
         editingDevice.display_mode || 'cover',
         editingDevice.show_calendar || false,
-        editingDevice.calendar_id || ''
+        editingDevice.calendar_id || '',
+        editingDevice.date_format || ''
       );
       showMessage('Device updated successfully');
     }
     await loadDevices();
     showEditDeviceDialog.value = false;
   } catch (e: any) {
-    showMessage('Failed to save device: ' + e.message, true);
+    showMessage(
+      'Failed to save device: ' + (e.response?.data?.error || e.message),
+      true
+    );
   }
 };
 
@@ -1774,6 +1943,7 @@ const refreshDeviceParams = async (device: Device) => {
       true, // Ensure enabled
       device.enable_collage,
       device.show_date!,
+      device.show_photo_date || false,
       device.show_weather!,
       device.weather_lat || 0,
       device.weather_lon || 0,
@@ -1788,7 +1958,10 @@ const refreshDeviceParams = async (device: Device) => {
     await loadDevices();
     showMessage('Device parameters refreshed from device');
   } catch (e: any) {
-    showMessage('Failed to refresh parameters: ' + e.message, true);
+    showMessage(
+      'Failed to refresh parameters: ' + (e.response?.data?.error || e.message),
+      true
+    );
   } finally {
     deviceListLoading.value = false;
   }
@@ -1827,6 +2000,8 @@ watch(galleryTab, (val) => {
     galleryStore.setSource('google_photos');
   } else if (val === 'synology_photos') {
     galleryStore.setSource('synology_photos');
+  } else if (val === 'immich') {
+    galleryStore.setSource('immich');
   }
 });
 
@@ -1856,8 +2031,11 @@ const form = reactive({
   synology_skip_cert: false,
   synology_otp_code: '',
   synology_album_id: '',
-  synology_space: 'personal',
   albums: [] as any[],
+  immich_url: '',
+  immich_api_key: '',
+  immich_album_id: '',
+  immich_albums: [] as any[],
   telegram_bot_token: '',
   telegram_push_enabled: false,
   telegram_target_device_id: [] as number[],
@@ -1867,7 +2045,11 @@ const form = reactive({
 });
 
 const synologyAlbumOptions = computed(() => {
-  return [{ id: '', name: 'All Photos' }, ...form.albums];
+  return form.albums;
+});
+
+const immichAlbumOptions = computed(() => {
+  return form.immich_albums.map((a: any) => ({ id: a.id, name: a.albumName }));
 });
 
 // Helper to show snackbar
@@ -1906,11 +2088,13 @@ onMounted(async () => {
     synology_account: store.settings.synology_account || '',
     synology_password: store.settings.synology_password || '',
     synology_skip_cert: store.settings.synology_skip_cert === 'true',
-    synology_space: store.settings.synology_space || 'personal',
     synology_album_id: store.settings.synology_album_id
       ? parseInt(store.settings.synology_album_id)
       : '',
     synology_sid: store.settings.synology_sid || '',
+    immich_url: store.settings.immich_url || '',
+    immich_api_key: store.settings.immich_api_key || '',
+    immich_album_id: store.settings.immich_album_id || '',
     openai_api_key: store.settings.openai_api_key || '',
     google_api_key: store.settings.google_api_key || '',
   });
@@ -1924,13 +2108,34 @@ onMounted(async () => {
     }
   }
 
+  // Run independent fetches in parallel
+  const parallelFetches: Promise<void>[] = [
+    authStore.fetchTokens(),
+    loadDevices(),
+  ];
+
   // Fetch Synology photo count if connected
   if (form.synology_sid) {
-    await synologyStore.fetchCount();
+    parallelFetches.push(synologyStore.fetchCount());
   }
 
-  await authStore.fetchTokens();
-  await loadDevices();
+  // Fetch Immich photo count and albums if connected
+  if (form.immich_url && form.immich_api_key) {
+    immichConnected.value = true;
+    parallelFetches.push(
+      (async () => {
+        await immichStore.fetchCount();
+        try {
+          await immichStore.fetchAlbums();
+          form.immich_albums = immichStore.albums;
+        } catch (e) {
+          // Non-fatal: album names will be shown as UUIDs until user clicks Refresh
+        }
+      })()
+    );
+  }
+
+  await Promise.all(parallelFetches);
 
   // Parse URL params for deep linking (e.g. from OAuth callback)
   const params = new URLSearchParams(window.location.search);
@@ -1971,8 +2176,10 @@ const saveSettingsInternal = async () => {
     synology_account: form.synology_account,
     synology_password: form.synology_password,
     synology_skip_cert: String(form.synology_skip_cert),
-    synology_space: form.synology_space,
     synology_album_id: String(form.synology_album_id),
+    immich_url: form.immich_url,
+    immich_api_key: form.immich_api_key,
+    immich_album_id: form.immich_album_id,
     openai_api_key: form.openai_api_key,
     google_api_key: form.google_api_key,
   });
@@ -2133,6 +2340,84 @@ const clearSynology = async () => {
     await api.post('/synology/clear');
     showMessage('All Synology photos cleared from database.');
     await synologyStore.fetchCount();
+  } catch (e: any) {
+    showMessage(
+      'Clear Failed: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+
+const testImmich = async () => {
+  await saveSettingsInternal();
+  try {
+    await immichStore.testConnection();
+    immichConnected.value = true;
+    showMessage('Connection Successful!');
+  } catch (e: any) {
+    showMessage(
+      'Connection Failed: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+
+const disconnectImmich = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Are you sure you want to disconnect Immich?'
+    ))
+  )
+    return;
+  form.immich_url = '';
+  form.immich_api_key = '';
+  form.immich_album_id = '';
+  form.immich_albums = [];
+  await saveSettingsInternal();
+  immichConnected.value = false;
+  immichStore.count = 0;
+  immichStore.albums = [];
+  showMessage('Disconnected from Immich.');
+};
+
+const loadImmichAlbums = async () => {
+  await saveSettingsInternal();
+  try {
+    await immichStore.fetchAlbums();
+    form.immich_albums = immichStore.albums;
+    showMessage('Albums loaded!');
+  } catch (e: any) {
+    showMessage(
+      'Failed to load albums: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+
+const syncImmich = async () => {
+  await saveSettingsInternal();
+  try {
+    await immichStore.sync();
+    showMessage('Sync completed successfully!');
+  } catch (e: any) {
+    showMessage(
+      'Sync Failed: ' + (e.response?.data?.error || 'Unknown error'),
+      true
+    );
+  }
+};
+
+const clearImmich = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Are you sure you want to clear all Immich photo references?'
+    ))
+  )
+    return;
+  try {
+    await api.post('/immich/clear');
+    showMessage('All Immich photos cleared from database.');
+    await immichStore.fetchCount();
   } catch (e: any) {
     showMessage(
       'Clear Failed: ' + (e.response?.data?.error || e.message),

@@ -3,7 +3,6 @@ package db
 import (
 	"log"
 
-	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Import file source driver
@@ -18,19 +17,6 @@ func Init(dbPath string) (*gorm.DB, error) {
 	}
 
 	log.Println("Database connection established")
-
-	// Auto Migrate Schema
-	// Note: We still keep AutoMigrate for other models for now, but `devices` is handled by migration
-	err = db.AutoMigrate(
-		&model.Setting{},
-		&model.Image{},
-		&model.GoogleAuth{},
-		&model.User{},
-		&model.APIKey{},
-	)
-	if err != nil {
-		return nil, err
-	}
 
 	return db, nil
 }

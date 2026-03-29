@@ -19,15 +19,17 @@ import (
 type DeviceHandler struct {
 	deviceService   *service.DeviceService
 	synologyService *service.SynologyService
+	immichService   *service.ImmichService
 	authService     *service.AuthService
 	settingsService *service.SettingsService
 	db              *gorm.DB
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, authService *service.AuthService, settingsService *service.SettingsService, db *gorm.DB) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, immichService *service.ImmichService, authService *service.AuthService, settingsService *service.SettingsService, db *gorm.DB) *DeviceHandler {
 	return &DeviceHandler{
 		deviceService:   deviceService,
 		synologyService: synologyService,
+		immichService:   immichService,
 		authService:     authService,
 		settingsService: settingsService,
 		db:              db,
@@ -77,6 +79,8 @@ func (h *DeviceHandler) ConfigureDeviceSource(c echo.Context) error {
 		imageURL = fmt.Sprintf("http://%s/image/synology_photos", host)
 	case model.SourceAIGeneration:
 		imageURL = fmt.Sprintf("http://%s/image/ai_generation", host)
+	case model.SourceImmich:
+		imageURL = fmt.Sprintf("http://%s/image/immich", host)
 	case model.SourceTelegram: // Added telegram source
 		imageURL = fmt.Sprintf("http://%s/image/telegram", host)
 		// Update Telegram Settings (Append if not exists)
@@ -160,6 +164,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		UseDeviceParameter bool    `json:"use_device_parameter"`
 		EnableCollage      bool    `json:"enable_collage"`
 		ShowDate           bool    `json:"show_date"`
+		ShowPhotoDate      bool    `json:"show_photo_date"`
 		ShowWeather        bool    `json:"show_weather"`
 		WeatherLat         float64 `json:"weather_lat"`
 		WeatherLon         float64 `json:"weather_lon"`
@@ -167,6 +172,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		DisplayMode        string  `json:"display_mode"`
 		ShowCalendar       bool    `json:"show_calendar"`
 		CalendarID         string  `json:"calendar_id"`
+		DateFormat         string  `json:"date_format"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -180,7 +186,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		req.Layout = model.LayoutPhotoOverlay
 	}
 
-	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID)
+	device, err := h.deviceService.AddDevice(req.Host, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowPhotoDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -199,6 +205,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		UseDeviceParameter bool    `json:"use_device_parameter"`
 		EnableCollage      bool    `json:"enable_collage"`
 		ShowDate           bool    `json:"show_date"`
+		ShowPhotoDate      bool    `json:"show_photo_date"`
 		ShowWeather        bool    `json:"show_weather"`
 		WeatherLat         float64 `json:"weather_lat"`
 		WeatherLon         float64 `json:"weather_lon"`
@@ -209,6 +216,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		DisplayMode        string  `json:"display_mode"`
 		ShowCalendar       bool    `json:"show_calendar"`
 		CalendarID         string  `json:"calendar_id"`
+		DateFormat         string  `json:"date_format"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -218,7 +226,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		req.Layout = model.LayoutPhotoOverlay
 	}
 
-	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID)
+	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Width, req.Height, req.Orientation, req.UseDeviceParameter, req.EnableCollage, req.ShowDate, req.ShowPhotoDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -267,6 +275,26 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create temp file"})
 			}
 			defer os.Remove(tmp.Name()) // Clean up
+			tempFile = tmp.Name()
+
+			if _, err := tmp.Write(data); err != nil {
+				tmp.Close()
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write temp file"})
+			}
+			tmp.Close()
+			imagePath = tempFile
+		} else if img.Source == model.SourceImmich {
+			// Download from Immich to temporary file
+			data, err := h.immichService.DownloadPhoto(img.ImmichAssetID)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to download immich photo: %v", err)})
+			}
+
+			tmp, err := ioutil.TempFile("", "immich_push_*.jpg")
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create temp file"})
+			}
+			defer os.Remove(tmp.Name())
 			tempFile = tmp.Name()
 
 			if _, err := tmp.Write(data); err != nil {

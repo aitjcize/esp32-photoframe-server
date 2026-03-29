@@ -1,0 +1,1 @@
+ALTER TABLE images ADD COLUMN immich_asset_id TEXT NOT NULL DEFAULT '';

@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/mdns"
 )
 
 type Client struct {
@@ -28,7 +30,7 @@ func NewClient(baseURL, account, password string, insecure bool) (*Client, error
 		return nil, err
 	}
 
-	transport := &http.Transport{}
+	transport := mdns.NewTransport()
 	if insecure {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
@@ -175,7 +177,7 @@ func (c *Client) ListAlbums(offset, limit int) ([]Album, error) {
 	return result.Data.List, nil
 }
 
-func (c *Client) ListPhotos(offset, limit int, albumID int, space string) ([]Item, error) {
+func (c *Client) ListPhotos(offset, limit int, albumID int) ([]Item, error) {
 	endpoint := fmt.Sprintf("%s/webapi/entry.cgi", c.BaseURL)
 	params := url.Values{}
 	params.Set("api", "SYNO.Foto.Browse.Item")
@@ -185,17 +187,12 @@ func (c *Client) ListPhotos(offset, limit int, albumID int, space string) ([]Ite
 	params.Set("offset", fmt.Sprintf("%d", offset))
 	params.Set("limit", fmt.Sprintf("%d", limit))
 	params.Set("additional", `["thumbnail","resolution"]`)
-
 	if albumID != 0 {
 		params.Set("album_id", fmt.Sprintf("%d", albumID))
 	}
 	if c.SynoToken != "" {
 		params.Set("SynoToken", c.SynoToken)
 	}
-
-	// Note: Space selection (personal/shared) is determined by the session login
-	// The passphrase parameter is not used for space selection in Synology Photos API
-	// Keeping the space parameter for future use but not sending it to API
 
 	req, err := http.NewRequest("GET", endpoint+"?"+params.Encode(), nil)
 	if err != nil {
@@ -226,14 +223,11 @@ func (c *Client) ListPhotos(offset, limit int, albumID int, space string) ([]Ite
 
 // GetPhoto fetches a thumbnail
 // size: "small", "medium", "large"
-func (c *Client) GetPhoto(id int, cacheKey string, size string, space string, albumID int, synoToken string) ([]byte, error) {
+func (c *Client) GetPhoto(id int, cacheKey string, size string, albumID int, synoToken string) ([]byte, error) {
 	path := "/webapi/entry.cgi"
 	fullURL, _ := url.JoinPath(c.BaseURL, path)
 
 	api := "SYNO.Foto.Thumbnail"
-	if space == "shared" {
-		api = "SYNO.FotoTeam.Thumbnail"
-	}
 
 	// Map size
 	sz := "xl"
@@ -281,12 +275,9 @@ func (c *Client) GetPhoto(id int, cacheKey string, size string, space string, al
 }
 
 // DownloadPhoto fetches the full image using the Download API
-func (c *Client) DownloadPhoto(id int, space string) ([]byte, error) {
+func (c *Client) DownloadPhoto(id int) ([]byte, error) {
 	endpoint := fmt.Sprintf("%s/webapi/entry.cgi", c.BaseURL)
 	api := "SYNO.Foto.Download"
-	if space == "shared" {
-		api = "SYNO.FotoTeam.Download"
-	}
 
 	params := url.Values{}
 	params.Set("api", api)

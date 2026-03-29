@@ -66,7 +66,7 @@ docker run -d \
   -p 9607:9607 \
   -v /path/to/data:/data \
   --name photoframe-server \
-  ghcr.io/aitjcize/esp32-photoframe-server:latest
+  aitjcize/esp32-photoframe-server:latest
 ```
 
 ## Configuration

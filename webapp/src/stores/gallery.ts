@@ -11,9 +11,10 @@ export const useGalleryStore = defineStore('gallery', {
     limit: 48,
     importMessage: '',
     pickerTimer: null as number | null,
-    source: 'google_photos' as
+    source: 'immich' as
       | 'google_photos'
       | 'synology_photos'
+      | 'immich'
       | 'telegram'
       | 'url_proxy',
   }),
@@ -22,7 +23,12 @@ export const useGalleryStore = defineStore('gallery', {
   },
   actions: {
     setSource(
-      source: 'google_photos' | 'synology_photos' | 'telegram' | 'url_proxy'
+      source:
+        | 'google_photos'
+        | 'synology_photos'
+        | 'immich'
+        | 'telegram'
+        | 'url_proxy'
     ) {
       this.source = source;
       this.page = 1;
@@ -89,11 +95,15 @@ export const useGalleryStore = defineStore('gallery', {
       const store = useSettingsStore();
 
       if (this.source === 'synology_photos') {
-        // Synology doesn't use a picker flow like Google
-        // It syncs via the Sync button in settings.
-        // We could trigger sync here? Or show a message?
         this.importMessage =
           'Use the Sync button in Synology settings to add photos.';
+        setTimeout(() => (this.importMessage = ''), 5000);
+        return;
+      }
+
+      if (this.source === 'immich') {
+        this.importMessage =
+          'Use the Sync button in Immich settings to add photos.';
         setTimeout(() => (this.importMessage = ''), 5000);
         return;
       }

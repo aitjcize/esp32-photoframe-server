@@ -165,6 +165,8 @@ func main() {
 	}
 	// Initialize Synology Photos Service
 	synologyService := service.NewSynologyService(database, settingsService)
+	// Initialize Immich Service
+	immichService := service.NewImmichService(database, settingsService)
 	// Initialize AI Generation Service
 	aiGenerationService := service.NewAIGenerationService(settingsService)
 
@@ -193,7 +195,7 @@ func main() {
 		CalendarGoogle: googleCalendarClient,
 		PFClient:       photoframeClient,
 	})
-	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, authService, settingsService, database)
+	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, immichService, authService, settingsService, database)
 
 	// Initialize Telegram Service
 	// Pass deviceService as Pusher
@@ -211,7 +213,8 @@ func main() {
 	h := handler.NewHandler(settingsService, telegramService, googleClient, googleCalendarClient)
 	googleHandler := handler.NewGoogleHandler(googleClient, googleCalendarClient, pickerService, database, dataDir)
 	sh := handler.NewSynologyHandler(synologyService)
-	gh := handler.NewGalleryHandler(database, synologyService, dataDir)
+	imh := handler.NewImmichHandler(immichService)
+	gh := handler.NewGalleryHandler(database, synologyService, immichService, dataDir)
 	ih := handler.NewImageHandler(handler.ImageHandlerDeps{
 		Settings:       settingsService,
 		Renderer:       rendererService,
@@ -219,6 +222,7 @@ func main() {
 		Google:         googleClient,
 		CalendarGoogle: googleCalendarClient,
 		Synology:       synologyService,
+		Immich:         immichService,
 		AIGen:          aiGenerationService,
 		Weather:        weatherClient,
 		Calendar:       calendarClient,
@@ -312,6 +316,13 @@ func main() {
 	protectedApi.GET("/synology/albums", sh.ListAlbums)
 	protectedApi.GET("/synology/count", sh.GetPhotoCount)
 	protectedApi.POST("/synology/logout", sh.Logout)
+
+	// Immich (Protected)
+	protectedApi.POST("/immich/test", imh.TestConnection)
+	protectedApi.POST("/immich/sync", imh.Sync)
+	protectedApi.POST("/immich/clear", imh.Clear)
+	protectedApi.GET("/immich/albums", imh.ListAlbums)
+	protectedApi.GET("/immich/count", imh.GetPhotoCount)
 
 	// Calendar (Protected)
 	protectedApi.GET("/calendar/calendars", ch.ListCalendars)

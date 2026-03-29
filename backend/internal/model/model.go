@@ -17,6 +17,7 @@ const (
 	SourceTelegram       = "telegram"
 	SourceURLProxy       = "url_proxy"
 	SourceAIGeneration   = "ai_generation"
+	SourceImmich         = "immich"
 )
 
 type Image struct {
@@ -30,8 +31,9 @@ type Image struct {
 	Status          string         `json:"status"` // pending, shown
 	Source          string         `json:"source"` // "local", "google_photos", "synology_photos"
 	SynologyPhotoID int            `json:"synology_id"`
-	SynologySpace   string         `json:"synology_space"` // "personal" or "shared"
-	ThumbnailKey    string         `json:"thumbnail_key"`  // Cache key for Synology
+	ThumbnailKey    string         `json:"thumbnail_key"`   // Cache key for Synology
+	ImmichAssetID   string         `json:"immich_asset_id"` // UUID for Immich assets
+	PhotoTakenAt    *time.Time     `json:"photo_taken_at"` // Original photo creation/taken date
 	CreatedAt       time.Time      `json:"created_at"`
 	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
 }
@@ -60,6 +62,7 @@ type Device struct {
 	Orientation        string    `json:"orientation"`
 	EnableCollage      bool      `json:"enable_collage"` // Per-device collage setting
 	ShowDate           bool      `json:"show_date"`
+	ShowPhotoDate      bool      `json:"show_photo_date"`
 	ShowWeather        bool      `json:"show_weather"`
 	WeatherLat         float64   `json:"weather_lat"`
 	WeatherLon         float64   `json:"weather_lon"`
@@ -70,6 +73,7 @@ type Device struct {
 	DisplayMode        string    `json:"display_mode"` // "cover" or "contain"
 	ShowCalendar       bool      `json:"show_calendar"`
 	CalendarID         string    `json:"calendar_id"` // Google Calendar ID (per-device)
+	DateFormat         string    `json:"date_format"` // Go time format string, empty = default "Mon, Jan 02"
 	CreatedAt          time.Time `json:"created_at"`
 }
 

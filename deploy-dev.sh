@@ -41,7 +41,6 @@ ssh "${HA_HOST}" "cat > ${REMOTE_DIR}/build.yaml" << 'EOF'
 build_from:
   aarch64: ghcr.io/home-assistant/aarch64-base:3.19
   amd64: ghcr.io/home-assistant/amd64-base:3.19
-  armv7: ghcr.io/home-assistant/armv7-base:3.19
 args:
   ADDON_PORT: "9608"
 EOF
@@ -56,7 +55,7 @@ ssh "${HA_HOST}" "ha apps reload"
 
 # Check if add-on is already installed
 ADDON_SLUG="local_${ADDON_NAME}"
-if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" &>/dev/null; then
+if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" 2>/dev/null; then
     echo "Add-on already installed, rebuilding..."
     ssh "${HA_HOST}" "ha apps rebuild ${ADDON_SLUG}"
 else

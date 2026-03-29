@@ -1,0 +1,2 @@
+ALTER TABLE devices ADD COLUMN show_photo_date BOOLEAN NOT NULL DEFAULT 0;
+ALTER TABLE images ADD COLUMN photo_taken_at DATETIME;
