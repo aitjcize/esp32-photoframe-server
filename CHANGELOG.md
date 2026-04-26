@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.7.5
+
+### Fixed
+- Gallery delete failed with HTTP 500 ("database is locked") and 26-30s latency under concurrent image fetches. SQLite is now opened in WAL mode with a 30s busy_timeout (`_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL`), so the per-fetch `device_history` writer no longer starves user-facing writes. The per-fetch insert + prune is also wrapped in a single transaction so the writer holds the lock once instead of three times
+- Gallery `DeletePhoto` / `DeletePhotos` now drop the DB row before removing the file, so a timed-out delete can no longer leave a row pointing at a missing file. Thumbnail handler returns 404 instead of 500 when the source file is gone
+- Immich users got a Synology-flavored empty-state message; each source now has its own copy that points at the correct Data Sources tab
+
+### Changed
+- Gallery card and delete UI restyled to match the device webapp: outlined cards with hover lift/shadow, photos shown at native aspect ratio inside square cards (`contain` + grey letterbox), `mdi-delete` trash-icon affordance revealed on top-right corner hover, inline delete dialogs with thumbnail preview and a destructive Delete button
+- Both per-photo and "Delete All" actions now require confirmation
+- Gallery shows 6 photos per row at large viewports (down from 8)
+
 ## v1.7.4
 
 ### Added
