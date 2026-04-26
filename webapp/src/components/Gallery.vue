@@ -288,8 +288,13 @@
           <span v-else-if="galleryStore.source === 'gallery'">
             Upload photos here, or send them to your Telegram bot.
           </span>
-          <span v-else>
-            Use the <b>Sync Now</b> button above to import photos from Synology.
+          <span v-else-if="galleryStore.source === 'synology_photos'">
+            Open the <b>Synology</b> tab under Data Sources below and click
+            <b>Sync Now</b> to import photos.
+          </span>
+          <span v-else-if="galleryStore.source === 'immich'">
+            Open the <b>Immich</b> tab under Data Sources below and click
+            <b>Sync Now</b> to import photos.
           </span>
         </p>
         <v-btn
