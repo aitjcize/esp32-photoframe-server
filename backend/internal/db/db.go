@@ -11,7 +11,17 @@ import (
 )
 
 func Init(dbPath string) (*gorm.DB, error) {
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	// WAL lets readers proceed during writes; busy_timeout makes the few
+	// remaining writer/writer collisions wait instead of failing with
+	// "database is locked". Without these, the async device_history writer
+	// in ServeImage routinely blocks user-visible writes (gallery delete,
+	// settings save) for tens of seconds on a busy server.
+	//
+	// 30s is the conventional SQLite "be patient" budget — long enough to
+	// outlast a multi-thousand-photo Synology / Immich sync that's writing
+	// one row at a time, short enough that a real deadlock still surfaces.
+	dsn := dbPath + "?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}

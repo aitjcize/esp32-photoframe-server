@@ -1,5 +1,6 @@
 <template>
   <div>
+    <ConfirmDialog ref="confirmDialog" />
     <!-- Gallery Content -->
     <div>
       <!-- Header with Stats and Actions -->
@@ -22,7 +23,7 @@
             variant="flat"
             height="40"
             prepend-icon="mdi-delete"
-            @click="galleryStore.deleteAllPhotos"
+            @click="confirmDeleteAll"
           >
             Delete All
           </v-btn>
@@ -129,7 +130,7 @@
               title="Delete"
               density="comfortable"
               elevation="4"
-              @click.stop="galleryStore.deletePhoto(photo.id)"
+              @click.stop="confirmDeletePhoto(photo.id)"
             ></v-btn>
           </v-card>
         </v-col>
@@ -304,11 +305,13 @@ import { onMounted, ref, reactive } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
 import { listDevices, pushToDevice, type Device } from '../api';
+import ConfirmDialog from './ConfirmDialog.vue';
 
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 
 const uploadInput = ref<HTMLInputElement | null>(null);
+const confirmDialog = ref();
 
 const triggerUpload = () => {
   uploadInput.value?.click();
@@ -319,6 +322,22 @@ const onFilesSelected = async (e: Event) => {
   if (!target.files || target.files.length === 0) return;
   await galleryStore.uploadFiles(target.files);
   target.value = '';
+};
+
+const confirmDeletePhoto = async (id: number) => {
+  if (!(await confirmDialog.value?.open('Delete this photo?'))) return;
+  await galleryStore.deletePhoto(id);
+};
+
+const confirmDeleteAll = async () => {
+  const label = galleryStore.source.replace('_', ' ');
+  const ok = await confirmDialog.value?.open(
+    `Delete all ${galleryStore.totalPhotos} photo${
+      galleryStore.totalPhotos === 1 ? '' : 's'
+    } in the ${label} gallery? This cannot be undone.`
+  );
+  if (!ok) return;
+  await galleryStore.deleteAllPhotos();
 };
 
 // Push Dialog State

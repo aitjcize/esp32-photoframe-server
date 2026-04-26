@@ -258,33 +258,44 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// 1.6. Record History
 	if deviceFound && len(servedImageIDs) > 0 {
 		go func(devID uint, imgIDs []uint) {
+			rows := make([]model.DeviceHistory, 0, len(imgIDs))
+			now := time.Now()
 			for _, imgID := range imgIDs {
 				if imgID == 0 {
 					continue
 				}
-				h.db.Create(&model.DeviceHistory{
+				rows = append(rows, model.DeviceHistory{
 					DeviceID: devID,
 					ImageID:  imgID,
-					ServedAt: time.Now(),
+					ServedAt: now,
 				})
 			}
-			// Prune old history — keep only last 50 entries.
-			// Find the served_at of the 51st-newest row and range-delete
-			// anything older. Both the cutoff lookup and the delete use the
+			if len(rows) == 0 {
+				return
+			}
+			// Insert + prune in a single transaction so we acquire the
+			// SQLite write lock once instead of three times. The prune
+			// finds the served_at of the 51st-newest row and range-deletes
+			// anything older; both halves hit the
 			// idx_device_histories_device_served composite index, so this
 			// stays O(log n) instead of the O(n) scan the previous
-			// "NOT IN (subquery)" form degraded into once a device's history
-			// grew past a few hundred rows.
-			var cutoffs []time.Time
-			if err := h.db.Model(&model.DeviceHistory{}).
-				Where("device_id = ?", devID).
-				Order("served_at desc").
-				Offset(50).
-				Limit(1).
-				Pluck("served_at", &cutoffs).Error; err == nil && len(cutoffs) > 0 {
-				h.db.Where("device_id = ? AND served_at < ?", devID, cutoffs[0]).
-					Delete(&model.DeviceHistory{})
-			}
+			// "NOT IN (subquery)" form degraded into.
+			h.db.Transaction(func(tx *gorm.DB) error {
+				if err := tx.Create(&rows).Error; err != nil {
+					return err
+				}
+				var cutoffs []time.Time
+				if err := tx.Model(&model.DeviceHistory{}).
+					Where("device_id = ?", devID).
+					Order("served_at desc").
+					Offset(50).
+					Limit(1).
+					Pluck("served_at", &cutoffs).Error; err != nil || len(cutoffs) == 0 {
+					return nil
+				}
+				return tx.Where("device_id = ? AND served_at < ?", devID, cutoffs[0]).
+					Delete(&model.DeviceHistory{}).Error
+			})
 		}(device.ID, servedImageIDs)
 	}
 

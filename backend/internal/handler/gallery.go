@@ -242,6 +242,10 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "source file missing"})
 	}
 
+	if _, err := os.Stat(item.FilePath); os.IsNotExist(err) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "source file missing"})
+	}
+
 	if err := h.generateThumbnail(item.FilePath, thumbPath); err != nil {
 		fmt.Printf("Thumbnail generation failed for %d: %v\n", item.ID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate thumbnail"})
@@ -298,19 +302,22 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
 	}
 
-	// If local, delete file
+	// Delete the row first. If we removed the file before the DB delete and
+	// the DB delete then failed (e.g. SQLite contention), we'd be left with
+	// a row pointing at a missing file. Orphaned files are easier to recover
+	// from than orphaned rows.
+	if err := h.db.Unscoped().Delete(&item).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
+	}
+
+	// For local sources (gallery / google), drop the file and thumbnail.
+	// Synology / Immich keep the original on the source, so nothing on disk.
 	if item.Source == model.SourceGooglePhotos || item.Source == model.SourceGallery {
 		if item.FilePath != "" {
 			os.Remove(item.FilePath)
 		}
-		// Also delete thumbnail
 		thumbPath := filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID))
 		os.Remove(thumbPath)
-	}
-	// For Synology, we just remove the DB reference, we don't delete from NAS.
-	// For all (including google where we already deleted file), perform Unscoped delete from DB
-	if err := h.db.Unscoped().Delete(&item).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
@@ -322,13 +329,25 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 	source := c.QueryParam("source")
 
 	var items []model.Image
-	query := h.db.Model(&model.Image{})
+	query := h.db.Model(&model.Image{}).Select("id", "source", "file_path")
 	if source != "" {
 		query = query.Where("source = ?", source)
 	}
 
 	if err := query.Find(&items).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to find photos"})
+	}
+
+	// Delete DB rows first; clean up files only after the DB delete succeeds
+	// so a mid-operation failure leaves recoverable orphan files rather than
+	// orphan rows pointing at missing files.
+	delQuery := h.db
+	if source != "" {
+		delQuery = delQuery.Where("source = ?", source)
+	}
+	if err := delQuery.Unscoped().Delete(&model.Image{}).Error; err != nil {
+		fmt.Printf("DeletePhotos failed: %v\n", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
 	}
 
 	for _, item := range items {
@@ -339,17 +358,6 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 			thumbPath := filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID))
 			os.Remove(thumbPath)
 		}
-	}
-
-	// Delete from DB in a fresh transaction/query to avoid side effects
-	delQuery := h.db
-	if source != "" {
-		delQuery = delQuery.Where("source = ?", source)
-	}
-	// Use Unscoped to ensure permanent delete
-	if err := delQuery.Unscoped().Delete(&model.Image{}).Error; err != nil {
-		fmt.Printf("DeletePhotos failed: %v\n", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
