@@ -1,6 +1,5 @@
 <template>
   <div>
-    <ConfirmDialog ref="confirmDialog" />
     <!-- Gallery Content -->
     <div>
       <!-- Header with Stats and Actions -->
@@ -23,7 +22,7 @@
             variant="flat"
             height="40"
             prepend-icon="mdi-delete"
-            @click="confirmDeleteAll"
+            @click="requestDeleteAll"
           >
             Delete All
           </v-btn>
@@ -99,16 +98,16 @@
           class="v-col-6 v-col-sm-4 v-col-md-3 v-col-lg-custom"
         >
           <v-card
-            class="position-relative photo-card overflow-visible"
-            elevation="2"
+            variant="outlined"
+            class="position-relative photo-card"
             @click="openPushDialog(photo.id)"
           >
             <v-img
               :src="getThumbnailUrl(photo.thumbnail_url)"
               :lazy-src="getThumbnailUrl(photo.thumbnail_url)"
               aspect-ratio="1"
-              cover
-              class="bg-grey-lighten-2 rounded"
+              contain
+              class="bg-grey-lighten-3 rounded"
             >
               <template v-slot:placeholder>
                 <div class="d-flex align-center justify-center fill-height">
@@ -119,22 +118,83 @@
                 </div>
               </template>
             </v-img>
-
-            <!-- Delete Badge (Top Right) -->
-            <v-btn
-              icon="mdi-close"
-              color="error"
-              size="x-small"
-              variant="flat"
-              class="action-btn delete-btn"
-              title="Delete"
-              density="comfortable"
-              elevation="4"
-              @click.stop="confirmDeletePhoto(photo.id)"
-            ></v-btn>
+            <div class="delete-hotspot">
+              <v-btn
+                icon="mdi-delete"
+                size="x-small"
+                color="error"
+                class="delete-overlay"
+                @click.stop="requestDeletePhoto(photo)"
+              />
+            </div>
           </v-card>
         </v-col>
       </v-row>
+
+      <!-- Delete Image Dialog -->
+      <v-dialog v-model="deleteDialog.show" max-width="400">
+        <v-card>
+          <v-card-title>
+            <v-icon icon="mdi-delete" color="error" class="mr-2" />
+            Delete Image?
+          </v-card-title>
+          <v-card-text>
+            <div class="mb-3">Are you sure you want to delete this image?</div>
+            <div v-if="deleteDialog.photo" class="d-flex justify-center">
+              <img
+                :src="getThumbnailUrl(deleteDialog.photo.thumbnail_url)"
+                alt=""
+                class="confirm-thumb"
+              />
+            </div>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" @click="deleteDialog.show = false">
+              Cancel
+            </v-btn>
+            <v-btn
+              color="error"
+              :loading="deleteDialog.loading"
+              @click="confirmDeletePhoto"
+            >
+              Delete
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
+      <!-- Delete All Dialog -->
+      <v-dialog v-model="deleteAllDialog.show" max-width="400">
+        <v-card>
+          <v-card-title>
+            <v-icon icon="mdi-delete-sweep" color="error" class="mr-2" />
+            Delete All Photos?
+          </v-card-title>
+          <v-card-text>
+            Delete all
+            <strong>{{ galleryStore.totalPhotos }}</strong> photo{{
+              galleryStore.totalPhotos === 1 ? '' : 's'
+            }}
+            in the
+            <strong>{{ galleryStore.source.replace('_', ' ') }}</strong>
+            gallery? This cannot be undone.
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" @click="deleteAllDialog.show = false">
+              Cancel
+            </v-btn>
+            <v-btn
+              color="error"
+              :loading="deleteAllDialog.loading"
+              @click="confirmDeleteAll"
+            >
+              Delete
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
 
       <!-- Push Dialog -->
       <v-dialog v-model="pushDialog.show" max-width="400">
@@ -255,47 +315,48 @@
 
 <style scoped>
 .photo-card {
-  transition: transform 0.2s;
   cursor: pointer;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .photo-card:hover {
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.action-btn {
+.delete-hotspot {
   position: absolute;
-  pointer-events: auto;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 48px;
+  z-index: 1;
+}
+
+.delete-overlay {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   opacity: 0;
-  transition:
-    opacity 0.2s,
-    transform 0.1s;
-  z-index: 10;
+  transition: opacity 0.2s;
 }
 
-.delete-btn {
-  top: -8px;
-  right: -8px;
-  border-radius: 50%;
-  min-width: 24px;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-}
-
-/* Show buttons on card hover */
-.photo-card:hover .action-btn {
+.delete-hotspot:hover .delete-overlay {
   opacity: 1;
 }
 
-.action-btn:hover {
-  transform: scale(1.1);
+.confirm-thumb {
+  max-width: 100%;
+  max-height: 60vh;
+  display: block;
 }
 
 @media (min-width: 1280px) {
   .v-col-lg-custom {
-    flex: 0 0 12.5%;
-    max-width: 12.5%;
+    flex: 0 0 16.6667%;
+    max-width: 16.6667%;
   }
 }
 </style>
@@ -305,13 +366,11 @@ import { onMounted, ref, reactive } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
 import { listDevices, pushToDevice, type Device } from '../api';
-import ConfirmDialog from './ConfirmDialog.vue';
 
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 
 const uploadInput = ref<HTMLInputElement | null>(null);
-const confirmDialog = ref();
 
 const triggerUpload = () => {
   uploadInput.value?.click();
@@ -324,20 +383,46 @@ const onFilesSelected = async (e: Event) => {
   target.value = '';
 };
 
-const confirmDeletePhoto = async (id: number) => {
-  if (!(await confirmDialog.value?.open('Delete this photo?'))) return;
-  await galleryStore.deletePhoto(id);
+const deleteDialog = reactive({
+  show: false,
+  photo: null as any,
+  loading: false,
+});
+
+const requestDeletePhoto = (photo: any) => {
+  deleteDialog.photo = photo;
+  deleteDialog.show = true;
+};
+
+const confirmDeletePhoto = async () => {
+  if (!deleteDialog.photo) return;
+  deleteDialog.loading = true;
+  try {
+    await galleryStore.deletePhoto(deleteDialog.photo.id);
+    deleteDialog.show = false;
+    deleteDialog.photo = null;
+  } finally {
+    deleteDialog.loading = false;
+  }
+};
+
+const deleteAllDialog = reactive({
+  show: false,
+  loading: false,
+});
+
+const requestDeleteAll = () => {
+  deleteAllDialog.show = true;
 };
 
 const confirmDeleteAll = async () => {
-  const label = galleryStore.source.replace('_', ' ');
-  const ok = await confirmDialog.value?.open(
-    `Delete all ${galleryStore.totalPhotos} photo${
-      galleryStore.totalPhotos === 1 ? '' : 's'
-    } in the ${label} gallery? This cannot be undone.`
-  );
-  if (!ok) return;
-  await galleryStore.deleteAllPhotos();
+  deleteAllDialog.loading = true;
+  try {
+    await galleryStore.deleteAllPhotos();
+    deleteAllDialog.show = false;
+  } finally {
+    deleteAllDialog.loading = false;
+  }
 };
 
 // Push Dialog State
