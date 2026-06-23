@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -174,8 +175,16 @@ func (c *Client) SearchAssets(filter SearchMetadataRequest) ([]Asset, error) {
 
 // GetMemoryAssets returns the flattened set of "on this day" assets — one
 // MemoryLane per past year that has a photo from this month/day.
+//
+// The /api/memories endpoint must be scoped with a `for` date, otherwise
+// Immich returns every persisted memory lane the user has rather than the
+// ones relevant to today. We pass today's date (UTC) plus type=on_this_day
+// so the frame shows "this day, past years" instead of a random grab-bag.
 func (c *Client) GetMemoryAssets() ([]Asset, error) {
-	resp, err := c.do("GET", "/api/memories")
+	q := url.Values{}
+	q.Set("for", time.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
+	q.Set("type", "on_this_day")
+	resp, err := c.do("GET", "/api/memories?"+q.Encode())
 	if err != nil {
 		return nil, err
 	}
