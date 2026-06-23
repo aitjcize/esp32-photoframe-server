@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.7.7
+
+### Fixed
+- Immich `memories` sync mode returned a random/unfiltered mix of photos instead of true "on this day" assets. `GetMemoryAssets()` called `/api/memories` with no query parameters, so Immich returned every persisted memory lane rather than the ones relevant to today. The request is now scoped with `for=<today, UTC>` and `type=on_this_day`. Closes #32
+
 ## v1.7.6
 
 ### Added
