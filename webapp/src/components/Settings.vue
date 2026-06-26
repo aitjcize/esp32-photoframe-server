@@ -373,6 +373,17 @@
                           from. Saving replaces the entire sync set.
                         </div>
 
+                        <v-text-field
+                          v-model="synologyAlbumSearch"
+                          placeholder="Search albums…"
+                          prepend-inner-icon="mdi-magnify"
+                          variant="outlined"
+                          density="compact"
+                          hide-details
+                          clearable
+                          class="mb-2"
+                        ></v-text-field>
+
                         <v-card variant="outlined" class="mb-3">
                           <v-list
                             density="compact"
@@ -380,7 +391,7 @@
                             style="max-height: 320px"
                           >
                             <v-list-item
-                              v-for="album in synologyStore.albums"
+                              v-for="album in filteredSynologyAlbums"
                               :key="album.id"
                             >
                               <v-checkbox
@@ -561,6 +572,17 @@
                           photos from. Saving replaces the entire sync set.
                         </div>
 
+                        <v-text-field
+                          v-model="immichAlbumSearch"
+                          placeholder="Search albums…"
+                          prepend-inner-icon="mdi-magnify"
+                          variant="outlined"
+                          density="compact"
+                          hide-details
+                          clearable
+                          class="mb-2"
+                        ></v-text-field>
+
                         <v-card variant="outlined" class="mb-3">
                           <v-list
                             density="compact"
@@ -598,7 +620,7 @@
                               v-if="immichStore.albums.length"
                             ></v-divider>
                             <v-list-item
-                              v-for="album in immichStore.albums"
+                              v-for="album in filteredImmichAlbums"
                               :key="album.id"
                             >
                               <v-checkbox
@@ -1385,6 +1407,16 @@
                                 Albums for this frame — leave all unchecked to
                                 use every synced Immich photo.
                               </div>
+                              <v-text-field
+                                v-model="deviceImmichAlbumSearch"
+                                placeholder="Search albums…"
+                                prepend-inner-icon="mdi-magnify"
+                                variant="outlined"
+                                density="compact"
+                                hide-details
+                                clearable
+                                class="mb-2"
+                              ></v-text-field>
                               <v-card variant="outlined">
                                 <v-list
                                   density="compact"
@@ -1392,7 +1424,7 @@
                                   style="max-height: 220px"
                                 >
                                   <v-list-item
-                                    v-for="album in deviceImmichAlbumOptions"
+                                    v-for="album in filteredDeviceImmichAlbums"
                                     :key="album.id"
                                   >
                                     <v-checkbox
@@ -1428,6 +1460,16 @@
                                 Albums for this frame — leave all unchecked to
                                 use every synced Synology photo.
                               </div>
+                              <v-text-field
+                                v-model="deviceSynologyAlbumSearch"
+                                placeholder="Search albums…"
+                                prepend-inner-icon="mdi-magnify"
+                                variant="outlined"
+                                density="compact"
+                                hide-details
+                                clearable
+                                class="mb-2"
+                              ></v-text-field>
                               <v-card variant="outlined">
                                 <v-list
                                   density="compact"
@@ -1435,7 +1477,7 @@
                                   style="max-height: 220px"
                                 >
                                   <v-list-item
-                                    v-for="album in deviceSynologyAlbumOptions"
+                                    v-for="album in filteredDeviceSynologyAlbums"
                                     :key="album.id"
                                   >
                                     <v-checkbox
@@ -3195,6 +3237,36 @@ const deviceSynologyAlbumOptions = computed(() => {
     .filter((a: any) => a.sync_enabled)
     .map((a: any) => ({ id: a.id, name: a.name }));
 });
+
+// Typeable filters for the (potentially long) album lists.
+const immichAlbumSearch = ref('');
+const synologyAlbumSearch = ref('');
+const deviceImmichAlbumSearch = ref('');
+const deviceSynologyAlbumSearch = ref('');
+
+const matchesAlbum = (name: string, q: string) =>
+  !q || (name || '').toLowerCase().includes(q.toLowerCase());
+
+const filteredImmichAlbums = computed(() =>
+  (immichStore.albums || []).filter((a: any) =>
+    matchesAlbum(a.albumName, immichAlbumSearch.value)
+  )
+);
+const filteredSynologyAlbums = computed(() =>
+  (synologyStore.albums || []).filter((a: any) =>
+    matchesAlbum(a.name, synologyAlbumSearch.value)
+  )
+);
+const filteredDeviceImmichAlbums = computed(() =>
+  deviceImmichAlbumOptions.value.filter((a: any) =>
+    matchesAlbum(a.name, deviceImmichAlbumSearch.value)
+  )
+);
+const filteredDeviceSynologyAlbums = computed(() =>
+  deviceSynologyAlbumOptions.value.filter((a: any) =>
+    matchesAlbum(a.name, deviceSynologyAlbumSearch.value)
+  )
+);
 
 // Derive the Synology checkbox selection from the persisted synced albums.
 // External ids are matched against String(album.id) of live Synology albums.
