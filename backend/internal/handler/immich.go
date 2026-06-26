@@ -30,6 +30,24 @@ func (h *ImmichHandler) ListAlbums(c echo.Context) error {
 	return c.JSON(http.StatusOK, albums)
 }
 
+// SetSyncAlbums defines which Immich albums (real + virtual modes) to sync.
+// POST /api/immich/sync-albums
+func (h *ImmichHandler) SetSyncAlbums(c echo.Context) error {
+	var req struct {
+		AlbumIDs  []string `json:"album_ids"`
+		Favorites bool     `json:"favorites"`
+		All       bool     `json:"all"`
+		Memories  bool     `json:"memories"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	if err := h.immich.SetSyncAlbums(req.AlbumIDs, req.Favorites, req.All, req.Memories); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *ImmichHandler) Sync(c echo.Context) error {
 	if err := h.immich.ClearAndResync(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

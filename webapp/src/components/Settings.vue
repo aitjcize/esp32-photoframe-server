@@ -554,25 +554,84 @@
 
                     <v-row class="mt-2">
                       <v-col cols="12">
-                        <v-select
-                          v-model="form.immich_source_mode"
-                          :items="immichSourceModeOptions"
-                          item-title="title"
-                          item-value="value"
-                          label="Sync Mode"
-                          variant="outlined"
-                          density="compact"
-                          hint="What to pull from Immich"
-                          persistent-hint
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-select>
+                        <div
+                          class="d-flex align-center justify-space-between mb-1"
+                        >
+                          <h3 class="text-subtitle-1 font-weight-bold">
+                            Albums to sync
+                          </h3>
+                          <v-btn
+                            size="small"
+                            variant="text"
+                            prepend-icon="mdi-refresh"
+                            :loading="immichStore.loading"
+                            @click="loadImmichAlbums"
+                            >Refresh albums</v-btn
+                          >
+                        </div>
+                        <div class="text-caption text-grey mb-2">
+                          Choose which Immich albums and collections to pull
+                          photos from. Saving replaces the entire sync set.
+                        </div>
+
+                        <v-card variant="outlined" class="mb-3">
+                          <v-list density="compact" class="py-0">
+                            <v-list-item>
+                              <v-checkbox
+                                v-model="syncFavorites"
+                                label="Favorites"
+                                color="primary"
+                                density="compact"
+                                hide-details
+                              ></v-checkbox>
+                            </v-list-item>
+                            <v-list-item>
+                              <v-checkbox
+                                v-model="syncAll"
+                                label="All Photos (entire library)"
+                                color="primary"
+                                density="compact"
+                                hide-details
+                              ></v-checkbox>
+                            </v-list-item>
+                            <v-list-item>
+                              <v-checkbox
+                                v-model="syncMemories"
+                                label="Memories (on this day)"
+                                color="primary"
+                                density="compact"
+                                hide-details
+                              ></v-checkbox>
+                            </v-list-item>
+                            <v-divider
+                              v-if="immichStore.albums.length"
+                            ></v-divider>
+                            <v-list-item
+                              v-for="album in immichStore.albums"
+                              :key="album.id"
+                            >
+                              <v-checkbox
+                                v-model="syncAlbumIds"
+                                :value="album.id"
+                                :label="album.albumName"
+                                color="primary"
+                                density="compact"
+                                hide-details
+                              ></v-checkbox>
+                            </v-list-item>
+                            <v-list-item
+                              v-if="!immichStore.albums.length"
+                              class="text-caption text-grey"
+                            >
+                              No albums found. Click "Refresh albums" to load
+                              them from Immich.
+                            </v-list-item>
+                          </v-list>
+                        </v-card>
                       </v-col>
                     </v-row>
 
-                    <v-row
-                      v-if="form.immich_source_mode === 'memories'"
-                      class="mt-2"
-                    >
+                    <v-row v-if="syncMemories" class="mt-0">
                       <v-col cols="12">
                         <v-select
                           v-model="form.immich_memory_mode"
@@ -589,35 +648,15 @@
                       </v-col>
                     </v-row>
 
-                    <v-row
-                      v-if="form.immich_source_mode === 'album'"
-                      class="mt-2"
-                    >
-                      <v-col cols="12" sm="8">
-                        <v-select
-                          v-model="form.immich_album_id"
-                          :items="immichAlbumOptions"
-                          item-title="name"
-                          item-value="id"
-                          label="Sync Album"
-                          variant="outlined"
-                          density="compact"
-                          hint="Select an album to sync photos from"
-                          persistent-hint
-                          :rules="[(v: any) => !!v || 'Album is required']"
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-select>
-                      </v-col>
-                      <v-col cols="12" sm="4">
-                        <v-btn
-                          block
-                          variant="outlined"
-                          :loading="immichStore.loading"
-                          @click="loadImmichAlbums"
-                          >Refresh Albums</v-btn
-                        >
-                      </v-col>
-                    </v-row>
+                    <div class="d-flex flex-wrap ga-2 mb-2">
+                      <v-btn
+                        color="primary"
+                        variant="flat"
+                        :loading="savingSyncSelection"
+                        @click="saveSyncSelection"
+                        >Save sync selection</v-btn
+                      >
+                    </div>
 
                     <v-row class="mt-1">
                       <v-col cols="12" md="6">
@@ -1299,6 +1338,24 @@
                               hint="e.g., pool.ntp.org"
                               persistent-hint
                             ></v-text-field>
+                          </v-col>
+                        </v-row>
+                        <v-row v-if="immichConnected">
+                          <v-col cols="12" md="6">
+                            <v-select
+                              v-model="deviceImmichAlbumIds"
+                              :items="deviceImmichAlbumOptions"
+                              item-title="name"
+                              item-value="id"
+                              label="Immich albums for this device"
+                              variant="outlined"
+                              density="compact"
+                              multiple
+                              chips
+                              closable-chips
+                              hint="Leave empty to use all synced Immich photos. Only synced albums appear here."
+                              persistent-hint
+                            ></v-select>
                           </v-col>
                         </v-row>
                       </v-tabs-window-item>
@@ -2110,6 +2167,16 @@ const store = useSettingsStore();
 const synologyStore = useSynologyStore();
 const immichStore = useImmichStore();
 const immichConnected = ref(false);
+
+// Immich "albums to sync" selection (Part A)
+const syncAlbumIds = ref<string[]>([]);
+const syncFavorites = ref(false);
+const syncAll = ref(false);
+const syncMemories = ref(false);
+const savingSyncSelection = ref(false);
+
+// Per-device Immich album bindings (Part B)
+const deviceImmichAlbumIds = ref<number[]>([]);
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 const activeMainTab = ref('devices');
@@ -2768,8 +2835,19 @@ const editDevice = async (device: Device) => {
   isAddingDevice.value = false;
   deviceDialogTab.value = 'general';
   showEditDeviceDialog.value = true;
+  deviceImmichAlbumIds.value = [];
   // Load device remote config
   await loadDeviceConfig(device.id);
+  // Load Immich album options + this device's bindings (best-effort)
+  if (immichConnected.value) {
+    try {
+      await immichStore.fetchSyncedAlbums();
+      const res = await api.get(`/devices/${device.id}/albums?source=immich`);
+      deviceImmichAlbumIds.value = res.data?.album_ids || [];
+    } catch (e) {
+      // Non-fatal: leave bindings empty
+    }
+  }
 };
 
 const saveDevice = async () => {
@@ -2895,6 +2973,23 @@ const saveDevice = async () => {
         processing_settings: { ...deviceProcessing },
         color_palette: { ...devicePalette },
       });
+
+      // Persist per-device Immich album bindings (best-effort).
+      if (immichConnected.value) {
+        try {
+          await api.put(`/devices/${editingDevice.id}/albums`, {
+            source: 'immich',
+            album_ids: deviceImmichAlbumIds.value,
+          });
+        } catch (e: any) {
+          showMessage(
+            'Device saved, but failed to save Immich album bindings: ' +
+              (e.response?.data?.error || e.message),
+            true
+          );
+        }
+      }
+
       if (result.push_result === 'synced') {
         showMessage('Device saved and config pushed to device.');
       } else {
@@ -3004,16 +3099,41 @@ const synologyAlbumOptions = computed(() => {
   return form.albums;
 });
 
-const immichAlbumOptions = computed(() => {
-  return form.immich_albums.map((a: any) => ({ id: a.id, name: a.albumName }));
+// Synced (persisted) Immich albums available for per-device binding.
+// Items use the internal album row id (number) as the value.
+const deviceImmichAlbumOptions = computed(() => {
+  return (immichStore.syncedAlbums || [])
+    .filter((a: any) => a.sync_enabled)
+    .map((a: any) => ({ id: a.id, name: a.name }));
 });
 
-const immichSourceModeOptions = [
-  { title: 'One album', value: 'album' },
-  { title: 'Entire library', value: 'all' },
-  { title: 'Favorites only', value: 'favorites' },
-  { title: 'Memories (on this day)', value: 'memories' },
-];
+// Virtual sentinel external_ids used by the backend for non-album sources.
+const IMMICH_FAVORITES_ID = '__favorites__';
+const IMMICH_ALL_ID = '__all__';
+const IMMICH_MEMORIES_ID = '__memories__';
+
+// Derive the checkbox selection state from the persisted synced albums.
+const applySyncedAlbumState = () => {
+  const synced = (immichStore.syncedAlbums || []).filter(
+    (a: any) => a.sync_enabled
+  );
+  syncFavorites.value = synced.some(
+    (a: any) => a.external_id === IMMICH_FAVORITES_ID
+  );
+  syncAll.value = synced.some((a: any) => a.external_id === IMMICH_ALL_ID);
+  syncMemories.value = synced.some(
+    (a: any) => a.external_id === IMMICH_MEMORIES_ID
+  );
+  syncAlbumIds.value = synced
+    .filter(
+      (a: any) =>
+        a.kind === 'album' &&
+        a.external_id !== IMMICH_FAVORITES_ID &&
+        a.external_id !== IMMICH_ALL_ID &&
+        a.external_id !== IMMICH_MEMORIES_ID
+    )
+    .map((a: any) => a.external_id);
+};
 
 const immichMemoryModeOptions = [
   { title: 'All years', value: 'all' },
@@ -3120,6 +3240,12 @@ onMounted(async () => {
           form.immich_albums = immichStore.albums;
         } catch (e) {
           // Non-fatal: album names will be shown as UUIDs until user clicks Refresh
+        }
+        try {
+          await immichStore.fetchSyncedAlbums();
+          applySyncedAlbumState();
+        } catch (e) {
+          // Non-fatal: checkboxes start unchecked until user refreshes
         }
       })()
     );
@@ -3394,12 +3520,42 @@ const loadImmichAlbums = async () => {
   try {
     await immichStore.fetchAlbums();
     form.immich_albums = immichStore.albums;
+    try {
+      await immichStore.fetchSyncedAlbums();
+      applySyncedAlbumState();
+    } catch (e) {
+      // Non-fatal
+    }
     showMessage('Albums loaded!');
   } catch (e: any) {
     showMessage(
       'Failed to load albums: ' + (e.response?.data?.error || e.message),
       true
     );
+  }
+};
+
+const saveSyncSelection = async () => {
+  savingSyncSelection.value = true;
+  try {
+    // Persist the memory-mode setting alongside the sync selection.
+    await saveSettingsInternal();
+    await immichStore.saveSyncAlbums({
+      album_ids: syncAlbumIds.value,
+      favorites: syncFavorites.value,
+      all: syncAll.value,
+      memories: syncMemories.value,
+    });
+    applySyncedAlbumState();
+    showMessage('Sync selection saved!');
+  } catch (e: any) {
+    showMessage(
+      'Failed to save sync selection: ' +
+        (e.response?.data?.error || e.message),
+      true
+    );
+  } finally {
+    savingSyncSelection.value = false;
   }
 };
 

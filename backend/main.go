@@ -351,6 +351,7 @@ func main() {
 	protectedApi.POST("/immich/sync", imh.Sync)
 	protectedApi.POST("/immich/clear", imh.Clear)
 	protectedApi.GET("/immich/albums", imh.ListAlbums)
+	protectedApi.POST("/immich/sync-albums", imh.SetSyncAlbums)
 	protectedApi.GET("/immich/count", imh.GetPhotoCount)
 
 	// Calendar (Protected)

@@ -5,6 +5,7 @@ export const useImmichStore = defineStore('immich', {
   state: () => ({
     count: 0,
     albums: [] as any[],
+    syncedAlbums: [] as any[],
     loading: false,
     error: null as string | null,
   }),
@@ -26,6 +27,35 @@ export const useImmichStore = defineStore('immich', {
         this.albums = res.data;
       } catch (e: any) {
         this.error = e.response?.data?.error || e.message;
+        throw e;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async fetchSyncedAlbums() {
+      try {
+        const res = await api.get('/albums?source=immich');
+        this.syncedAlbums = res.data || [];
+        return this.syncedAlbums;
+      } catch (e: any) {
+        console.error('Failed to fetch synced Immich albums', e);
+        throw e;
+      }
+    },
+
+    async saveSyncAlbums(payload: {
+      album_ids: string[];
+      favorites: boolean;
+      all: boolean;
+      memories: boolean;
+    }) {
+      this.loading = true;
+      try {
+        await api.post('/immich/sync-albums', payload);
+        await this.fetchSyncedAlbums();
+        await this.fetchCount();
+      } catch (e: any) {
         throw e;
       } finally {
         this.loading = false;

@@ -155,6 +155,69 @@ func (s *ImmichService) ListAlbums() ([]immich.Album, error) {
 	return client.ListAlbums()
 }
 
+// SetSyncAlbums defines the set of Immich albums to sync: the given real album
+// external IDs plus the enabled virtual modes (favorites/all/memories). Albums
+// in the set are upserted with sync_enabled=true; all other Immich album rows
+// are disabled. A full clear+resync then rebuilds the local pool + memberships.
+func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories bool) error {
+	// Resolve names for real albums (best-effort).
+	nameByID := map[string]string{}
+	if list, err := s.ListAlbums(); err == nil {
+		for _, a := range list {
+			nameByID[a.ID] = a.AlbumName
+		}
+	}
+
+	desired := map[string]model.Album{}
+	for _, id := range realIDs {
+		if id == "" {
+			continue
+		}
+		name := nameByID[id]
+		if name == "" {
+			name = id
+		}
+		desired[id] = model.Album{
+			Source: model.SourceImmich, ExternalID: id,
+			Kind: model.AlbumKindReal, Name: name, SyncEnabled: true,
+		}
+	}
+	addVirtual := func(on bool, ext, name string) {
+		if on {
+			desired[ext] = model.Album{
+				Source: model.SourceImmich, ExternalID: ext,
+				Kind: model.AlbumKindVirtual, Name: name, SyncEnabled: true,
+			}
+		}
+	}
+	addVirtual(all, model.ImmichVirtualAll, "All Photos")
+	addVirtual(favorites, model.ImmichVirtualFavorites, "Favorites")
+	addVirtual(memories, model.ImmichVirtualMemories, "Memories")
+
+	// Upsert desired albums (enabled); disable everything else.
+	for ext, a := range desired {
+		var existing model.Album
+		if err := s.db.Where("source = ? AND external_id = ?", model.SourceImmich, ext).
+			First(&existing).Error; err != nil {
+			a.UpdatedAt = time.Now()
+			s.db.Create(&a)
+		} else {
+			s.db.Model(&model.Album{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
+				"sync_enabled": true, "name": a.Name, "kind": a.Kind,
+			})
+		}
+	}
+	var rows []model.Album
+	s.db.Where("source = ?", model.SourceImmich).Find(&rows)
+	for _, a := range rows {
+		if _, ok := desired[a.ExternalID]; !ok && a.SyncEnabled {
+			s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false)
+		}
+	}
+
+	return s.ClearAndResync()
+}
+
 // ImportPhotos syncs every sync-enabled Immich album into the local DB:
 // upserting one images row per asset (deduped by immich_asset_id) plus an
 // image_album_memberships row per (asset, album). Stale memberships and
