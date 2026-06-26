@@ -100,6 +100,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		ShowCalendar  bool    `json:"show_calendar"`
 		CalendarID    string  `json:"calendar_id"`
 		DateFormat    string  `json:"date_format"`
+		Source        string  `json:"source"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -113,6 +114,12 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
+	// Per-device image source for the unified /image endpoint (kept out of the
+	// long UpdateDevice signature; persisted directly).
+	if err := h.db.Model(device).Update("source", req.Source).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	device.Source = req.Source
 	return c.JSON(http.StatusOK, device)
 }
 

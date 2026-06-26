@@ -109,6 +109,20 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		}
 	}
 
+	// Resolve the image source. The path param (/image/:source) takes
+	// precedence (explicit + backward compatible); the unified /image route
+	// resolves it from the identified device's configured source. An
+	// unconfigured or unidentified device on /image is a 400.
+	if source == "" {
+		if deviceFound && device.Source != "" {
+			source = device.Source
+		} else {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "no image source for this device — set the device's Image Source in the server, or request /image/<source>",
+			})
+		}
+	}
+
 	// Native resolution of the device panel
 	nativeW, nativeH := 800, 480
 	// Logical resolution for image generation (respects orientation)

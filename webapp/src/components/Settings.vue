@@ -69,19 +69,6 @@
                     can bind URLs to specific devices or leave them global.
                   </v-alert>
 
-                  <v-text-field
-                    :model-value="getImageUrl('url_proxy')"
-                    label="Image Endpoint URL (for firmware config)"
-                    readonly
-                    variant="outlined"
-                    density="compact"
-                    append-inner-icon="mdi-content-copy"
-                    @click:append-inner="
-                      copyToClipboard(getImageUrl('url_proxy'))
-                    "
-                    class="mb-4"
-                  ></v-text-field>
-
                   <div class="d-flex justify-end mb-4">
                     <v-btn
                       color="primary"
@@ -259,18 +246,6 @@
                       Connected to Google Photos
                     </v-alert>
 
-                    <v-text-field
-                      :model-value="getImageUrl('google_photos')"
-                      label="Image Endpoint URL (for firmware config)"
-                      readonly
-                      variant="outlined"
-                      density="compact"
-                      append-inner-icon="mdi-content-copy"
-                      @click:append-inner="
-                        copyToClipboard(getImageUrl('google_photos'))
-                      "
-                    ></v-text-field>
-
                     <v-btn color="error" variant="text" @click="logoutGoogle">
                       Disconnect Google Photos
                     </v-btn>
@@ -375,18 +350,6 @@
                         synced
                       </div>
                     </v-alert>
-
-                    <v-text-field
-                      :model-value="getImageUrl('synology_photos')"
-                      label="Image Endpoint URL (for firmware config)"
-                      readonly
-                      variant="outlined"
-                      density="compact"
-                      append-inner-icon="mdi-content-copy"
-                      @click:append-inner="
-                        copyToClipboard(getImageUrl('synology_photos'))
-                      "
-                    ></v-text-field>
 
                     <v-row class="mt-2">
                       <v-col cols="12">
@@ -575,18 +538,6 @@
                         synced
                       </div>
                     </v-alert>
-
-                    <v-text-field
-                      :model-value="getImageUrl('immich')"
-                      label="Image Endpoint URL (for firmware config)"
-                      readonly
-                      variant="outlined"
-                      density="compact"
-                      append-inner-icon="mdi-content-copy"
-                      @click:append-inner="
-                        copyToClipboard(getImageUrl('immich'))
-                      "
-                    ></v-text-field>
 
                     <v-row class="mt-2">
                       <v-col cols="12">
@@ -788,18 +739,6 @@
                     configured below.
                   </v-alert>
 
-                  <v-text-field
-                    :model-value="getImageUrl('gallery')"
-                    label="Image Endpoint URL (for firmware config)"
-                    readonly
-                    variant="outlined"
-                    density="compact"
-                    append-inner-icon="mdi-content-copy"
-                    @click:append-inner="
-                      copyToClipboard(getImageUrl('gallery'))
-                    "
-                  ></v-text-field>
-
                   <v-divider class="my-4"></v-divider>
 
                   <h3 class="text-subtitle-1 font-weight-bold mb-1">
@@ -900,19 +839,6 @@
                     Configure API keys below, then set the prompt/model
                     per-device in the Edit Device dialog.
                   </v-alert>
-
-                  <v-text-field
-                    :model-value="getImageUrl('ai_generation')"
-                    label="Image Endpoint URL (for firmware config)"
-                    readonly
-                    variant="outlined"
-                    density="compact"
-                    append-inner-icon="mdi-content-copy"
-                    @click:append-inner="
-                      copyToClipboard(getImageUrl('ai_generation'))
-                    "
-                    class="mb-4"
-                  ></v-text-field>
 
                   <v-text-field
                     v-model="form.openai_api_key"
@@ -2634,23 +2560,30 @@ const loadDeviceConfig = async (deviceId: number) => {
       save_downloaded_images: cfg.save_downloaded_images ?? true,
     });
 
-    // Detect if image_url points to this server
-    const imgUrl = cfg.image_url || '';
-    let isThisServer = false;
-    if (imgUrl.includes('/image/')) {
-      try {
-        const imgHost = new URL(imgUrl).hostname;
-        const serverHost = window.location.hostname;
-        isThisServer = imgHost === serverHost;
-      } catch {
-        isThisServer = false;
+    // Prefer the device's persisted `source` field. Fall back to parsing the
+    // image_url for back-compat with devices configured before `source` existed.
+    if (editingDevice.source) {
+      useThisServer.value = true;
+      selectedSource.value = editingDevice.source;
+    } else {
+      // Detect if image_url points to this server
+      const imgUrl = cfg.image_url || '';
+      let isThisServer = false;
+      if (imgUrl.includes('/image')) {
+        try {
+          const imgHost = new URL(imgUrl).hostname;
+          const serverHost = window.location.hostname;
+          isThisServer = imgHost === serverHost;
+        } catch {
+          isThisServer = false;
+        }
       }
-    }
-    useThisServer.value = isThisServer;
-    if (isThisServer) {
-      const match = imgUrl.match(/\/image\/([^/?]+)/);
-      if (match) {
-        selectedSource.value = match[1];
+      useThisServer.value = isThisServer;
+      if (isThisServer) {
+        const match = imgUrl.match(/\/image\/([^/?]+)/);
+        if (match) {
+          selectedSource.value = match[1];
+        }
       }
     }
 
@@ -2924,6 +2857,7 @@ const openAddDeviceDialog = () => {
     show_calendar: false,
     calendar_id: '',
     date_format: '',
+    source: '',
   });
   Object.assign(deviceConfig, {
     auto_rotate: false,
@@ -3026,6 +2960,12 @@ const saveDevice = async () => {
       }
     } else {
       if (!editingDevice.id) return;
+      // Per-device source: stored on the device record when this server is the
+      // URL image source; empty otherwise.
+      const deviceSource =
+        useThisServer.value && deviceConfig.rotation_mode === 'url'
+          ? selectedSource.value
+          : '';
       // Save server-side device fields
       await updateDevice(
         editingDevice.id,
@@ -3045,7 +2985,8 @@ const saveDevice = async () => {
         editingDevice.display_mode || 'cover',
         editingDevice.show_calendar || false,
         editingDevice.calendar_id || '',
-        editingDevice.date_format || ''
+        editingDevice.date_format || '',
+        deviceSource
       );
 
       // Save device remote config (config + processing + palette)
@@ -3074,7 +3015,7 @@ const saveDevice = async () => {
       // /image/*).
       let imageUrl = deviceConfig.image_url;
       if (useThisServer.value && deviceConfig.rotation_mode === 'url') {
-        imageUrl = getImageUrl(selectedSource.value);
+        imageUrl = getImageUrl();
       }
 
       const result = await updateDeviceConfig(editingDevice.id, {
@@ -3932,12 +3873,12 @@ const revokeSessionHandler = async (id: number) => {
 
 // Get image endpoint URL
 // Always use direct add-on port for device access (ESP32 devices access directly, not via ingress)
-const getImageUrl = (source: string) => {
+const getImageUrl = (source?: string) => {
   const hostname = window.location.hostname;
   const protocol = window.location.protocol;
   // Use configurable port via env var, default to 9607 for production
   const addonPort = import.meta.env.VITE_ADDON_PORT || '9607';
-  return `${protocol}//${hostname}:${addonPort}/image/${source}`;
+  return `${protocol}//${hostname}:${addonPort}/image${source ? '/' + source : ''}`;
 };
 
 // Copy to clipboard

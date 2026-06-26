@@ -74,6 +74,7 @@ export interface Device {
   show_calendar?: boolean;
   calendar_id?: string;
   date_format?: string;
+  source?: string;
   created_at: string;
   model?: any;
 }
@@ -123,7 +124,8 @@ export const updateDevice = async (
   displayMode?: string,
   showCalendar?: boolean,
   calendarId?: string,
-  dateFormat?: string
+  dateFormat?: string,
+  source?: string
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -143,6 +145,7 @@ export const updateDevice = async (
     show_calendar: showCalendar || false,
     calendar_id: calendarId || '',
     date_format: dateFormat || '',
+    source: source || '',
   });
   return response.data;
 };

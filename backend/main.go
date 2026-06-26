@@ -280,6 +280,8 @@ func main() {
 
 	// Image Route (Protected)
 	e.GET("/image/:source", ih.ServeImage, authMiddleware)
+	// Unified endpoint: source resolved server-side from the device.
+	e.GET("/image", ih.ServeImage, authMiddleware)
 
 	// Thumbnail likely needs protection too, or obscure IDs. For now, keep public as they are temporary?
 	// User said "access the /image/<source>/ endpoint. This one... people can't just access".

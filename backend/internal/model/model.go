@@ -73,6 +73,9 @@ type Device struct {
 	AIPrompt      string  `gorm:"column:ai_prompt" json:"ai_prompt"`
 	Layout        string  `json:"layout"`       // "photo_info", "photo_overlay", "side_panel"
 	DisplayMode   string  `json:"display_mode"` // "cover" or "fit"
+	// Per-device image source (e.g. "immich"), resolved by the unified /image
+	// endpoint. Empty means the device hasn't picked a server-side source.
+	Source string `json:"source"`
 	ShowCalendar  bool    `json:"show_calendar"`
 	CalendarID    string  `json:"calendar_id"` // Google Calendar ID (per-device)
 	DateFormat    string  `json:"date_format"` // Go time format string, empty = default "Mon, Jan 02"
