@@ -305,6 +305,11 @@ func main() {
 	protectedApi.POST("/devices/:id/refresh", deviceHandler.RefreshDevice)
 	protectedApi.GET("/devices/:id/config", ih.GetDeviceConfig)
 	protectedApi.PUT("/devices/:id/config", ih.UpdateDeviceConfig)
+	protectedApi.GET("/devices/:id/albums", deviceHandler.GetDeviceAlbums)
+	protectedApi.PUT("/devices/:id/albums", deviceHandler.UpdateDeviceAlbums)
+
+	// Source albums (persisted), shared by device picker + gallery
+	protectedApi.GET("/albums", deviceHandler.ListAlbums)
 
 	// Device Tokens (Protected)
 	protectedApi.POST("/auth/tokens", ah.GenerateDeviceToken)

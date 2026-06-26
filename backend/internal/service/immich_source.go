@@ -24,8 +24,13 @@ func NewImmichSource(db *gorm.DB, immich *ImmichService) imagesource.Source {
 func (s *immichSource) Name() string { return model.SourceImmich }
 
 func (s *immichSource) Fetch(req *imagesource.Request) (*imagesource.Response, error) {
+	// Restrict to the device's bound albums; empty → whole Immich pool.
+	var albumIDs []uint
+	if req.Device != nil {
+		albumIDs = DeviceAlbumIDs(s.db, req.Device.ID, model.SourceImmich)
+	}
 	pick := func(orientation string, exclude []uint) (model.Image, error) {
-		return PickRandomDBPhoto(s.db, model.SourceImmich, orientation, exclude)
+		return PickRandomDBPhotoForAlbums(s.db, model.SourceImmich, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
 		data, err := s.immich.DownloadPhoto(item.ImmichAssetID)
