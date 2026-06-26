@@ -178,15 +178,9 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 		return data, getErr
 	}
 
-	// 2. Get albumID from settings for the request
-	albumIDStr, _ := s.settings.Get("synology_album_id")
-	var albumID int
-	if albumIDStr != "" {
-		id, err := strconv.Atoi(albumIDStr)
-		if err == nil {
-			albumID = id
-		}
-	}
+	// 2. Resolve the album for this photo (membership first, then the legacy
+	// global setting) so multi-album photos are fetched with the right album.
+	albumID := s.albumIDForImage(img.ID)
 
 	data, err := s.client.GetPhoto(id, img.ThumbnailKey, size, albumID, s.client.SynoToken)
 	if s.isAuthExpired(err) {
@@ -196,6 +190,27 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 		return s.client.GetPhoto(id, img.ThumbnailKey, size, albumID, s.client.SynoToken)
 	}
 	return data, err
+}
+
+// albumIDForImage returns a Synology album external id (int) the image belongs
+// to via membership, falling back to the legacy global setting, else 0.
+func (s *SynologyService) albumIDForImage(imageID uint) int {
+	var ext string
+	s.db.Model(&model.ImageAlbumMembership{}).
+		Joins("JOIN albums ON albums.id = image_album_memberships.album_id").
+		Where("image_album_memberships.image_id = ? AND albums.source = ?", imageID, model.SourceSynologyPhotos).
+		Limit(1).Pluck("albums.external_id", &ext)
+	if ext != "" {
+		if n, err := strconv.Atoi(ext); err == nil {
+			return n
+		}
+	}
+	if g, _ := s.settings.Get("synology_album_id"); g != "" {
+		if n, err := strconv.Atoi(g); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 // relogin clears the expired session and attempts to re-authenticate.
@@ -236,126 +251,205 @@ func (s *SynologyService) ListAlbums() ([]synology.Album, error) {
 	return albums, nil
 }
 
-// ImportPhotos fetches photos from Synology and adds them to DB
+// ImportPhotos syncs every sync-enabled Synology album into the DB, upserting
+// image rows (deduped by synology_photo_id) plus (asset, album) memberships,
+// pruning stale memberships and orphaned image rows.
 func (s *SynologyService) ImportPhotos() error {
 	if err := s.ensureClient(""); err != nil {
 		return err
 	}
 
-	// Fetch photos with pagination
-	offset := 0
-	limit := 500 // Fetch 500 at a time
-	totalFetched := 0
+	s.ensureGlobalAlbumSeed()
 
-	// Get album ID from settings (required)
-	albumIDStr, _ := s.settings.Get("synology_album_id")
-	if albumIDStr == "" {
-		return errors.New("please select an album to sync")
+	var albums []model.Album
+	if err := s.db.Where("source = ? AND sync_enabled = ?", model.SourceSynologyPhotos, true).
+		Find(&albums).Error; err != nil {
+		return err
 	}
-	albumID, err := strconv.Atoi(albumIDStr)
-	if err != nil {
-		return errors.New("invalid album ID")
+	if len(albums) == 0 {
+		log.Println("Synology ImportPhotos: no albums enabled for sync")
+		return nil
 	}
 
-	log.Printf("Synology ImportPhotos: albumID=%d, limit=%d", albumID, limit)
+	totalNew := 0
+	for _, album := range albums {
+		albumID, err := strconv.Atoi(album.ExternalID)
+		if err != nil {
+			log.Printf("Synology: invalid album external id %q", album.ExternalID)
+			continue
+		}
+		newCount, memberCount := s.importAlbumAssets(album, albumID)
+		totalNew += newCount
+		s.db.Model(&model.Album{}).Where("id = ?", album.ID).
+			Updates(map[string]interface{}{"asset_count": memberCount, "updated_at": time.Now()})
+	}
 
-	// Fetch all photos (up to 1000 total for now)
-	for offset < 1000 {
+	s.gcOrphanImages()
+	log.Printf("Synology ImportPhotos complete: %d new photos across %d album(s)", totalNew, len(albums))
+	return nil
+}
+
+// importAlbumAssets pages through one Synology album, upserting image + (asset,
+// album) membership rows, then prunes memberships for photos removed from it.
+func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (newCount, memberCount int) {
+	seen := []uint{}
+	offset, limit := 0, 500
+	for offset < 5000 {
 		photos, err := s.client.ListPhotos(offset, limit, albumID)
 		if s.isAuthExpired(err) {
 			if reErr := s.relogin(); reErr != nil {
-				return errors.New("authentication expired and re-login failed: " + reErr.Error())
+				log.Printf("Synology: re-login failed: %v", reErr)
+				break
 			}
 			photos, err = s.client.ListPhotos(offset, limit, albumID)
 		}
 		if err != nil {
-			log.Printf("Synology ListPhotos error: %v", err)
-			return err
+			log.Printf("Synology ListPhotos error (album %d): %v", albumID, err)
+			break
 		}
-
 		if len(photos) == 0 {
-			break // No more photos
+			break
 		}
 
-		totalFetched += len(photos)
-		log.Printf("Fetched %d photos (offset=%d, total so far=%d)", len(photos), offset, totalFetched)
-
-		count := 0
 		for _, p := range photos {
-			// Dedup by SynologyID
-			var existing model.Image
-			result := s.db.Where("synology_photo_id = ? AND source = ?", p.ID, model.SourceSynologyPhotos).First(&existing)
-
-			if result.Error == nil {
-				// Update cache key and backfill orientation if missing
-				updated := false
-				if existing.ThumbnailKey != p.Additional.Thumbnail.M {
-					existing.ThumbnailKey = p.Additional.Thumbnail.M
-					updated = true
+			var img model.Image
+			res := s.db.Where("synology_photo_id = ? AND source = ?", p.ID, model.SourceSynologyPhotos).First(&img)
+			if res.Error != nil {
+				pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
+				img = model.Image{
+					SynologyPhotoID: p.ID,
+					Source:          model.SourceSynologyPhotos,
+					FilePath:        p.Filename,
+					ThumbnailKey:    p.Additional.Thumbnail.M,
+					Width:           pw,
+					Height:          ph,
+					Orientation:     determineOrientation(pw, ph, ""),
+					CreatedAt:       time.Now(),
+					Status:          "pending",
 				}
-				if existing.Orientation == "" {
-					pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
-					existing.Orientation = determineOrientation(pw, ph, "")
-					existing.Width = pw
-					existing.Height = ph
-					updated = true
+				if p.Additional.Thumbnail.XL != "" {
+					img.ThumbnailKey = p.Additional.Thumbnail.XL
 				}
-				if updated {
-					s.db.Save(&existing)
+				if p.Time > 0 {
+					t := time.Unix(p.Time, 0)
+					img.PhotoTakenAt = &t
 				}
-				continue
+				if err := s.db.Create(&img).Error; err != nil {
+					log.Printf("Failed to insert synology photo %d: %v", p.ID, err)
+					continue
+				}
+				newCount++
+			} else if img.ThumbnailKey == "" && p.Additional.Thumbnail.M != "" {
+				s.db.Model(&img).Update("thumbnail_key", p.Additional.Thumbnail.M)
 			}
 
-			// Determine orientation from resolution
-			pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
-			orientation := determineOrientation(pw, ph, "")
-
-			// Create
-			img := model.Image{
-				SynologyPhotoID: p.ID,
-				Source:          model.SourceSynologyPhotos,
-				FilePath:        p.Filename,
-				ThumbnailKey:    p.Additional.Thumbnail.M,
-				Width:           pw,
-				Height:          ph,
-				Orientation:     orientation,
-				CreatedAt:       time.Now(),
-				Status:          "pending",
-			}
-
-			// Populate PhotoTakenAt from Synology's Time field (Unix timestamp)
-			if p.Time > 0 {
-				t := time.Unix(p.Time, 0)
-				img.PhotoTakenAt = &t
-			}
-
-			// Use XL cache key if available
-			if p.Additional.Thumbnail.XL != "" {
-				img.ThumbnailKey = p.Additional.Thumbnail.XL
-			}
-
-			if err := s.db.Create(&img).Error; err != nil {
-				log.Printf("Failed to insert synology photo %d: %v", p.ID, err)
-				continue
-			}
-			count++
+			membership := model.ImageAlbumMembership{ImageID: img.ID, AlbumID: album.ID}
+			s.db.FirstOrCreate(&membership, membership)
+			seen = append(seen, img.ID)
+			memberCount++
 		}
-
-		log.Printf("Imported %d new photos from this batch", count)
 
 		if len(photos) < limit {
-			break // Last page
+			break
 		}
-
 		offset += limit
 	}
 
-	log.Printf("ImportPhotos complete: fetched %d photos total", totalFetched)
-	return nil
+	prune := s.db.Where("album_id = ?", album.ID)
+	if len(seen) > 0 {
+		prune = prune.Where("image_id NOT IN ?", seen)
+	}
+	prune.Delete(&model.ImageAlbumMembership{})
+	return newCount, memberCount
 }
 
-// ClearPhotos deletes all Synology photos from database
+// gcOrphanImages removes Synology image rows no longer a member of any album.
+func (s *SynologyService) gcOrphanImages() {
+	sub := s.db.Model(&model.ImageAlbumMembership{}).Select("image_id")
+	s.db.Unscoped().
+		Where("source = ? AND id NOT IN (?)", model.SourceSynologyPhotos, sub).
+		Delete(&model.Image{})
+}
+
+// ensureGlobalAlbumSeed materializes the legacy synology_album_id setting into
+// a sync-enabled albums row once, for back-compat. Idempotent.
+func (s *SynologyService) ensureGlobalAlbumSeed() {
+	var count int64
+	s.db.Model(&model.Album{}).Where("source = ?", model.SourceSynologyPhotos).Count(&count)
+	if count > 0 {
+		return
+	}
+	ext, _ := s.settings.Get("synology_album_id")
+	if ext == "" {
+		return
+	}
+	name := ext
+	if albums, err := s.ListAlbums(); err == nil {
+		for _, a := range albums {
+			if strconv.Itoa(a.ID) == ext {
+				name = a.Name
+				break
+			}
+		}
+	}
+	album := model.Album{
+		Source: model.SourceSynologyPhotos, ExternalID: ext,
+		Kind: model.AlbumKindReal, Name: name, SyncEnabled: true, UpdatedAt: time.Now(),
+	}
+	if err := s.db.Create(&album).Error; err != nil {
+		log.Printf("Synology: failed to seed global album row: %v", err)
+	}
+}
+
+// SetSyncAlbums defines which Synology albums (by external id) to sync: enables
+// those album rows, disables the rest, then clear+resyncs.
+func (s *SynologyService) SetSyncAlbums(realIDs []string) error {
+	nameByID := map[string]string{}
+	if albums, err := s.ListAlbums(); err == nil {
+		for _, a := range albums {
+			nameByID[strconv.Itoa(a.ID)] = a.Name
+		}
+	}
+
+	desired := map[string]bool{}
+	for _, id := range realIDs {
+		if id == "" {
+			continue
+		}
+		desired[id] = true
+		name := nameByID[id]
+		if name == "" {
+			name = id
+		}
+		var existing model.Album
+		if err := s.db.Where("source = ? AND external_id = ?", model.SourceSynologyPhotos, id).
+			First(&existing).Error; err != nil {
+			s.db.Create(&model.Album{
+				Source: model.SourceSynologyPhotos, ExternalID: id,
+				Kind: model.AlbumKindReal, Name: name, SyncEnabled: true, UpdatedAt: time.Now(),
+			})
+		} else {
+			s.db.Model(&model.Album{}).Where("id = ?", existing.ID).
+				Updates(map[string]interface{}{"sync_enabled": true, "name": name})
+		}
+	}
+	var rows []model.Album
+	s.db.Where("source = ?", model.SourceSynologyPhotos).Find(&rows)
+	for _, a := range rows {
+		if !desired[a.ExternalID] && a.SyncEnabled {
+			s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false)
+		}
+	}
+	return s.ClearAndResync()
+}
+
+// ClearPhotos deletes all Synology photos and their album memberships.
 func (s *SynologyService) ClearPhotos() error {
+	var albumIDs []uint
+	s.db.Model(&model.Album{}).Where("source = ?", model.SourceSynologyPhotos).Pluck("id", &albumIDs)
+	if len(albumIDs) > 0 {
+		s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{})
+	}
 	if err := s.db.Unscoped().Where("source = ?", model.SourceSynologyPhotos).Delete(&model.Image{}).Error; err != nil {
 		return err
 	}

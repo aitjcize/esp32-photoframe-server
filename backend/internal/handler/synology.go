@@ -48,6 +48,24 @@ func (h *SynologyHandler) ListAlbums(c echo.Context) error {
 	return c.JSON(http.StatusOK, albums)
 }
 
+// SetSyncAlbums defines which Synology albums (by external id) to sync.
+// POST /api/synology/sync-albums
+func (h *SynologyHandler) SetSyncAlbums(c echo.Context) error {
+	var req struct {
+		AlbumIDs []string `json:"album_ids"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	if err := h.synology.SetSyncAlbums(req.AlbumIDs); err != nil {
+		if strings.Contains(err.Error(), "authentication expired") {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Session expired. Please reconnect to Synology."})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *SynologyHandler) Sync(c echo.Context) error {
 	// Always clear and resync to ensure fresh references
 	// Synology photos aren't stored locally, just references in DB

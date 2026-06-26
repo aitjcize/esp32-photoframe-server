@@ -24,8 +24,13 @@ func NewSynologyPhotosSource(db *gorm.DB, synology *SynologyService) imagesource
 func (s *synologyPhotosSource) Name() string { return model.SourceSynologyPhotos }
 
 func (s *synologyPhotosSource) Fetch(req *imagesource.Request) (*imagesource.Response, error) {
+	// Restrict to the device's bound albums; empty → whole Synology pool.
+	var albumIDs []uint
+	if req.Device != nil {
+		albumIDs = DeviceAlbumIDs(s.db, req.Device.ID, model.SourceSynologyPhotos)
+	}
 	pick := func(orientation string, exclude []uint) (model.Image, error) {
-		return PickRandomDBPhoto(s.db, model.SourceSynologyPhotos, orientation, exclude)
+		return PickRandomDBPhotoForAlbums(s.db, model.SourceSynologyPhotos, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
 		data, err := s.synology.GetPhoto(item.SynologyPhotoID, item.ThumbnailKey, "large")

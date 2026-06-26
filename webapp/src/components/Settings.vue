@@ -389,6 +389,65 @@
                     ></v-text-field>
 
                     <v-row class="mt-2">
+                      <v-col cols="12">
+                        <div
+                          class="d-flex align-center justify-space-between mb-1"
+                        >
+                          <h3 class="text-subtitle-1 font-weight-bold">
+                            Albums to sync
+                          </h3>
+                          <v-btn
+                            size="small"
+                            variant="text"
+                            prepend-icon="mdi-refresh"
+                            :loading="synologyStore.loading"
+                            @click="loadAlbums"
+                            >Refresh albums</v-btn
+                          >
+                        </div>
+                        <div class="text-caption text-grey mb-2">
+                          Choose which Synology Photos albums to pull photos
+                          from. Saving replaces the entire sync set.
+                        </div>
+
+                        <v-card variant="outlined" class="mb-3">
+                          <v-list density="compact" class="py-0">
+                            <v-list-item
+                              v-for="album in synologyStore.albums"
+                              :key="album.id"
+                            >
+                              <v-checkbox
+                                v-model="synologySyncAlbumIds"
+                                :value="String(album.id)"
+                                :label="album.name"
+                                color="primary"
+                                density="compact"
+                                hide-details
+                              ></v-checkbox>
+                            </v-list-item>
+                            <v-list-item
+                              v-if="!synologyStore.albums.length"
+                              class="text-caption text-grey"
+                            >
+                              No albums found. Click "Refresh albums" to load
+                              them from Synology.
+                            </v-list-item>
+                          </v-list>
+                        </v-card>
+                      </v-col>
+                    </v-row>
+
+                    <div class="d-flex flex-wrap ga-2 mb-2">
+                      <v-btn
+                        color="primary"
+                        variant="flat"
+                        :loading="savingSynologySyncSelection"
+                        @click="saveSynologySyncSelection"
+                        >Save sync selection</v-btn
+                      >
+                    </div>
+
+                    <v-row class="mt-2">
                       <v-col cols="12" sm="8">
                         <v-select
                           v-model="form.synology_album_id"
@@ -1358,6 +1417,24 @@
                             ></v-select>
                           </v-col>
                         </v-row>
+                        <v-row v-if="form.synology_sid">
+                          <v-col cols="12" md="6">
+                            <v-select
+                              v-model="deviceSynologyAlbumIds"
+                              :items="deviceSynologyAlbumOptions"
+                              item-title="name"
+                              item-value="id"
+                              label="Synology albums for this device"
+                              variant="outlined"
+                              density="compact"
+                              multiple
+                              chips
+                              closable-chips
+                              hint="Leave empty to use all synced Synology photos. Only synced albums appear here."
+                              persistent-hint
+                            ></v-select>
+                          </v-col>
+                        </v-row>
                       </v-tabs-window-item>
 
                       <!-- Auto Rotate Tab -->
@@ -2175,8 +2252,14 @@ const syncAll = ref(false);
 const syncMemories = ref(false);
 const savingSyncSelection = ref(false);
 
+// Synology "albums to sync" selection (mirror of Immich, no virtual modes)
+const synologySyncAlbumIds = ref<string[]>([]);
+const savingSynologySyncSelection = ref(false);
+
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
+// Per-device Synology album bindings (Part C)
+const deviceSynologyAlbumIds = ref<number[]>([]);
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
 const activeMainTab = ref('devices');
@@ -2836,6 +2919,7 @@ const editDevice = async (device: Device) => {
   deviceDialogTab.value = 'general';
   showEditDeviceDialog.value = true;
   deviceImmichAlbumIds.value = [];
+  deviceSynologyAlbumIds.value = [];
   // Load device remote config
   await loadDeviceConfig(device.id);
   // Load Immich album options + this device's bindings (best-effort)
@@ -2844,6 +2928,18 @@ const editDevice = async (device: Device) => {
       await immichStore.fetchSyncedAlbums();
       const res = await api.get(`/devices/${device.id}/albums?source=immich`);
       deviceImmichAlbumIds.value = res.data?.album_ids || [];
+    } catch (e) {
+      // Non-fatal: leave bindings empty
+    }
+  }
+  // Load Synology album options + this device's bindings (best-effort)
+  if (form.synology_sid) {
+    try {
+      await synologyStore.fetchSyncedAlbums();
+      const res = await api.get(
+        `/devices/${device.id}/albums?source=synology_photos`
+      );
+      deviceSynologyAlbumIds.value = res.data?.album_ids || [];
     } catch (e) {
       // Non-fatal: leave bindings empty
     }
@@ -2990,6 +3086,22 @@ const saveDevice = async () => {
         }
       }
 
+      // Persist per-device Synology album bindings (best-effort).
+      if (form.synology_sid) {
+        try {
+          await api.put(`/devices/${editingDevice.id}/albums`, {
+            source: 'synology_photos',
+            album_ids: deviceSynologyAlbumIds.value,
+          });
+        } catch (e: any) {
+          showMessage(
+            'Device saved, but failed to save Synology album bindings: ' +
+              (e.response?.data?.error || e.message),
+            true
+          );
+        }
+      }
+
       if (result.push_result === 'synced') {
         showMessage('Device saved and config pushed to device.');
       } else {
@@ -3106,6 +3218,22 @@ const deviceImmichAlbumOptions = computed(() => {
     .filter((a: any) => a.sync_enabled)
     .map((a: any) => ({ id: a.id, name: a.name }));
 });
+
+// Synced (persisted) Synology albums available for per-device binding.
+// Items use the internal album row id (number) as the value.
+const deviceSynologyAlbumOptions = computed(() => {
+  return (synologyStore.syncedAlbums || [])
+    .filter((a: any) => a.sync_enabled)
+    .map((a: any) => ({ id: a.id, name: a.name }));
+});
+
+// Derive the Synology checkbox selection from the persisted synced albums.
+// External ids are matched against String(album.id) of live Synology albums.
+const applySynologySyncedAlbumState = () => {
+  synologySyncAlbumIds.value = (synologyStore.syncedAlbums || [])
+    .filter((a: any) => a.sync_enabled)
+    .map((a: any) => a.external_id);
+};
 
 // Virtual sentinel external_ids used by the backend for non-album sources.
 const IMMICH_FAVORITES_ID = '__favorites__';
@@ -3224,9 +3352,25 @@ onMounted(async () => {
     loadDevices(),
   ];
 
-  // Fetch Synology photo count if connected
+  // Fetch Synology photo count + albums if connected
   if (form.synology_sid) {
-    parallelFetches.push(synologyStore.fetchCount());
+    parallelFetches.push(
+      (async () => {
+        await synologyStore.fetchCount();
+        try {
+          await synologyStore.fetchAlbums();
+          form.albums = synologyStore.albums;
+        } catch (e) {
+          // Non-fatal: use cached albums until user refreshes
+        }
+        try {
+          await synologyStore.fetchSyncedAlbums();
+          applySynologySyncedAlbumState();
+        } catch (e) {
+          // Non-fatal: checkboxes start unchecked until user refreshes
+        }
+      })()
+    );
   }
 
   // Fetch Immich photo count and albums if connected
@@ -3407,6 +3551,8 @@ const logoutSynology = async () => {
   try {
     await synologyStore.logout();
     form.synology_sid = '';
+    form.albums = [];
+    synologySyncAlbumIds.value = [];
     showMessage('Logged out from Synology.');
   } catch (e) {
     showMessage('Error logging out: ' + e, true);
@@ -3418,6 +3564,12 @@ const loadAlbums = async () => {
   try {
     await synologyStore.fetchAlbums();
     form.albums = synologyStore.albums;
+    try {
+      await synologyStore.fetchSyncedAlbums();
+      applySynologySyncedAlbumState();
+    } catch (e) {
+      // Non-fatal
+    }
     showMessage('Albums loaded!');
   } catch (e: any) {
     if (
@@ -3434,6 +3586,23 @@ const loadAlbums = async () => {
         true
       );
     }
+  }
+};
+
+const saveSynologySyncSelection = async () => {
+  savingSynologySyncSelection.value = true;
+  try {
+    await synologyStore.saveSyncAlbums(synologySyncAlbumIds.value);
+    applySynologySyncedAlbumState();
+    showMessage('Sync selection saved!');
+  } catch (e: any) {
+    showMessage(
+      'Failed to save sync selection: ' +
+        (e.response?.data?.error || e.message),
+      true
+    );
+  } finally {
+    savingSynologySyncSelection.value = false;
   }
 };
 

@@ -6,6 +6,7 @@ export const useSynologyStore = defineStore('synology', {
   state: () => ({
     count: 0,
     albums: [] as any[],
+    syncedAlbums: [] as any[],
     loading: false,
     error: null as string | null,
   }),
@@ -34,6 +35,30 @@ export const useSynologyStore = defineStore('synology', {
           throw new Error('Session expired');
         }
         this.error = e.response?.data?.error || e.message;
+        throw e;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async fetchSyncedAlbums() {
+      try {
+        const res = await api.get('/albums?source=synology_photos');
+        this.syncedAlbums = res.data || [];
+        return this.syncedAlbums;
+      } catch (e: any) {
+        console.error('Failed to fetch synced Synology albums', e);
+        throw e;
+      }
+    },
+
+    async saveSyncAlbums(album_ids: string[]) {
+      this.loading = true;
+      try {
+        await api.post('/synology/sync-albums', { album_ids });
+        await this.fetchSyncedAlbums();
+        await this.fetchCount();
+      } catch (e: any) {
         throw e;
       } finally {
         this.loading = false;
@@ -77,6 +102,7 @@ export const useSynologyStore = defineStore('synology', {
         await settingsStore.fetchSettings(); // Refresh to clear SID from local state view
         this.count = 0;
         this.albums = [];
+        this.syncedAlbums = [];
       } catch (e: any) {
         throw e;
       } finally {

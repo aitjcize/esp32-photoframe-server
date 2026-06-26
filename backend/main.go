@@ -343,6 +343,7 @@ func main() {
 	protectedApi.POST("/synology/sync", sh.Sync)
 	protectedApi.POST("/synology/clear", sh.Clear)
 	protectedApi.GET("/synology/albums", sh.ListAlbums)
+	protectedApi.POST("/synology/sync-albums", sh.SetSyncAlbums)
 	protectedApi.GET("/synology/count", sh.GetPhotoCount)
 	protectedApi.POST("/synology/logout", sh.Logout)
 
