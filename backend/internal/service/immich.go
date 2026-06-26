@@ -155,97 +155,205 @@ func (s *ImmichService) ListAlbums() ([]immich.Album, error) {
 	return client.ListAlbums()
 }
 
-// ImportPhotos fetches image assets according to the configured source
-// mode (album / all / favorites / memories) and adds them to the DB.
+// ImportPhotos syncs every sync-enabled Immich album into the local DB:
+// upserting one images row per asset (deduped by immich_asset_id) plus an
+// image_album_memberships row per (asset, album). Stale memberships and
+// orphaned image rows are pruned so the local pool tracks Immich.
 func (s *ImmichService) ImportPhotos() error {
 	client, err := s.getClient()
 	if err != nil {
 		return err
 	}
 
-	allAssets, err := s.fetchAssetsForMode(client)
-	if err != nil {
+	// Materialize the legacy single-album / mode config into an albums row so
+	// existing setups keep syncing after the multi-album migration.
+	s.ensureGlobalAlbumSeed(client)
+
+	var albums []model.Album
+	if err := s.db.Where("source = ? AND sync_enabled = ?", model.SourceImmich, true).
+		Find(&albums).Error; err != nil {
 		return err
 	}
+	if len(albums) == 0 {
+		log.Println("Immich ImportPhotos: no albums enabled for sync")
+		return nil
+	}
 
-	count := 0
-	for _, asset := range allAssets {
+	// Best-effort name refresh for real albums.
+	nameByExternalID := map[string]string{}
+	if list, e := client.ListAlbums(); e == nil {
+		for _, a := range list {
+			nameByExternalID[a.ID] = a.AlbumName
+		}
+	}
+
+	totalNew := 0
+	for _, album := range albums {
+		assets, err := s.fetchAssetsForAlbum(client, album)
+		if err != nil {
+			log.Printf("Immich: failed to fetch assets for album %q (%s): %v",
+				album.Name, album.ExternalID, err)
+			continue
+		}
+		newCount, memberCount := s.importAlbumAssets(album, assets)
+		totalNew += newCount
+
+		updates := map[string]interface{}{"asset_count": memberCount, "updated_at": time.Now()}
+		if album.Kind == model.AlbumKindReal {
+			if n := nameByExternalID[album.ExternalID]; n != "" {
+				updates["name"] = n
+			}
+		}
+		s.db.Model(&model.Album{}).Where("id = ?", album.ID).Updates(updates)
+	}
+
+	s.gcOrphanImages()
+	log.Printf("Immich ImportPhotos complete: %d new photos across %d album(s)", totalNew, len(albums))
+	return nil
+}
+
+// importAlbumAssets upserts image rows and (asset, album) membership rows for
+// one album, then prunes memberships for assets no longer in the album.
+// Returns the count of newly-created image rows and the album's member count.
+func (s *ImmichService) importAlbumAssets(album model.Album, assets []immich.Asset) (newCount, memberCount int) {
+	seen := make([]uint, 0, len(assets))
+	for _, asset := range assets {
 		if asset.Type != "IMAGE" {
 			continue
 		}
-
-		// Skip RAW files — these can't be served via Immich's preview/thumbnail API
-		ext := strings.ToLower(filepath.Ext(asset.OriginalFileName))
-		switch ext {
+		// Skip RAW — can't be served via Immich's preview/thumbnail API.
+		switch strings.ToLower(filepath.Ext(asset.OriginalFileName)) {
 		case ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2":
 			continue
 		}
 
-		// Deduplicate by immich_asset_id
-		var existing model.Image
-		result := s.db.Where("immich_asset_id = ? AND source = ?", asset.ID, model.SourceImmich).First(&existing)
-		if result.Error == nil {
-			continue
+		var img model.Image
+		res := s.db.Where("immich_asset_id = ? AND source = ?", asset.ID, model.SourceImmich).First(&img)
+		if res.Error != nil {
+			w, h := asset.ExifInfo.ExifImageWidth, asset.ExifInfo.ExifImageHeight
+			img = model.Image{
+				ImmichAssetID: asset.ID,
+				Source:        model.SourceImmich,
+				FilePath:      asset.OriginalFileName,
+				Width:         w,
+				Height:        h,
+				Orientation:   determineOrientation(w, h, asset.ExifInfo.Orientation),
+				CreatedAt:     time.Now(),
+				Status:        "pending",
+			}
+			photoDate := parseImmichDate(asset.ExifInfo.DateTimeOriginal)
+			if photoDate == nil {
+				photoDate = parseImmichDate(asset.LocalDateTime)
+			}
+			img.PhotoTakenAt = photoDate
+			if err := s.db.Create(&img).Error; err != nil {
+				log.Printf("Failed to insert immich asset %s: %v", asset.ID, err)
+				continue
+			}
+			newCount++
 		}
 
-		// Determine display orientation from EXIF dimensions and rotation
-		w, h := asset.ExifInfo.ExifImageWidth, asset.ExifInfo.ExifImageHeight
-		orientation := determineOrientation(w, h, asset.ExifInfo.Orientation)
-
-		img := model.Image{
-			ImmichAssetID: asset.ID,
-			Source:        model.SourceImmich,
-			FilePath:      asset.OriginalFileName,
-			Width:         w,
-			Height:        h,
-			Orientation:   orientation,
-			CreatedAt:     time.Now(),
-			Status:        "pending",
-		}
-
-		// Populate PhotoTakenAt from EXIF or asset metadata
-		photoDate := parseImmichDate(asset.ExifInfo.DateTimeOriginal)
-		if photoDate == nil {
-			photoDate = parseImmichDate(asset.LocalDateTime)
-		}
-		img.PhotoTakenAt = photoDate
-
-		if err := s.db.Create(&img).Error; err != nil {
-			log.Printf("Failed to insert immich asset %s: %v", asset.ID, err)
-			continue
-		}
-		count++
+		membership := model.ImageAlbumMembership{ImageID: img.ID, AlbumID: album.ID}
+		s.db.FirstOrCreate(&membership, membership)
+		seen = append(seen, img.ID)
+		memberCount++
 	}
 
-	log.Printf("Immich ImportPhotos complete: inserted %d new photos (total assets: %d)", count, len(allAssets))
-	return nil
+	// Prune memberships for assets removed from this album.
+	prune := s.db.Where("album_id = ?", album.ID)
+	if len(seen) > 0 {
+		prune = prune.Where("image_id NOT IN ?", seen)
+	}
+	prune.Delete(&model.ImageAlbumMembership{})
+	return newCount, memberCount
 }
 
-// fetchAssetsForMode dispatches to the right Immich client method for the
-// configured source mode. Returns the raw asset list — caller filters out
-// videos / RAW / duplicates and persists into the local DB.
-func (s *ImmichService) fetchAssetsForMode(client *immich.Client) ([]immich.Asset, error) {
+// gcOrphanImages removes Immich image rows no longer a member of any album
+// (their album was disabled, or they were removed upstream).
+func (s *ImmichService) gcOrphanImages() {
+	sub := s.db.Model(&model.ImageAlbumMembership{}).Select("image_id")
+	s.db.Unscoped().
+		Where("source = ? AND id NOT IN (?)", model.SourceImmich, sub).
+		Delete(&model.Image{})
+}
+
+// fetchAssetsForAlbum returns the assets for one album — a real Immich album
+// or a virtual mode album (all / favorites / memories).
+func (s *ImmichService) fetchAssetsForAlbum(client *immich.Client, album model.Album) ([]immich.Asset, error) {
+	if album.Kind == model.AlbumKindVirtual {
+		switch album.ExternalID {
+		case model.ImmichVirtualAll:
+			return client.SearchAssets(immich.SearchMetadataRequest{})
+		case model.ImmichVirtualFavorites:
+			t := true
+			return client.SearchAssets(immich.SearchMetadataRequest{IsFavorite: &t})
+		case model.ImmichVirtualMemories:
+			return client.GetMemoryAssets(s.immichMemoryMode() == ImmichMemoryModeLatest)
+		default:
+			return nil, fmt.Errorf("unknown virtual album: %q", album.ExternalID)
+		}
+	}
+	return client.GetAlbumAssets(album.ExternalID)
+}
+
+// ensureGlobalAlbumSeed materializes the legacy global immich_source_mode /
+// immich_album_id settings into a sync-enabled albums row, once, so existing
+// installs keep working after the multi-album migration. Idempotent: skips if
+// any Immich album row already exists.
+func (s *ImmichService) ensureGlobalAlbumSeed(client *immich.Client) {
+	var count int64
+	s.db.Model(&model.Album{}).Where("source = ?", model.SourceImmich).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	var ext, kind, name string
 	switch s.immichSourceMode() {
 	case ImmichModeAlbum:
-		albumID, _ := s.settings.Get("immich_album_id")
-		if albumID == "" {
-			return nil, errors.New("please select an album to sync")
+		ext, _ = s.settings.Get("immich_album_id")
+		if ext == "" {
+			return // nothing configured yet
 		}
-		return client.GetAlbumAssets(albumID)
+		kind, name = model.AlbumKindReal, ext
+		if list, e := client.ListAlbums(); e == nil {
+			for _, a := range list {
+				if a.ID == ext {
+					name = a.AlbumName
+					break
+				}
+			}
+		}
 	case ImmichModeAll:
-		return client.SearchAssets(immich.SearchMetadataRequest{})
+		ext, kind, name = model.ImmichVirtualAll, model.AlbumKindVirtual, "All Photos"
 	case ImmichModeFavorites:
-		t := true
-		return client.SearchAssets(immich.SearchMetadataRequest{IsFavorite: &t})
+		ext, kind, name = model.ImmichVirtualFavorites, model.AlbumKindVirtual, "Favorites"
 	case ImmichModeMemories:
-		return client.GetMemoryAssets(s.immichMemoryMode() == ImmichMemoryModeLatest)
+		ext, kind, name = model.ImmichVirtualMemories, model.AlbumKindVirtual, "Memories"
 	default:
-		return nil, fmt.Errorf("unknown immich source mode: %q", s.immichSourceMode())
+		return
+	}
+
+	album := model.Album{
+		Source:      model.SourceImmich,
+		ExternalID:  ext,
+		Kind:        kind,
+		Name:        name,
+		SyncEnabled: true,
+		UpdatedAt:   time.Now(),
+	}
+	if err := s.db.Create(&album).Error; err != nil {
+		log.Printf("Immich: failed to seed global album row: %v", err)
 	}
 }
 
 // ClearPhotos deletes all Immich photos from the database
 func (s *ImmichService) ClearPhotos() error {
+	// Drop memberships for Immich albums first so they don't dangle.
+	var albumIDs []uint
+	s.db.Model(&model.Album{}).Where("source = ?", model.SourceImmich).Pluck("id", &albumIDs)
+	if len(albumIDs) > 0 {
+		s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{})
+	}
 	if err := s.db.Unscoped().Where("source = ?", model.SourceImmich).Delete(&model.Image{}).Error; err != nil {
 		return err
 	}

@@ -123,6 +123,46 @@ type DeviceURLMapping struct {
 	URLSourceID uint `gorm:"primaryKey" json:"url_source_id"`
 }
 
+const (
+	AlbumKindReal    = "album"   // a real album from the source
+	AlbumKindVirtual = "virtual" // an Immich mode expressed as an album
+
+	// Virtual album external IDs (Immich source modes as albums).
+	ImmichVirtualAll       = "__all__"
+	ImmichVirtualFavorites = "__favorites__"
+	ImmichVirtualMemories  = "__memories__"
+)
+
+// Album is a persisted photo-source album (Immich/Synology). Real albums map
+// to a source album by ExternalID; virtual albums (Immich all/favorites/
+// memories) use the ImmichVirtual* sentinels. SyncEnabled marks albums the
+// server pulls assets for.
+type Album struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	Source      string    `gorm:"uniqueIndex:idx_albums_source_external,priority:1" json:"source"`
+	ExternalID  string    `gorm:"uniqueIndex:idx_albums_source_external,priority:2" json:"external_id"`
+	Name        string    `json:"name"`
+	Kind        string    `json:"kind"` // "album" | "virtual"
+	SyncEnabled bool      `json:"sync_enabled"`
+	AssetCount  int       `json:"asset_count"`
+	CoverKey    string    `json:"cover_key"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ImageAlbumMembership is the many-to-many link between an image (asset) and
+// the albums it belongs to. One images row per asset; membership scopes it.
+type ImageAlbumMembership struct {
+	ImageID uint `gorm:"primaryKey" json:"image_id"`
+	AlbumID uint `gorm:"primaryKey" json:"album_id"`
+}
+
+// DeviceAlbumMapping binds a device to the albums it draws photos from
+// (multiple albums per device, one source per device by convention).
+type DeviceAlbumMapping struct {
+	DeviceID uint `gorm:"primaryKey" json:"device_id"`
+	AlbumID  uint `gorm:"primaryKey" json:"album_id"`
+}
+
 // GenerativeState persists the rolling state for a procedural image source
 // (fractal zoom counter, DLA occupancy grids, etc.). Keyed on (DeviceID, Source)
 // so a device can switch sources without losing its progress in either.
