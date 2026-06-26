@@ -33,7 +33,8 @@ func NewImmichService(db *gorm.DB, settings *SettingsService) *ImmichService {
 		IsRelevantKey: func(key string) bool {
 			switch key {
 			case "immich_auto_sync_enabled", "immich_auto_sync_interval_minutes",
-				"immich_source_mode", "immich_album_id", "immich_url", "immich_api_key":
+				"immich_source_mode", "immich_memory_mode", "immich_album_id",
+				"immich_url", "immich_api_key":
 				return true
 			default:
 				return false
@@ -60,6 +61,12 @@ const (
 	ImmichModeMemories  = "memories"  // on-this-day across years
 )
 
+// Immich memory modes — how the "memories" source picks lanes. See issue #32.
+const (
+	ImmichMemoryModeAll    = "all"    // flatten all "on this day" lanes across years (default)
+	ImmichMemoryModeLatest = "latest" // only the most recent year's lane
+)
+
 // immichSourceMode returns the configured sync mode, defaulting to album.
 func (s *ImmichService) immichSourceMode() string {
 	mode, _ := s.settings.Get("immich_source_mode")
@@ -69,6 +76,15 @@ func (s *ImmichService) immichSourceMode() string {
 	default:
 		return ImmichModeAlbum
 	}
+}
+
+// immichMemoryMode returns the configured memories lane selection, defaulting
+// to all (every year flattened into one pool).
+func (s *ImmichService) immichMemoryMode() string {
+	if mode, _ := s.settings.Get("immich_memory_mode"); mode == ImmichMemoryModeLatest {
+		return ImmichMemoryModeLatest
+	}
+	return ImmichMemoryModeAll
 }
 
 func (s *ImmichService) isAutoSyncConfigured() bool {
@@ -222,7 +238,7 @@ func (s *ImmichService) fetchAssetsForMode(client *immich.Client) ([]immich.Asse
 		t := true
 		return client.SearchAssets(immich.SearchMetadataRequest{IsFavorite: &t})
 	case ImmichModeMemories:
-		return client.GetMemoryAssets()
+		return client.GetMemoryAssets(s.immichMemoryMode() == ImmichMemoryModeLatest)
 	default:
 		return nil, fmt.Errorf("unknown immich source mode: %q", s.immichSourceMode())
 	}

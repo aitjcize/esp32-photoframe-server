@@ -570,6 +570,26 @@
                     </v-row>
 
                     <v-row
+                      v-if="form.immich_source_mode === 'memories'"
+                      class="mt-2"
+                    >
+                      <v-col cols="12">
+                        <v-select
+                          v-model="form.immich_memory_mode"
+                          :items="immichMemoryModeOptions"
+                          item-title="title"
+                          item-value="value"
+                          label="Memory Years"
+                          variant="outlined"
+                          density="compact"
+                          hint="Shuffle across all past years, or only the most recent year's photos"
+                          persistent-hint
+                          @update:model-value="saveSettingsInternal()"
+                        ></v-select>
+                      </v-col>
+                    </v-row>
+
+                    <v-row
                       v-if="form.immich_source_mode === 'album'"
                       class="mt-2"
                     >
@@ -2967,6 +2987,7 @@ const form = reactive({
   immich_url: '',
   immich_api_key: '',
   immich_source_mode: 'album',
+  immich_memory_mode: 'all',
   immich_album_id: '',
   immich_auto_sync_enabled: false,
   immich_auto_sync_interval_minutes: 60,
@@ -2992,6 +3013,11 @@ const immichSourceModeOptions = [
   { title: 'Entire library', value: 'all' },
   { title: 'Favorites only', value: 'favorites' },
   { title: 'Memories (on this day)', value: 'memories' },
+];
+
+const immichMemoryModeOptions = [
+  { title: 'All years', value: 'all' },
+  { title: 'Most recent year only', value: 'latest' },
 ];
 
 const autoSyncIntervalOptions = [
@@ -3052,6 +3078,7 @@ onMounted(async () => {
     immich_url: store.settings.immich_url || '',
     immich_api_key: store.settings.immich_api_key || '',
     immich_source_mode: store.settings.immich_source_mode || 'album',
+    immich_memory_mode: store.settings.immich_memory_mode || 'all',
     immich_album_id: store.settings.immich_album_id || '',
     immich_auto_sync_enabled:
       store.settings.immich_auto_sync_enabled === 'true',
@@ -3147,6 +3174,7 @@ const saveSettingsInternal = async () => {
     immich_url: form.immich_url,
     immich_api_key: form.immich_api_key,
     immich_source_mode: form.immich_source_mode,
+    immich_memory_mode: form.immich_memory_mode,
     immich_album_id: form.immich_album_id,
     immich_auto_sync_enabled: String(form.immich_auto_sync_enabled),
     immich_auto_sync_interval_minutes: String(
@@ -3288,6 +3316,14 @@ const syncSynology = async () => {
   try {
     await synologyStore.sync();
     showMessage('Sync started/completed successfully!');
+    // Refresh the gallery preview above so the freshly synced photos show.
+    // Switching the source triggers a fetch; if it's already on synology the
+    // watch won't fire, so refetch explicitly.
+    if (galleryTab.value === 'synology_photos') {
+      await galleryStore.fetchPhotos();
+    } else {
+      galleryTab.value = 'synology_photos';
+    }
   } catch (e: any) {
     if (e.response && e.response.status === 401) {
       showMessage('Session expired. Please reconnect.', true);
@@ -3372,6 +3408,14 @@ const syncImmich = async () => {
   try {
     await immichStore.sync();
     showMessage('Sync completed successfully!');
+    // Refresh the gallery preview above so the freshly synced photos show.
+    // Switching the source triggers a fetch; if it's already on immich the
+    // watch won't fire, so refetch explicitly.
+    if (galleryTab.value === 'immich') {
+      await galleryStore.fetchPhotos();
+    } else {
+      galleryTab.value = 'immich';
+    }
   } catch (e: any) {
     showMessage(
       'Sync Failed: ' + (e.response?.data?.error || 'Unknown error'),

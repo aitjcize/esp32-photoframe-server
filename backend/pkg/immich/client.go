@@ -173,14 +173,18 @@ func (c *Client) SearchAssets(filter SearchMetadataRequest) ([]Asset, error) {
 	return out, nil
 }
 
-// GetMemoryAssets returns the flattened set of "on this day" assets — one
+// GetMemoryAssets returns "on this day" assets — Immich returns one
 // MemoryLane per past year that has a photo from this month/day.
 //
 // The /api/memories endpoint must be scoped with a `for` date, otherwise
 // Immich returns every persisted memory lane the user has rather than the
 // ones relevant to today. We pass today's date (UTC) plus type=on_this_day
 // so the frame shows "this day, past years" instead of a random grab-bag.
-func (c *Client) GetMemoryAssets() ([]Asset, error) {
+//
+// When latestYearOnly is true, only the most recent year's lane is returned
+// (a focused "last year on this day" experience); otherwise every lane is
+// flattened into one pool so the frame shuffles across all years.
+func (c *Client) GetMemoryAssets(latestYearOnly bool) ([]Asset, error) {
 	q := url.Values{}
 	q.Set("for", time.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
 	q.Set("type", "on_this_day")
@@ -197,6 +201,20 @@ func (c *Client) GetMemoryAssets() ([]Asset, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&lanes); err != nil {
 		return nil, err
 	}
+
+	if latestYearOnly {
+		if len(lanes) == 0 {
+			return nil, nil
+		}
+		best := lanes[0]
+		for _, lane := range lanes[1:] {
+			if lane.Data.Year > best.Data.Year {
+				best = lane
+			}
+		}
+		return best.Assets, nil
+	}
+
 	var out []Asset
 	for _, lane := range lanes {
 		out = append(out, lane.Assets...)
