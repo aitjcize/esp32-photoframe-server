@@ -17,6 +17,7 @@ export const useGalleryStore = defineStore('gallery', {
       | 'immich'
       | 'gallery'
       | 'url_proxy',
+    album: null as number | null,
   }),
   getters: {
     totalPages: (state) => Math.ceil(state.totalPhotos / state.limit),
@@ -32,6 +33,15 @@ export const useGalleryStore = defineStore('gallery', {
     ) {
       this.source = source;
       this.page = 1;
+      this.album = null;
+      this.photos = [];
+      this.totalPhotos = 0;
+      this.fetchPhotos();
+    },
+
+    setAlbum(album: number | null) {
+      this.album = album;
+      this.page = 1;
       this.photos = [];
       this.totalPhotos = 0;
       this.fetchPhotos();
@@ -41,9 +51,11 @@ export const useGalleryStore = defineStore('gallery', {
       this.loading = true;
       try {
         const offset = (this.page - 1) * this.limit;
-        const res = await api.get(
-          `/gallery/photos?source=${this.source}&limit=${this.limit}&offset=${offset}`
-        );
+        let url = `/gallery/photos?source=${this.source}&limit=${this.limit}&offset=${offset}`;
+        if (this.album != null) {
+          url += `&album=${this.album}`;
+        }
+        const res = await api.get(url);
         this.photos = res.data.photos || [];
         this.totalPhotos = res.data.total || 0;
       } catch (e) {

@@ -60,6 +60,14 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 	if source != "" {
 		query = query.Where("source = ?", source)
 	}
+	// Optional album filter (internal album row id) — group the gallery by album.
+	if albumStr := c.QueryParam("album"); albumStr != "" {
+		if aid, err := strconv.Atoi(albumStr); err == nil {
+			query = query.
+				Joins("JOIN image_album_memberships m ON m.image_id = images.id").
+				Where("m.album_id = ?", aid)
+		}
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

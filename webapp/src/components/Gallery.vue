@@ -79,6 +79,32 @@
         {{ galleryStore.importMessage }}
       </v-alert>
 
+      <!-- Album Chips (Immich / Synology) -->
+      <div
+        v-if="showAlbumChips && albumChips.length > 0"
+        class="d-flex align-center flex-wrap ga-2 mb-4"
+      >
+        <v-chip
+          :color="galleryStore.album === null ? 'primary' : undefined"
+          :variant="galleryStore.album === null ? 'flat' : 'outlined'"
+          @click="selectAlbum(null)"
+        >
+          All
+        </v-chip>
+        <v-chip
+          v-for="album in albumChips"
+          :key="album.id"
+          :color="galleryStore.album === album.id ? 'primary' : undefined"
+          :variant="galleryStore.album === album.id ? 'flat' : 'outlined'"
+          @click="selectAlbum(album.id)"
+        >
+          {{ album.name
+          }}<span v-if="album.asset_count != null" class="ml-1 text-caption"
+            >({{ album.asset_count }})</span
+          >
+        </v-chip>
+      </div>
+
       <!-- Loading Spinner -->
       <div
         v-if="galleryStore.loading"
@@ -367,13 +393,50 @@
 </style>
 
 <script setup lang="ts">
-import { onMounted, ref, reactive } from 'vue';
+import { onMounted, ref, reactive, computed, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
-import { listDevices, pushToDevice, type Device } from '../api';
+import { api, listDevices, pushToDevice, type Device } from '../api';
 
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
+
+// Album chips (only shown for Immich / Synology sources).
+const albumChips = ref<any[]>([]);
+
+const showAlbumChips = computed(
+  () =>
+    galleryStore.source === 'immich' ||
+    galleryStore.source === 'synology_photos'
+);
+
+const fetchAlbumChips = async () => {
+  if (!showAlbumChips.value) {
+    albumChips.value = [];
+    return;
+  }
+  try {
+    const res = await api.get(
+      `/albums?source=${galleryStore.source}&synced=true`
+    );
+    albumChips.value = res.data || [];
+  } catch (e) {
+    console.error('Failed to fetch album chips', e);
+    albumChips.value = [];
+  }
+};
+
+const selectAlbum = (id: number | null) => {
+  galleryStore.setAlbum(id);
+};
+
+// When the source tab changes, reset album selection and refetch chips.
+watch(
+  () => galleryStore.source,
+  () => {
+    fetchAlbumChips();
+  }
+);
 
 const uploadInput = ref<HTMLInputElement | null>(null);
 
@@ -529,5 +592,6 @@ onMounted(async () => {
   // store.fetchSettings() is called by parent (Settings.vue) or app init.
   // Calling it here triggers a loading state loop if this component is mounted inside Settings.vue
   galleryStore.fetchPhotos();
+  fetchAlbumChips();
 });
 </script>
