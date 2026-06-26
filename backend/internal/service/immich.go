@@ -215,7 +215,11 @@ func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories
 		}
 	}
 
-	return s.ClearAndResync()
+	// The sync set (album rows) is updated synchronously above; run the
+	// potentially long clear+resync in the background so the HTTP request
+	// returns immediately instead of hanging the client's spinner.
+	s.autoSync.SyncNowAsync()
+	return nil
 }
 
 // ImportPhotos syncs every sync-enabled Immich album into the local DB:

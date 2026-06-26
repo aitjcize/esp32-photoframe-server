@@ -86,6 +86,18 @@ func (s *AutoSyncScheduler) SyncNow() error {
 	return nil
 }
 
+// SyncNowAsync runs a sync in the background and returns immediately. Runs are
+// serialized by SyncNow's mutex; errors are logged (callers that need to block
+// on the result should use SyncNow instead). Used by endpoints that shouldn't
+// hold the HTTP request open for a full clear+resync.
+func (s *AutoSyncScheduler) SyncNowAsync() {
+	go func() {
+		if err := s.SyncNow(); err != nil {
+			log.Printf("[%s] async sync failed: %v", s.name, err)
+		}
+	}()
+}
+
 func (s *AutoSyncScheduler) loop() {
 	timer := time.NewTimer(s.nextDelay())
 	defer timer.Stop()

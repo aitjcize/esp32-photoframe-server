@@ -3622,7 +3622,7 @@ const saveSynologySyncSelection = async () => {
   try {
     await synologyStore.saveSyncAlbums(synologySyncAlbumIds.value);
     applySynologySyncedAlbumState();
-    showMessage('Sync selection saved!');
+    showMessage('Sync selection saved — importing photos in the background.');
   } catch (e: any) {
     showMessage(
       'Failed to save sync selection: ' +
@@ -3744,7 +3744,7 @@ const saveSyncSelection = async () => {
       memories: syncMemories.value,
     });
     applySyncedAlbumState();
-    showMessage('Sync selection saved!');
+    showMessage('Sync selection saved — importing photos in the background.');
   } catch (e: any) {
     showMessage(
       'Failed to save sync selection: ' +

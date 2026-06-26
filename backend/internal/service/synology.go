@@ -440,7 +440,9 @@ func (s *SynologyService) SetSyncAlbums(realIDs []string) error {
 			s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false)
 		}
 	}
-	return s.ClearAndResync()
+	// Run the clear+resync in the background so the request returns promptly.
+	s.autoSync.SyncNowAsync()
+	return nil
 }
 
 // ClearPhotos deletes all Synology photos and their album memberships.
