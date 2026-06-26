@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.7.8
+
+### Added
+- Immich `memories` sync gained a **Memory Years** option (`immich_memory_mode`): `all` (default — shuffle across every "on this day" lane from all past years) or `latest` (only the most recent year's lane, for a focused "last year on this day" experience). The selector appears in Settings only when Sync Mode is `memories`. Refs #32
+
+### Changed
+- The gallery preview at the top of Settings now refreshes automatically after an Immich or Synology sync, so freshly synced photos appear without a manual page reload
+
 ## v1.7.7
 
 ### Fixed
