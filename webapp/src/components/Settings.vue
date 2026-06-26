@@ -1380,84 +1380,6 @@
                             ></v-text-field>
                           </v-col>
                         </v-row>
-                        <v-row v-if="immichConnected">
-                          <v-col cols="12">
-                            <div class="text-subtitle-2 mb-1">
-                              Immich albums for this frame
-                            </div>
-                            <div class="text-caption text-grey mb-1">
-                              Leave all unchecked to use every synced Immich
-                              photo. Only synced albums appear here.
-                            </div>
-                            <v-card variant="outlined">
-                              <v-list
-                                density="compact"
-                                class="py-0 overflow-y-auto"
-                                style="max-height: 220px"
-                              >
-                                <v-list-item
-                                  v-for="album in deviceImmichAlbumOptions"
-                                  :key="album.id"
-                                >
-                                  <v-checkbox
-                                    v-model="deviceImmichAlbumIds"
-                                    :value="album.id"
-                                    :label="album.name"
-                                    color="primary"
-                                    density="compact"
-                                    hide-details
-                                  ></v-checkbox>
-                                </v-list-item>
-                                <v-list-item
-                                  v-if="!deviceImmichAlbumOptions.length"
-                                  class="text-caption text-grey"
-                                >
-                                  No synced Immich albums. Add some in the
-                                  Immich tab first.
-                                </v-list-item>
-                              </v-list>
-                            </v-card>
-                          </v-col>
-                        </v-row>
-                        <v-row v-if="form.synology_sid">
-                          <v-col cols="12">
-                            <div class="text-subtitle-2 mb-1">
-                              Synology albums for this frame
-                            </div>
-                            <div class="text-caption text-grey mb-1">
-                              Leave all unchecked to use every synced Synology
-                              photo. Only synced albums appear here.
-                            </div>
-                            <v-card variant="outlined">
-                              <v-list
-                                density="compact"
-                                class="py-0 overflow-y-auto"
-                                style="max-height: 220px"
-                              >
-                                <v-list-item
-                                  v-for="album in deviceSynologyAlbumOptions"
-                                  :key="album.id"
-                                >
-                                  <v-checkbox
-                                    v-model="deviceSynologyAlbumIds"
-                                    :value="album.id"
-                                    :label="album.name"
-                                    color="primary"
-                                    density="compact"
-                                    hide-details
-                                  ></v-checkbox>
-                                </v-list-item>
-                                <v-list-item
-                                  v-if="!deviceSynologyAlbumOptions.length"
-                                  class="text-caption text-grey"
-                                >
-                                  No synced Synology albums. Add some in the
-                                  Synology tab first.
-                                </v-list-item>
-                              </v-list>
-                            </v-card>
-                          </v-col>
-                        </v-row>
                       </v-tabs-window-item>
 
                       <!-- Auto Rotate Tab -->
@@ -1523,6 +1445,93 @@
                               class="mb-2 ml-8"
                               :disabled="!deviceConfig.auto_rotate"
                             ></v-select>
+
+                            <!-- Per-frame album selection for the chosen source -->
+                            <div
+                              v-if="
+                                useThisServer &&
+                                selectedSource === 'immich' &&
+                                immichConnected
+                              "
+                              class="mb-2 ml-8"
+                            >
+                              <div class="text-caption text-grey mb-1">
+                                Albums for this frame — leave all unchecked to
+                                use every synced Immich photo.
+                              </div>
+                              <v-card variant="outlined">
+                                <v-list
+                                  density="compact"
+                                  class="py-0 overflow-y-auto"
+                                  style="max-height: 220px"
+                                >
+                                  <v-list-item
+                                    v-for="album in deviceImmichAlbumOptions"
+                                    :key="album.id"
+                                  >
+                                    <v-checkbox
+                                      v-model="deviceImmichAlbumIds"
+                                      :value="album.id"
+                                      :label="album.name"
+                                      color="primary"
+                                      density="compact"
+                                      hide-details
+                                      :disabled="!deviceConfig.auto_rotate"
+                                    ></v-checkbox>
+                                  </v-list-item>
+                                  <v-list-item
+                                    v-if="!deviceImmichAlbumOptions.length"
+                                    class="text-caption text-grey"
+                                  >
+                                    No synced Immich albums. Add some in Data
+                                    Sources → Immich first.
+                                  </v-list-item>
+                                </v-list>
+                              </v-card>
+                            </div>
+
+                            <div
+                              v-if="
+                                useThisServer &&
+                                selectedSource === 'synology_photos' &&
+                                form.synology_sid
+                              "
+                              class="mb-2 ml-8"
+                            >
+                              <div class="text-caption text-grey mb-1">
+                                Albums for this frame — leave all unchecked to
+                                use every synced Synology photo.
+                              </div>
+                              <v-card variant="outlined">
+                                <v-list
+                                  density="compact"
+                                  class="py-0 overflow-y-auto"
+                                  style="max-height: 220px"
+                                >
+                                  <v-list-item
+                                    v-for="album in deviceSynologyAlbumOptions"
+                                    :key="album.id"
+                                  >
+                                    <v-checkbox
+                                      v-model="deviceSynologyAlbumIds"
+                                      :value="album.id"
+                                      :label="album.name"
+                                      color="primary"
+                                      density="compact"
+                                      hide-details
+                                      :disabled="!deviceConfig.auto_rotate"
+                                    ></v-checkbox>
+                                  </v-list-item>
+                                  <v-list-item
+                                    v-if="!deviceSynologyAlbumOptions.length"
+                                    class="text-caption text-grey"
+                                  >
+                                    No synced Synology albums. Add some in Data
+                                    Sources → Synology first.
+                                  </v-list-item>
+                                </v-list>
+                              </v-card>
+                            </div>
 
                             <!-- Custom URL -->
                             <v-text-field
