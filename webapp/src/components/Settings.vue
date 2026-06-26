@@ -447,33 +447,6 @@
                       >
                     </div>
 
-                    <v-row class="mt-2">
-                      <v-col cols="12" sm="8">
-                        <v-select
-                          v-model="form.synology_album_id"
-                          :items="synologyAlbumOptions"
-                          item-title="name"
-                          item-value="id"
-                          label="Sync Album"
-                          variant="outlined"
-                          density="compact"
-                          hint="Select an album to sync photos from"
-                          persistent-hint
-                          :rules="[(v: any) => !!v || 'Album is required']"
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-select>
-                      </v-col>
-                      <v-col cols="12" sm="4">
-                        <v-btn
-                          block
-                          variant="outlined"
-                          :loading="synologyStore.loading"
-                          @click="loadAlbums"
-                          >Refresh Albums</v-btn
-                        >
-                      </v-col>
-                    </v-row>
-
                     <v-row class="mt-1">
                       <v-col cols="12" md="6">
                         <v-checkbox
@@ -3205,10 +3178,6 @@ const form = reactive({
   openai_api_key: '',
   google_api_key: '',
   device_host: '', // Keep for backward compatibility/display? Or remove. Remove from form, keep in store maybe?
-});
-
-const synologyAlbumOptions = computed(() => {
-  return form.albums;
 });
 
 // Synced (persisted) Immich albums available for per-device binding.
