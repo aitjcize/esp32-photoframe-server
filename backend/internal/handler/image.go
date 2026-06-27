@@ -84,11 +84,16 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// Three-tier identification: token DeviceID → X-Hostname → client IP
 	var device model.Device
 	deviceFound := false
+	// tokenAuthed = identified via the per-device token (trustworthy). The
+	// hostname/IP tiers are client-spoofable, so we don't let them mutate the
+	// device row.
+	tokenAuthed := false
 
 	// Tier 1: Token-based identification (works over internet)
 	if devID, ok := c.Get("device_id").(uint); ok && devID > 0 {
 		if err := h.db.First(&device, devID).Error; err == nil {
 			deviceFound = true
+			tokenAuthed = true
 		}
 	}
 
@@ -109,18 +114,17 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		}
 	}
 
-	// Resolve the image source. The path param (/image/:source) takes
-	// precedence (explicit + backward compatible); the unified /image route
-	// resolves it from the identified device's configured source. An
-	// unconfigured or unidentified device on /image is a 400.
-	if source == "" {
-		if deviceFound && device.Source != "" {
-			source = device.Source
-		} else {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "no image source for this device — set the device's Image Source in the server, or request /image/<source>",
-			})
-		}
+	// Resolve the image source. An identified device with a configured source
+	// ALWAYS gets that source — the URL path param cannot override it — so a
+	// stale or wrong firmware URL can never cause the wrong source/album to be
+	// served. The path param is honored only for unconfigured (legacy / not
+	// yet migrated) or unidentified requests. Bare /image with neither is 400.
+	if deviceFound && device.Source != "" {
+		source = device.Source
+	} else if source == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "no image source for this device — set the device's Image Source in the server, or request /image/<source>",
+		})
 	}
 
 	// Native resolution of the device panel
@@ -150,7 +154,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		if w, err := strconv.Atoi(wStr); err == nil && w > 0 {
 			logicalW = w
 			nativeW = w
-			if deviceFound && device.Width != w {
+			if tokenAuthed && device.Width != w {
 				device.Width = w
 				h.db.Model(&device).Update("width", w)
 			}
@@ -160,7 +164,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		if he, err := strconv.Atoi(hStr); err == nil && he > 0 {
 			logicalH = he
 			nativeH = he
-			if deviceFound && device.Height != he {
+			if tokenAuthed && device.Height != he {
 				device.Height = he
 				h.db.Model(&device).Update("height", he)
 			}
@@ -171,7 +175,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	if oStr := c.Request().Header.Get("X-Display-Orientation"); oStr != "" {
 		orientation = oStr
 		// Persist orientation update to database if it changed
-		if deviceFound && device.Orientation != oStr {
+		if tokenAuthed && device.Orientation != oStr {
 			device.Orientation = oStr
 			h.db.Model(&device).Update("orientation", oStr)
 		}
