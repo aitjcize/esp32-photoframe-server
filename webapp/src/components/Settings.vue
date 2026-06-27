@@ -41,6 +41,25 @@
         <v-window v-model="activeMainTab">
           <!-- Data Sources Tab -->
           <v-window-item value="datasources">
+            <v-card variant="tonal" class="mb-4">
+              <v-card-text class="py-3">
+                <v-text-field
+                  v-model="form.device_image_base_url"
+                  label="Server URL for devices"
+                  placeholder="http://homeassistant.local:9608"
+                  hint="Base address your photo frames use to reach this server. Leave empty to derive it from your browser's address. Set this for Tailscale, reverse proxies, or custom domains."
+                  persistent-hint
+                  variant="outlined"
+                  density="compact"
+                  clearable
+                  @update:model-value="saveSettingsInternal()"
+                ></v-text-field>
+                <div class="text-caption text-grey mt-2">
+                  Frames will fetch: <code>{{ getImageUrl() }}</code>
+                </div>
+              </v-card-text>
+            </v-card>
+
             <v-tabs
               v-model="activeDataSourceTab"
               color="primary"
@@ -3219,6 +3238,9 @@ const form = reactive({
   telegram_target_device_id: [] as number[],
   openai_api_key: '',
   google_api_key: '',
+  // Device-facing base URL for image requests (e.g. http://homeassistant.local:9608).
+  // Empty = derive from the browser's location.
+  device_image_base_url: '',
   device_host: '', // Keep for backward compatibility/display? Or remove. Remove from form, keep in store maybe?
 });
 
@@ -3374,6 +3396,7 @@ onMounted(async () => {
     immich_auto_sync_interval_minutes: parseInt(
       store.settings.immich_auto_sync_interval_minutes || '60'
     ),
+    device_image_base_url: store.settings.device_image_base_url || '',
     openai_api_key: store.settings.openai_api_key || '',
     google_api_key: store.settings.google_api_key || '',
   });
@@ -3493,6 +3516,7 @@ const saveSettingsInternal = async () => {
     ),
     openai_api_key: form.openai_api_key,
     google_api_key: form.google_api_key,
+    device_image_base_url: form.device_image_base_url,
   });
 };
 
@@ -3946,11 +3970,18 @@ const revokeSessionHandler = async (id: number) => {
 // Get image endpoint URL
 // Always use direct add-on port for device access (ESP32 devices access directly, not via ingress)
 const getImageUrl = (source?: string) => {
-  const hostname = window.location.hostname;
-  const protocol = window.location.protocol;
-  // Use configurable port via env var, default to 9607 for production
-  const addonPort = import.meta.env.VITE_ADDON_PORT || '9607';
-  return `${protocol}//${hostname}:${addonPort}/image${source ? '/' + source : ''}`;
+  // Prefer the admin-configured device-facing base URL. The browser's
+  // window.location is unreliable for the URL pushed to frames (Tailscale,
+  // ingress, reverse proxies all change the hostname the browser used).
+  let origin = (form.device_image_base_url || '').trim().replace(/\/+$/, '');
+  if (!origin) {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    // Use configurable port via env var, default to 9607 for production
+    const addonPort = import.meta.env.VITE_ADDON_PORT || '9607';
+    origin = `${protocol}//${hostname}:${addonPort}`;
+  }
+  return `${origin}/image${source ? '/' + source : ''}`;
 };
 
 // Copy to clipboard
