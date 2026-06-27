@@ -18,6 +18,9 @@ export const useGalleryStore = defineStore('gallery', {
       | 'gallery'
       | 'url_proxy',
     album: null as number | null,
+    // Bumped to ask the Gallery view to refetch photos + album chips
+    // (e.g. after a Delete All from the source config tab).
+    refreshSignal: 0,
   }),
   getters: {
     totalPages: (state) => Math.ceil(state.totalPhotos / state.limit),
@@ -45,6 +48,10 @@ export const useGalleryStore = defineStore('gallery', {
       this.photos = [];
       this.totalPhotos = 0;
       this.fetchPhotos();
+    },
+
+    triggerRefresh() {
+      this.refreshSignal++;
     },
 
     async fetchPhotos() {

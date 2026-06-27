@@ -379,15 +379,6 @@
                               @click="loadAlbums"
                               >Refresh albums</v-btn
                             >
-                            <v-btn
-                              size="small"
-                              color="error"
-                              variant="outlined"
-                              prepend-icon="mdi-delete"
-                              :loading="deletingAllPhotos"
-                              @click="deleteAllPhotosForSource('synology_photos')"
-                              >Delete all photos</v-btn
-                            >
                           </div>
                         </div>
                         <div class="text-caption text-grey mb-2">
@@ -588,15 +579,6 @@
                               :loading="immichStore.loading"
                               @click="loadImmichAlbums"
                               >Refresh albums</v-btn
-                            >
-                            <v-btn
-                              size="small"
-                              color="error"
-                              variant="outlined"
-                              prepend-icon="mdi-delete"
-                              :loading="deletingAllPhotos"
-                              @click="deleteAllPhotosForSource('immich')"
-                              >Delete all photos</v-btn
                             >
                           </div>
                         </div>
@@ -3573,6 +3555,7 @@ const deleteAllPhotosForSource = async (
         // Non-fatal: keep whatever albums we already have.
       }
       applySyncedAlbumState();
+      await immichStore.fetchCount();
     } else if (source === 'synology_photos') {
       await synologyStore.fetchSyncedAlbums();
       try {
@@ -3582,13 +3565,13 @@ const deleteAllPhotosForSource = async (
         // Non-fatal.
       }
       applySynologySyncedAlbumState();
+      await synologyStore.fetchCount();
     }
 
     showMessage('All photos deleted.');
 
-    if (galleryStore.source === source) {
-      await galleryStore.fetchPhotos();
-    }
+    // Refresh the gallery view (photos + album chips).
+    galleryStore.triggerRefresh();
   } catch (e: any) {
     showMessage(
       'Failed to delete photos: ' + (e.response?.data?.error || e.message),
@@ -3911,6 +3894,7 @@ const saveSynologySyncSelection = async () => {
   try {
     await synologyStore.saveSyncAlbums(synologySyncAlbumIds.value);
     applySynologySyncedAlbumState();
+    galleryStore.triggerRefresh();
     showMessage('Sync selection saved — importing photos in the background.');
   } catch (e: any) {
     showMessage(
@@ -3928,6 +3912,7 @@ const syncSynology = async () => {
   try {
     await synologyStore.sync();
     showMessage('Sync started/completed successfully!');
+    galleryStore.triggerRefresh();
     // Refresh the gallery preview above so the freshly synced photos show.
     // Switching the source triggers a fetch; if it's already on synology the
     // watch won't fire, so refetch explicitly.
@@ -3948,25 +3933,9 @@ const syncSynology = async () => {
   }
 };
 
-const clearSynology = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to clear all Synology photo references? Local files will not be deleted.'
-    ))
-  )
-    return;
-
-  try {
-    await api.post('/synology/clear');
-    showMessage('All Synology photos cleared from database.');
-    await synologyStore.fetchCount();
-  } catch (e: any) {
-    showMessage(
-      'Clear Failed: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
-};
+// Clear All Photos = delete photos AND turn off album sync (so they don't
+// re-import) — same behavior as the per-source Delete All.
+const clearSynology = () => deleteAllPhotosForSource('synology_photos');
 
 const testImmich = async () => {
   await saveSettingsInternal();
@@ -4033,6 +4002,7 @@ const saveSyncSelection = async () => {
       memories: syncMemories.value,
     });
     applySyncedAlbumState();
+    galleryStore.triggerRefresh();
     showMessage('Sync selection saved — importing photos in the background.');
   } catch (e: any) {
     showMessage(
@@ -4050,6 +4020,7 @@ const syncImmich = async () => {
   try {
     await immichStore.sync();
     showMessage('Sync completed successfully!');
+    galleryStore.triggerRefresh();
     // Refresh the gallery preview above so the freshly synced photos show.
     // Switching the source triggers a fetch; if it's already on immich the
     // watch won't fire, so refetch explicitly.
@@ -4066,24 +4037,7 @@ const syncImmich = async () => {
   }
 };
 
-const clearImmich = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to clear all Immich photo references?'
-    ))
-  )
-    return;
-  try {
-    await api.post('/immich/clear');
-    showMessage('All Immich photos cleared from database.');
-    await immichStore.fetchCount();
-  } catch (e: any) {
-    showMessage(
-      'Clear Failed: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
-};
+const clearImmich = () => deleteAllPhotosForSource('immich');
 
 // Token Management
 const generatedToken = ref('');

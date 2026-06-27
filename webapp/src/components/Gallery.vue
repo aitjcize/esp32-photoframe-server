@@ -449,6 +449,17 @@ const checkSyncStatus = async () => {
   }
 };
 
+// Settings bumps refreshSignal right after a sync/delete is triggered, so we
+// detect it immediately instead of waiting for the next background poll.
+watch(
+  () => galleryStore.refreshSignal,
+  () => {
+    syncing.value = true;
+    prevSyncing = true;
+    checkSyncStatus();
+  }
+);
+
 const uploadInput = ref<HTMLInputElement | null>(null);
 
 const triggerUpload = () => {

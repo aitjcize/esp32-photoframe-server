@@ -108,6 +108,11 @@ func (s *AutoSyncScheduler) SyncNow() error {
 // on the result should use SyncNow instead). Used by endpoints that shouldn't
 // hold the HTTP request open for a full clear+resync.
 func (s *AutoSyncScheduler) SyncNowAsync() {
+	// Mark running synchronously so the UI can observe an in-flight sync right
+	// away, even before the goroutine acquires the run lock and starts.
+	s.stateMu.Lock()
+	s.running = true
+	s.stateMu.Unlock()
 	go func() {
 		if err := s.SyncNow(); err != nil {
 			log.Printf("[%s] async sync failed: %v", s.name, err)
