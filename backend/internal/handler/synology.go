@@ -80,6 +80,12 @@ func (h *SynologyHandler) Sync(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "synced"})
 }
 
+// SyncStatus reports whether a Synology sync is currently in progress.
+// GET /api/synology/sync-status
+func (h *SynologyHandler) SyncStatus(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]bool{"running": h.synology.IsSyncing()})
+}
+
 func (h *SynologyHandler) Clear(c echo.Context) error {
 	if err := h.synology.ClearPhotos(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

@@ -20,6 +20,14 @@ type AutoSyncScheduler struct {
 	stateMu       sync.Mutex
 	lastSuccessAt time.Time
 	retryAfter    time.Time
+	running       bool
+}
+
+// IsRunning reports whether a sync is currently executing.
+func (s *AutoSyncScheduler) IsRunning() bool {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	return s.running
 }
 
 func NewAutoSyncScheduler(opts AutoSyncSchedulerOptions) *AutoSyncScheduler {
@@ -70,6 +78,15 @@ func (s *AutoSyncScheduler) TriggerReset() {
 func (s *AutoSyncScheduler) SyncNow() error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
+
+	s.stateMu.Lock()
+	s.running = true
+	s.stateMu.Unlock()
+	defer func() {
+		s.stateMu.Lock()
+		s.running = false
+		s.stateMu.Unlock()
+	}()
 
 	if err := s.runSync(); err != nil {
 		s.stateMu.Lock()

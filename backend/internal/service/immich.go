@@ -433,6 +433,11 @@ func (s *ImmichService) ClearAndResync() error {
 	return s.autoSync.SyncNow()
 }
 
+// IsSyncing reports whether an Immich sync is currently running.
+func (s *ImmichService) IsSyncing() bool {
+	return s.autoSync.IsRunning()
+}
+
 func (s *ImmichService) clearAndResyncInternal() error {
 	if err := s.ClearPhotos(); err != nil {
 		return err

@@ -1251,16 +1251,6 @@
           <!-- Devices Tab -->
           <v-window-item value="devices">
             <v-card-text>
-              <v-alert
-                type="info"
-                variant="tonal"
-                class="mb-4"
-                density="compact"
-              >
-                Manage your ESP32 PhotoFrame devices here. These devices will be
-                available for direct push from the Gallery.
-              </v-alert>
-
               <div class="d-flex justify-end mb-4">
                 <v-btn
                   color="primary"

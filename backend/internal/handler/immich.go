@@ -55,6 +55,12 @@ func (h *ImmichHandler) Sync(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "synced"})
 }
 
+// SyncStatus reports whether an Immich sync is currently in progress.
+// GET /api/immich/sync-status
+func (h *ImmichHandler) SyncStatus(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]bool{"running": h.immich.IsSyncing()})
+}
+
 func (h *ImmichHandler) Clear(c echo.Context) error {
 	if err := h.immich.ClearPhotos(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

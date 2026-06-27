@@ -464,6 +464,11 @@ func (s *SynologyService) ClearAndResync() error {
 	return s.autoSync.SyncNow()
 }
 
+// IsSyncing reports whether a Synology sync is currently running.
+func (s *SynologyService) IsSyncing() bool {
+	return s.autoSync.IsRunning()
+}
+
 func (s *SynologyService) clearAndResyncInternal() error {
 	if err := s.ClearPhotos(); err != nil {
 		return err

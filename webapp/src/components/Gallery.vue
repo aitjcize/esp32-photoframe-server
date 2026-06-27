@@ -16,6 +16,18 @@
             }}
             total
           </div>
+          <div
+            v-if="syncing"
+            class="text-caption text-primary d-flex align-center ga-1 mt-1"
+          >
+            <v-progress-circular
+              indeterminate
+              size="14"
+              width="2"
+              color="primary"
+            ></v-progress-circular>
+            Syncing…
+          </div>
         </div>
         <div class="d-flex flex-wrap ga-2">
           <v-btn
@@ -353,7 +365,7 @@
 </style>
 
 <script setup lang="ts">
-import { onMounted, ref, reactive, computed, watch } from 'vue';
+import { onMounted, onUnmounted, ref, reactive, computed, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
 import { api, listDevices, pushToDevice, type Device } from '../api';
@@ -397,9 +409,45 @@ const selectAlbum = (id: number | null) => {
 watch(
   () => galleryStore.source,
   () => {
+    prevSyncing = false;
     fetchAlbumChips();
+    checkSyncStatus();
   }
 );
+
+// --- Auto-refresh while a background sync is running ---
+const syncing = ref(false);
+let syncPollTimer: number | null = null;
+let prevSyncing = false;
+
+const syncStatusEndpoint = (): string | null => {
+  if (galleryStore.source === 'immich') return '/immich/sync-status';
+  if (galleryStore.source === 'synology_photos') return '/synology/sync-status';
+  return null;
+};
+
+const checkSyncStatus = async () => {
+  const ep = syncStatusEndpoint();
+  if (!ep) {
+    syncing.value = false;
+    prevSyncing = false;
+    return;
+  }
+  try {
+    const res = await api.get(ep);
+    const running = !!res.data?.running;
+    // Refresh while syncing (new photos appear) and once more right after it
+    // finishes, so the gallery + album counts stay current without a manual reload.
+    if (running || prevSyncing) {
+      await galleryStore.fetchPhotos();
+      await fetchAlbumChips();
+    }
+    syncing.value = running;
+    prevSyncing = running;
+  } catch {
+    // ignore transient errors
+  }
+};
 
 const uploadInput = ref<HTMLInputElement | null>(null);
 
@@ -537,5 +585,14 @@ onMounted(async () => {
   // Calling it here triggers a loading state loop if this component is mounted inside Settings.vue
   galleryStore.fetchPhotos();
   fetchAlbumChips();
+  checkSyncStatus();
+  syncPollTimer = window.setInterval(checkSyncStatus, 6000);
+});
+
+onUnmounted(() => {
+  if (syncPollTimer != null) {
+    window.clearInterval(syncPollTimer);
+    syncPollTimer = null;
+  }
 });
 </script>
