@@ -64,7 +64,11 @@ RUN apk add --no-cache \
         librsvg-dev \
     && npm install -g @aitjcize/epaper-image-convert \
     && apk del .build-deps \
-    && rm -rf /root/.npm /tmp/*
+    && rm -rf /root/.npm /tmp/* \
+    # Headless chromium uses bundled SwiftShader, so it never loads the Mesa
+    # gallium GL driver or X11 server modules. Drop them (libLLVM ~136MB,
+    # DRI drivers, xorg modules) — verified headless rendering still works.
+    && rm -rf /usr/lib/libLLVM*.so* /usr/lib/dri /usr/lib/xorg
 
 # Material Symbols font for overlay rendering
 RUN wget -O /tmp/MaterialSymbolsOutlined.ttf https://github.com/google/material-design-icons/raw/master/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf && \
