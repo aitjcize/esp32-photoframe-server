@@ -233,18 +233,7 @@
 
                   <!-- Photos Section -->
                   <v-divider class="my-6"></v-divider>
-                  <div class="d-flex align-center justify-space-between mb-3">
-                    <h3 class="text-subtitle-1 font-weight-bold">Photos</h3>
-                    <v-btn
-                      size="small"
-                      color="error"
-                      variant="outlined"
-                      prepend-icon="mdi-delete"
-                      :loading="deletingAllPhotos"
-                      @click="deleteAllPhotosForSource('google_photos')"
-                      >Delete all photos</v-btn
-                    >
-                  </div>
+                  <h3 class="text-subtitle-1 font-weight-bold mb-3">Photos</h3>
 
                   <div v-if="form.google_connected === 'true'">
                     <v-alert
@@ -257,9 +246,17 @@
                       Connected to Google Photos
                     </v-alert>
 
-                    <v-btn color="error" variant="text" @click="logoutGoogle">
-                      Disconnect Google Photos
-                    </v-btn>
+                    <div class="d-flex flex-wrap ga-2 mt-4">
+                      <v-btn
+                        color="warning"
+                        :loading="deletingAllPhotos"
+                        @click="deleteAllPhotosForSource('google_photos')"
+                        >Clear All Photos</v-btn
+                      >
+                      <v-btn color="error" variant="text" @click="logoutGoogle">
+                        Disconnect Google Photos
+                      </v-btn>
+                    </div>
                   </div>
 
                   <div v-else>
