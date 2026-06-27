@@ -269,7 +269,11 @@ func (s *SynologyService) ImportPhotos() error {
 			log.Printf("Synology: invalid album external id %q", album.ExternalID)
 			continue
 		}
-		newCount, memberCount := s.importAlbumAssets(album, albumID)
+		newCount, memberCount, aerr := s.importAlbumAssets(album, albumID)
+		if aerr != nil {
+			log.Printf("Synology: import album %q (%s) failed: %v", album.Name, album.ExternalID, aerr)
+			continue // leave the album's prior state + count untouched
+		}
 		totalNew += newCount
 		if err := s.db.Model(&model.Album{}).Where("id = ?", album.ID).
 			Updates(map[string]interface{}{"asset_count": memberCount, "updated_at": time.Now()}).Error; err != nil {
@@ -284,82 +288,132 @@ func (s *SynologyService) ImportPhotos() error {
 
 // importAlbumAssets pages through one Synology album, upserting image + (asset,
 // album) membership rows, then prunes memberships for photos removed from it.
-func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (newCount, memberCount int) {
-	seen := []uint{}
+func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (newCount, memberCount int, err error) {
+	// Phase 1: page through the album over the network. Done BEFORE opening a DB
+	// transaction so we never hold a tx open across HTTP calls.
+	var photos []synology.Item
 	offset, limit := 0, 500
 	for offset < 5000 {
-		photos, err := s.client.ListPhotos(offset, limit, albumID)
-		if s.isAuthExpired(err) {
+		batch, e := s.client.ListPhotos(offset, limit, albumID)
+		if s.isAuthExpired(e) {
 			if reErr := s.relogin(); reErr != nil {
-				log.Printf("Synology: re-login failed: %v", reErr)
-				break
+				return 0, 0, reErr
 			}
-			photos, err = s.client.ListPhotos(offset, limit, albumID)
+			batch, e = s.client.ListPhotos(offset, limit, albumID)
 		}
-		if err != nil {
-			log.Printf("Synology ListPhotos error (album %d): %v", albumID, err)
+		if e != nil {
+			return 0, 0, e
+		}
+		if len(batch) == 0 {
 			break
 		}
-		if len(photos) == 0 {
-			break
-		}
-
-		for _, p := range photos {
-			var img model.Image
-			res := s.db.Where("synology_photo_id = ? AND source = ?", p.ID, model.SourceSynologyPhotos).First(&img)
-			if res.Error != nil {
-				pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
-				img = model.Image{
-					SynologyPhotoID: p.ID,
-					Source:          model.SourceSynologyPhotos,
-					FilePath:        p.Filename,
-					ThumbnailKey:    p.Additional.Thumbnail.M,
-					Width:           pw,
-					Height:          ph,
-					Orientation:     determineOrientation(pw, ph, ""),
-					CreatedAt:       time.Now(),
-					Status:          "pending",
-				}
-				if p.Additional.Thumbnail.XL != "" {
-					img.ThumbnailKey = p.Additional.Thumbnail.XL
-				}
-				if p.Time > 0 {
-					t := time.Unix(p.Time, 0)
-					img.PhotoTakenAt = &t
-				}
-				if err := s.db.Create(&img).Error; err != nil {
-					log.Printf("Failed to insert synology photo %d: %v", p.ID, err)
-					continue
-				}
-				newCount++
-			} else if img.ThumbnailKey == "" && p.Additional.Thumbnail.M != "" {
-				if err := s.db.Model(&img).Update("thumbnail_key", p.Additional.Thumbnail.M).Error; err != nil {
-					log.Printf("[synology] update thumbnail_key for image %d (photo %d): %v", img.ID, p.ID, err)
-				}
-			}
-
-			membership := model.ImageAlbumMembership{ImageID: img.ID, AlbumID: album.ID}
-			if err := s.db.FirstOrCreate(&membership, membership).Error; err != nil {
-				log.Printf("[synology] upsert membership (image=%d, album=%d): %v", img.ID, album.ID, err)
-			}
-			seen = append(seen, img.ID)
-			memberCount++
-		}
-
-		if len(photos) < limit {
+		photos = append(photos, batch...)
+		if len(batch) < limit {
 			break
 		}
 		offset += limit
 	}
 
-	prune := s.db.Where("album_id = ?", album.ID)
-	if len(seen) > 0 {
-		prune = prune.Where("image_id NOT IN ?", seen)
+	// Phase 2: all DB writes for the album in one transaction.
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// Batch-load existing rows by synology_photo_id (one query).
+		existingByPhoto := make(map[int]model.Image, len(photos))
+		if len(photos) > 0 {
+			photoIDs := make([]int, len(photos))
+			for i, p := range photos {
+				photoIDs[i] = p.ID
+			}
+			var existing []model.Image
+			if e := tx.Where("source = ? AND synology_photo_id IN ?", model.SourceSynologyPhotos, photoIDs).
+				Find(&existing).Error; e != nil {
+				return e
+			}
+			for _, im := range existing {
+				existingByPhoto[im.SynologyPhotoID] = im
+			}
+		}
+
+		idForPhoto := make(map[int]uint, len(photos))
+		for pid, im := range existingByPhoto {
+			idForPhoto[pid] = im.ID
+		}
+
+		for _, p := range photos {
+			if existImg, ok := existingByPhoto[p.ID]; ok {
+				// Backfill a missing thumbnail key on an existing row.
+				if existImg.ThumbnailKey == "" && p.Additional.Thumbnail.M != "" {
+					if e := tx.Model(&model.Image{}).Where("id = ?", existImg.ID).
+						Update("thumbnail_key", p.Additional.Thumbnail.M).Error; e != nil {
+						return e
+					}
+				}
+				continue
+			}
+			pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
+			img := model.Image{
+				SynologyPhotoID: p.ID,
+				Source:          model.SourceSynologyPhotos,
+				FilePath:        p.Filename,
+				ThumbnailKey:    p.Additional.Thumbnail.M,
+				Width:           pw,
+				Height:          ph,
+				Orientation:     determineOrientation(pw, ph, ""),
+				CreatedAt:       time.Now(),
+				Status:          "pending",
+			}
+			if p.Additional.Thumbnail.XL != "" {
+				img.ThumbnailKey = p.Additional.Thumbnail.XL
+			}
+			if p.Time > 0 {
+				t := time.Unix(p.Time, 0)
+				img.PhotoTakenAt = &t
+			}
+			if e := tx.Create(&img).Error; e != nil {
+				return e
+			}
+			idForPhoto[p.ID] = img.ID
+			newCount++
+		}
+
+		// Existing memberships for this album → only create the missing ones.
+		var memIDs []uint
+		tx.Model(&model.ImageAlbumMembership{}).Where("album_id = ?", album.ID).Pluck("image_id", &memIDs)
+		hasMem := make(map[uint]bool, len(memIDs))
+		for _, id := range memIDs {
+			hasMem[id] = true
+		}
+
+		seen := make([]uint, 0, len(photos))
+		var newMems []model.ImageAlbumMembership
+		for _, p := range photos {
+			imgID := idForPhoto[p.ID]
+			if imgID == 0 {
+				continue
+			}
+			seen = append(seen, imgID)
+			memberCount++
+			if !hasMem[imgID] {
+				hasMem[imgID] = true
+				newMems = append(newMems, model.ImageAlbumMembership{ImageID: imgID, AlbumID: album.ID})
+			}
+		}
+		if len(newMems) > 0 {
+			if e := tx.CreateInBatches(&newMems, 200).Error; e != nil {
+				return e
+			}
+		}
+
+		// Prune memberships for photos no longer in the album.
+		prune := tx.Where("album_id = ?", album.ID)
+		if len(seen) > 0 {
+			prune = prune.Where("image_id NOT IN ?", seen)
+		}
+		return prune.Delete(&model.ImageAlbumMembership{}).Error
+	})
+	if err != nil {
+		return 0, 0, err
 	}
-	if err := prune.Delete(&model.ImageAlbumMembership{}).Error; err != nil {
-		log.Printf("[synology] prune memberships for album %d: %v", album.ID, err)
-	}
-	return newCount, memberCount
+	return newCount, memberCount, nil
 }
 
 // gcOrphanImages removes Synology image rows no longer a member of any album.
