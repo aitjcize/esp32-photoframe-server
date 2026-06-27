@@ -257,21 +257,21 @@ func (s *ImmichService) ImportPhotos() error {
 				album.Name, album.ExternalID, err)
 			continue
 		}
-		newCount, memberCount, err := s.importAlbumAssets(album, assets)
+		newCount, _, err := s.importAlbumAssets(album, assets)
 		if err != nil {
 			log.Printf("Immich: import album %q (%s) failed: %v", album.Name, album.ExternalID, err)
 			continue // leave the album's prior state + count untouched
 		}
 		totalNew += newCount
 
-		updates := map[string]interface{}{"asset_count": memberCount, "updated_at": time.Now()}
+		updates := map[string]interface{}{"updated_at": time.Now()}
 		if album.Kind == model.AlbumKindReal {
 			if n := nameByExternalID[album.ExternalID]; n != "" {
 				updates["name"] = n
 			}
 		}
 		if err := s.db.Model(&model.Album{}).Where("id = ?", album.ID).Updates(updates).Error; err != nil {
-			log.Printf("[immich] update album %d (%q) asset_count/name: %v", album.ID, album.Name, err)
+			log.Printf("[immich] update album %d (%q) name/updated_at: %v", album.ID, album.Name, err)
 		}
 	}
 

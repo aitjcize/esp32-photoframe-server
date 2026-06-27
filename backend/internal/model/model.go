@@ -142,7 +142,7 @@ type Album struct {
 	Name        string    `json:"name"`
 	Kind        string    `json:"kind"` // "album" | "virtual"
 	SyncEnabled bool      `json:"sync_enabled"`
-	AssetCount  int       `json:"asset_count"`
+	AssetCount  int       `gorm:"-" json:"asset_count"` // computed live in ListAlbums; not stored
 	CoverKey    string    `json:"cover_key"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

@@ -269,15 +269,15 @@ func (s *SynologyService) ImportPhotos() error {
 			log.Printf("Synology: invalid album external id %q", album.ExternalID)
 			continue
 		}
-		newCount, memberCount, aerr := s.importAlbumAssets(album, albumID)
+		newCount, _, aerr := s.importAlbumAssets(album, albumID)
 		if aerr != nil {
 			log.Printf("Synology: import album %q (%s) failed: %v", album.Name, album.ExternalID, aerr)
-			continue // leave the album's prior state + count untouched
+			continue // leave the album's prior state untouched
 		}
 		totalNew += newCount
 		if err := s.db.Model(&model.Album{}).Where("id = ?", album.ID).
-			Updates(map[string]interface{}{"asset_count": memberCount, "updated_at": time.Now()}).Error; err != nil {
-			log.Printf("[synology] update album %d (%q) asset_count: %v", album.ID, album.Name, err)
+			Updates(map[string]interface{}{"updated_at": time.Now()}).Error; err != nil {
+			log.Printf("[synology] update album %d (%q) updated_at: %v", album.ID, album.Name, err)
 		}
 	}
 
