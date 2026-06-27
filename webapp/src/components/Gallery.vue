@@ -492,6 +492,7 @@ const confirmDeleteAll = async () => {
   deleteAllDialog.loading = true;
   try {
     await galleryStore.deleteAllPhotos();
+    await fetchAlbumChips();
     deleteAllDialog.show = false;
   } finally {
     deleteAllDialog.loading = false;

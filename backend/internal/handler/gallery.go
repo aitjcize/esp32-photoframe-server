@@ -367,6 +367,16 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
 	}
 
+	// Drop album memberships for the deleted images so album counts reflect
+	// the removal (otherwise orphaned memberships linger).
+	if len(items) > 0 {
+		ids := make([]uint, len(items))
+		for i, it := range items {
+			ids[i] = it.ID
+		}
+		h.db.Where("image_id IN ?", ids).Delete(&model.ImageAlbumMembership{})
+	}
+
 	for _, item := range items {
 		if item.Source == model.SourceGooglePhotos || item.Source == model.SourceGallery {
 			if item.FilePath != "" {
