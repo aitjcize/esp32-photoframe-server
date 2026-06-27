@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.8.1
+
+### Security
+- **JWT signing secret hardening.** The secret is now resolved as `JWT_SECRET` env var → a persisted `jwt_secret` setting → a freshly generated random secret (persisted), so a fresh install is secure with no configuration instead of falling back to a hard-coded default that made tokens forgeable. Existing installs migrate gracefully: device tokens issued under the old default keep working (frames stay online), but admin/session tokens do **not** validate under the legacy secret — a forged admin token can't be honored. Re-login once after upgrading.
+- **Manual secret rotation.** A new **Regenerate** button (Settings → System) fully rotates the signing secret for users who want it — this signs you out and invalidates every device token, so each frame needs a new token generated and applied.
+
+### Changed
+- Internal code-quality pass: re-enabled TypeScript type-checking (`vue-tsc`) and enforced it in the build/CI/Docker pipeline; extracted reusable `<AlbumPicker>`, `useSnackbar()`, `getApiError()`, and a `SecurityTab` component out of the large Settings view; unified all backend handler error responses behind one helper.
+- Added test coverage for the migration chain and the auth/token lifecycle (including the secret-rotation and legacy-fallback paths), and bumped CI actions to current versions.
+
 ## v1.8.0
 
 ### Added
