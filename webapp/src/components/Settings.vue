@@ -33,16 +33,20 @@
 
       <div v-else>
         <v-tabs v-model="activeMainTab" color="primary" grow>
+          <v-tab value="general">General</v-tab>
           <v-tab value="devices">Devices</v-tab>
           <v-tab value="datasources">Data Sources</v-tab>
           <v-tab value="security">Security</v-tab>
         </v-tabs>
 
         <v-window v-model="activeMainTab">
-          <!-- Data Sources Tab -->
-          <v-window-item value="datasources">
-            <v-card variant="tonal" class="mb-4">
-              <v-card-text class="py-3">
+          <!-- General Tab -->
+          <v-window-item value="general">
+            <v-card variant="outlined" class="mb-4">
+              <v-card-title class="text-subtitle-1 font-weight-bold">
+                Server
+              </v-card-title>
+              <v-card-text>
                 <v-text-field
                   v-model="form.device_image_base_url"
                   label="Server URL for devices"
@@ -59,7 +63,10 @@
                 </div>
               </v-card-text>
             </v-card>
+          </v-window-item>
 
+          <!-- Data Sources Tab -->
+          <v-window-item value="datasources">
             <v-tabs
               v-model="activeDataSourceTab"
               color="primary"
