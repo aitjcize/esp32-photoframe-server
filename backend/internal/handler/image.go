@@ -685,7 +685,6 @@ func (h *ImageHandler) GetServedImageThumbnail(c echo.Context) error {
 	return c.Blob(http.StatusOK, "image/jpeg", data)
 }
 
-
 // applyConfigSyncHeader sets the X-Config-Payload response header when the
 // server's stored device config is newer than what the device most recently
 // reported. Pulled out so both the bypass branch and the main flow share it.
