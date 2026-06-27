@@ -48,30 +48,5 @@ func (h *ImmichHandler) SetSyncAlbums(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *ImmichHandler) Sync(c echo.Context) error {
-	if err := h.immich.ClearAndResync(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
-	return c.JSON(http.StatusOK, map[string]string{"status": "synced"})
-}
-
-// SyncStatus reports whether an Immich sync is currently in progress.
-// GET /api/immich/sync-status
-func (h *ImmichHandler) SyncStatus(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]bool{"running": h.immich.IsSyncing()})
-}
-
-func (h *ImmichHandler) Clear(c echo.Context) error {
-	if err := h.immich.ClearPhotos(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
-	return c.JSON(http.StatusOK, map[string]string{"status": "cleared"})
-}
-
-func (h *ImmichHandler) GetPhotoCount(c echo.Context) error {
-	count, err := h.immich.GetPhotoCount()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
-	return c.JSON(http.StatusOK, map[string]interface{}{"count": count})
-}
+// Sync / SyncStatus / Clear / Count are served by the generic PhotoSyncHandler
+// (see photosync_handler.go) — identical across photo sources.

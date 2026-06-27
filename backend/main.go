@@ -233,6 +233,10 @@ func main() {
 	googleHandler := handler.NewGoogleHandler(googleClient, googleCalendarClient, pickerService, database, dataDir)
 	sh := handler.NewSynologyHandler(synologyService)
 	imh := handler.NewImmichHandler(immichService)
+	// Generic photo-sync endpoints (sync / sync-status / clear / count) shared
+	// across sources.
+	synologySync := handler.NewPhotoSyncHandler(synologyService)
+	immichSync := handler.NewPhotoSyncHandler(immichService)
 	gh := handler.NewGalleryHandler(database, synologyService, immichService, dataDir)
 	ih := handler.NewImageHandler(handler.ImageHandlerDeps{
 		Settings:       settingsService,
@@ -347,22 +351,22 @@ func main() {
 
 	// Synology (Protected)
 	protectedApi.POST("/synology/test", sh.TestConnection)
-	protectedApi.POST("/synology/sync", sh.Sync)
-	protectedApi.GET("/synology/sync-status", sh.SyncStatus)
-	protectedApi.POST("/synology/clear", sh.Clear)
+	protectedApi.POST("/synology/sync", synologySync.Sync)
+	protectedApi.GET("/synology/sync-status", synologySync.SyncStatus)
+	protectedApi.POST("/synology/clear", synologySync.Clear)
 	protectedApi.GET("/synology/albums", sh.ListAlbums)
 	protectedApi.POST("/synology/sync-albums", sh.SetSyncAlbums)
-	protectedApi.GET("/synology/count", sh.GetPhotoCount)
+	protectedApi.GET("/synology/count", synologySync.Count)
 	protectedApi.POST("/synology/logout", sh.Logout)
 
 	// Immich (Protected)
 	protectedApi.POST("/immich/test", imh.TestConnection)
-	protectedApi.POST("/immich/sync", imh.Sync)
-	protectedApi.GET("/immich/sync-status", imh.SyncStatus)
-	protectedApi.POST("/immich/clear", imh.Clear)
+	protectedApi.POST("/immich/sync", immichSync.Sync)
+	protectedApi.GET("/immich/sync-status", immichSync.SyncStatus)
+	protectedApi.POST("/immich/clear", immichSync.Clear)
 	protectedApi.GET("/immich/albums", imh.ListAlbums)
 	protectedApi.POST("/immich/sync-albums", imh.SetSyncAlbums)
-	protectedApi.GET("/immich/count", imh.GetPhotoCount)
+	protectedApi.GET("/immich/count", immichSync.Count)
 
 	// Calendar (Protected)
 	protectedApi.GET("/calendar/calendars", ch.ListCalendars)
