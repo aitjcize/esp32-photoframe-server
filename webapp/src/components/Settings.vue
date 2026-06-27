@@ -33,34 +33,12 @@
 
       <div v-else>
         <v-tabs v-model="activeMainTab" color="primary" grow>
-          <v-tab value="general">General</v-tab>
           <v-tab value="devices">Devices</v-tab>
           <v-tab value="datasources">Data Sources</v-tab>
-          <v-tab value="security">Security</v-tab>
+          <v-tab value="security">System</v-tab>
         </v-tabs>
 
         <v-window v-model="activeMainTab" :touch="false">
-          <!-- General Tab -->
-          <v-window-item value="general">
-            <v-card-text>
-              <h3 class="text-subtitle-1 font-weight-bold mb-3">Server</h3>
-              <v-text-field
-                v-model="form.device_image_base_url"
-                label="Server URL for devices"
-                placeholder="http://homeassistant.local:9608"
-                hint="Base address your photo frames use to reach this server. Leave empty to derive it from your browser's address. Set this for Tailscale, reverse proxies, or custom domains."
-                persistent-hint
-                variant="outlined"
-                density="compact"
-                clearable
-                @update:model-value="saveSettingsInternal()"
-              ></v-text-field>
-              <div class="text-caption text-grey mt-2">
-                Frames will fetch: <code>{{ getImageUrl() }}</code>
-              </div>
-            </v-card-text>
-          </v-window-item>
-
           <!-- Data Sources Tab -->
           <v-window-item value="datasources">
             <v-tabs
@@ -927,9 +905,25 @@
             </v-window>
           </v-window-item>
 
-          <!-- Security Tab -->
+          <!-- System Tab (server + security) -->
           <v-window-item value="security">
             <v-card-text>
+              <h3 class="text-h6 mb-3">Server</h3>
+              <v-text-field
+                v-model="form.device_image_base_url"
+                label="Server URL for devices"
+                :placeholder="derivedServerBase"
+                persistent-placeholder
+                hint="Base address your photo frames use to reach this server. Leave empty to derive it from your browser's address. Set this for Tailscale, reverse proxies, or custom domains."
+                persistent-hint
+                variant="outlined"
+                density="compact"
+                clearable
+                @update:model-value="saveSettingsInternal()"
+              ></v-text-field>
+
+              <v-divider class="my-6"></v-divider>
+
               <div class="d-flex justify-space-between align-center mb-4">
                 <h3 class="text-h6">Admin Account</h3>
                 <v-btn
@@ -1055,12 +1049,14 @@
                 ></v-text-field>
               </v-alert>
 
-              <v-card variant="outlined" class="mb-6">
+              <v-card variant="tonal" class="mb-6">
                 <v-card-title class="text-subtitle-1"
                   >Generate New Token</v-card-title
                 >
                 <v-card-text>
-                  <div class="d-flex ga-2 align-center">
+                  <div
+                    class="d-flex flex-column flex-sm-row ga-2 align-stretch align-sm-center"
+                  >
                     <v-text-field
                       v-model="newTokenName"
                       label="Token Name (e.g. Living Room Frame)"
@@ -1082,9 +1078,12 @@
                       variant="outlined"
                       density="compact"
                       hide-details
-                      style="max-width: 220px"
+                      :style="smAndDown ? '' : 'max-width: 220px'"
                     ></v-select>
-                    <v-btn color="primary" @click="generateToken"
+                    <v-btn
+                      color="primary"
+                      :block="smAndDown"
+                      @click="generateToken"
                       >Generate</v-btn
                     >
                   </div>
@@ -1092,7 +1091,12 @@
               </v-card>
 
               <h4 class="text-subtitle-2 mb-2">Active Tokens</h4>
-              <v-table density="comfortable" class="border rounded">
+              <!-- Table on tablet/desktop -->
+              <v-table
+                v-if="!smAndDown"
+                density="comfortable"
+                class="border rounded"
+              >
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -1143,6 +1147,61 @@
                   </tr>
                 </tbody>
               </v-table>
+
+              <!-- Stacked cards on phones (no horizontal scroll) -->
+              <template v-else>
+                <v-card
+                  v-for="token in authStore.tokens"
+                  :key="token.id"
+                  variant="tonal"
+                  class="mb-2"
+                >
+                  <v-card-text class="pa-3">
+                    <div class="d-flex align-center">
+                      <div class="flex-grow-1 text-truncate">
+                        <div class="font-weight-medium text-truncate">
+                          {{ token.name }}
+                        </div>
+                        <div class="text-caption text-grey">
+                          {{ new Date(token.created_at).toLocaleString() }}
+                        </div>
+                      </div>
+                      <v-btn
+                        color="error"
+                        variant="text"
+                        size="small"
+                        @click="revokeToken(token.id)"
+                      >
+                        Revoke
+                      </v-btn>
+                    </div>
+                    <v-select
+                      :model-value="token.device_id"
+                      :items="[
+                        { title: 'None', value: null },
+                        ...availableDevices.map((d: any) => ({
+                          title: d.name,
+                          value: d.id,
+                        })),
+                      ]"
+                      label="Bound device"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      class="mt-2"
+                      @update:model-value="
+                        (val: any) => updateTokenDevice(token.id, val)
+                      "
+                    ></v-select>
+                  </v-card-text>
+                </v-card>
+                <div
+                  v-if="authStore.tokens.length === 0"
+                  class="text-center text-grey py-4"
+                >
+                  No active tokens found. Create one above to connect a device.
+                </div>
+              </template>
             </v-card-text>
           </v-window-item>
           <!-- Devices Tab -->
@@ -3336,28 +3395,53 @@ const deviceSynologyAlbumSearch = ref('');
 const matchesAlbum = (name: string, q: string) =>
   !q || (name || '').toLowerCase().includes(q.toLowerCase());
 
-const byName = (key: string) => (a: any, b: any) =>
-  (a[key] || '').localeCompare(b[key] || '', undefined, { sensitivity: 'base' });
+// Sort checked albums to the top, then alphabetically — so selected albums
+// are grouped and easy to find/uncheck.
+const sortCheckedFirst =
+  (key: string, isChecked: (a: any) => boolean) => (a: any, b: any) => {
+    const ca = isChecked(a) ? 1 : 0;
+    const cb = isChecked(b) ? 1 : 0;
+    if (ca !== cb) return cb - ca;
+    return (a[key] || '').localeCompare(b[key] || '', undefined, {
+      sensitivity: 'base',
+    });
+  };
 
 const filteredImmichAlbums = computed(() =>
   (immichStore.albums || [])
     .filter((a: any) => matchesAlbum(a.albumName, immichAlbumSearch.value))
-    .sort(byName('albumName'))
+    .sort(
+      sortCheckedFirst('albumName', (a: any) =>
+        syncAlbumIds.value.includes(a.id)
+      )
+    )
 );
 const filteredSynologyAlbums = computed(() =>
   (synologyStore.albums || [])
     .filter((a: any) => matchesAlbum(a.name, synologyAlbumSearch.value))
-    .sort(byName('name'))
+    .sort(
+      sortCheckedFirst('name', (a: any) =>
+        synologySyncAlbumIds.value.includes(String(a.id))
+      )
+    )
 );
 const filteredDeviceImmichAlbums = computed(() =>
   deviceImmichAlbumOptions.value
     .filter((a: any) => matchesAlbum(a.name, deviceImmichAlbumSearch.value))
-    .sort(byName('name'))
+    .sort(
+      sortCheckedFirst('name', (a: any) =>
+        deviceImmichAlbumIds.value.includes(a.id)
+      )
+    )
 );
 const filteredDeviceSynologyAlbums = computed(() =>
   deviceSynologyAlbumOptions.value
     .filter((a: any) => matchesAlbum(a.name, deviceSynologyAlbumSearch.value))
-    .sort(byName('name'))
+    .sort(
+      sortCheckedFirst('name', (a: any) =>
+        deviceSynologyAlbumIds.value.includes(a.id)
+      )
+    )
 );
 
 // Derive the Synology checkbox selection from the persisted synced albums.
@@ -4039,18 +4123,24 @@ const revokeSessionHandler = async (id: number) => {
 
 // Get image endpoint URL
 // Always use direct add-on port for device access (ESP32 devices access directly, not via ingress)
+// Base URL derived from the browser's location — what /image resolves to
+// when no explicit "Server URL for devices" is set. Shown as the field
+// placeholder so the user sees the effective value.
+const derivedServerBase = computed(() => {
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  // Use configurable port via env var, default to 9607 for production
+  const addonPort = import.meta.env.VITE_ADDON_PORT || '9607';
+  return `${protocol}//${hostname}:${addonPort}`;
+});
+
 const getImageUrl = (source?: string) => {
   // Prefer the admin-configured device-facing base URL. The browser's
   // window.location is unreliable for the URL pushed to frames (Tailscale,
   // ingress, reverse proxies all change the hostname the browser used).
-  let origin = (form.device_image_base_url || '').trim().replace(/\/+$/, '');
-  if (!origin) {
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol;
-    // Use configurable port via env var, default to 9607 for production
-    const addonPort = import.meta.env.VITE_ADDON_PORT || '9607';
-    origin = `${protocol}//${hostname}:${addonPort}`;
-  }
+  const origin =
+    (form.device_image_base_url || '').trim().replace(/\/+$/, '') ||
+    derivedServerBase.value;
   return `${origin}/image${source ? '/' + source : ''}`;
 };
 
