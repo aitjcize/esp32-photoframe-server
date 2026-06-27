@@ -428,7 +428,6 @@
                       </v-col>
                     </v-row>
 
-
                     <v-row class="mt-1">
                       <v-col cols="12" md="6">
                         <v-checkbox
@@ -666,7 +665,6 @@
                         ></v-select>
                       </v-col>
                     </v-row>
-
 
                     <v-row class="mt-1">
                       <v-col cols="12" md="6">
