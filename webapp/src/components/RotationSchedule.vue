@@ -1,0 +1,341 @@
+<script setup lang="ts">
+import { ref, computed, watch } from 'vue';
+import {
+  newCard,
+  cardsFromCron,
+  compileCards,
+  compileCard,
+  describeCard,
+  nextRuns,
+  isValidCron,
+  DAY_LABELS,
+  type ScheduleCard,
+  type QuietHours,
+} from '../utils/cron';
+
+const props = withDefaults(
+  defineProps<{
+    modelValue: string[];
+    sleep?: QuietHours | null;
+    disabled?: boolean;
+  }>(),
+  { sleep: null, disabled: false }
+);
+const emit = defineEmits<{ 'update:modelValue': [string[]] }>();
+
+const cards = ref<ScheduleCard[]>(cardsFromCron(props.modelValue));
+
+watch(
+  cards,
+  () => {
+    emit('update:modelValue', compileCards(cards.value));
+  },
+  { deep: true }
+);
+watch(
+  () => props.modelValue,
+  (val) => {
+    if (
+      JSON.stringify(compileCards(cards.value)) !== JSON.stringify(val || [])
+    ) {
+      cards.value = cardsFromCron(val || []);
+    }
+  }
+);
+
+const totalRules = computed(() => compileCards(cards.value).length);
+const overBudget = computed(() => totalRules.value > 7);
+
+const upcoming = computed(() => {
+  const sleep = props.sleep?.enabled
+    ? { enabled: true, start: props.sleep.start, end: props.sleep.end }
+    : null;
+  return nextRuns(compileCards(cards.value), new Date(), 4, sleep).map((d) =>
+    d.toLocaleString([], {
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  );
+});
+
+const dayChips = [1, 2, 3, 4, 5, 6, 0].map((v) => ({
+  value: v,
+  label: DAY_LABELS[v],
+}));
+
+const daysOptions = [
+  { value: 'everyday', title: 'Every day' },
+  { value: 'weekdays', title: 'Weekdays' },
+  { value: 'weekends', title: 'Weekends' },
+  { value: 'custom', title: 'Custom' },
+];
+
+const hourItems = Array.from({ length: 24 }, (_, h) => ({
+  value: h,
+  title: `${String(h).padStart(2, '0')}:00`,
+}));
+
+function everyItems(unit: string) {
+  return (unit === 'hours' ? [1, 2, 3, 4, 6, 8, 12] : [5, 10, 15, 20, 30]).map(
+    (v) => ({
+      value: v,
+      title: `${v}`,
+    })
+  );
+}
+
+function daysModel(card: ScheduleCard): string {
+  return Array.isArray(card.days) ? 'custom' : card.days;
+}
+function setDaysMode(card: ScheduleCard, mode: string) {
+  if (mode === 'custom') {
+    card.days = Array.isArray(card.days) ? card.days : [1, 2, 3, 4, 5];
+  } else {
+    card.days = mode as ScheduleCard['days'];
+  }
+}
+function toggleDay(card: ScheduleCard, value: number) {
+  if (!Array.isArray(card.days)) card.days = [];
+  const i = card.days.indexOf(value);
+  if (i >= 0) card.days.splice(i, 1);
+  else card.days.push(value);
+}
+
+function addTime(card: ScheduleCard) {
+  card.times = [...card.times, '12:00'].sort();
+}
+function removeTime(card: ScheduleCard, idx: number) {
+  card.times.splice(idx, 1);
+  if (card.times.length === 0) card.times.push('12:00');
+}
+
+function addCard() {
+  cards.value.push(newCard());
+}
+function removeCard(idx: number) {
+  cards.value.splice(idx, 1);
+  if (cards.value.length === 0) cards.value.push(newCard());
+}
+
+function toggleAdvanced(card: ScheduleCard) {
+  if (card.raw === null) {
+    card.raw = compileCard(card)[0] || '0 */12 *';
+  } else {
+    card.raw = null;
+  }
+}
+function rawValid(card: ScheduleCard): boolean {
+  return card.raw === null || isValidCron(card.raw);
+}
+</script>
+
+<template>
+  <div>
+    <div v-for="(card, idx) in cards" :key="idx" class="mb-4">
+      <v-card variant="tonal" :disabled="disabled">
+        <v-card-text>
+          <div class="d-flex align-center mb-2">
+            <span class="text-subtitle-2">Schedule {{ idx + 1 }}</span>
+            <v-spacer />
+            <v-btn
+              v-if="cards.length > 1"
+              icon="mdi-delete"
+              variant="text"
+              size="small"
+              @click="removeCard(idx)"
+            />
+          </div>
+
+          <template v-if="card.raw !== null">
+            <v-text-field
+              v-model="card.raw"
+              label="Cron expression"
+              variant="outlined"
+              density="compact"
+              hint="minute hour day-of-week"
+              persistent-hint
+              :error="!rawValid(card)"
+              :error-messages="
+                rawValid(card) ? [] : ['Invalid cron expression']
+              "
+            />
+          </template>
+
+          <template v-else>
+            <v-btn-toggle
+              :model-value="daysModel(card)"
+              color="primary"
+              density="compact"
+              variant="outlined"
+              divided
+              class="mb-3 flex-wrap"
+              @update:model-value="(v: string) => v && setDaysMode(card, v)"
+            >
+              <v-btn
+                v-for="o in daysOptions"
+                :key="o.value"
+                :value="o.value"
+                size="small"
+              >
+                {{ o.title }}
+              </v-btn>
+            </v-btn-toggle>
+
+            <div v-if="Array.isArray(card.days)" class="mb-3">
+              <v-chip
+                v-for="d in dayChips"
+                :key="d.value"
+                :color="card.days.includes(d.value) ? 'primary' : undefined"
+                :variant="card.days.includes(d.value) ? 'flat' : 'outlined'"
+                size="small"
+                class="mr-1 mb-1"
+                @click="toggleDay(card, d.value)"
+              >
+                {{ d.label }}
+              </v-chip>
+            </div>
+
+            <v-btn-toggle
+              v-model="card.mode"
+              color="primary"
+              density="compact"
+              variant="outlined"
+              divided
+              mandatory
+              class="mb-3"
+            >
+              <v-btn value="interval" size="small">Throughout the day</v-btn>
+              <v-btn value="times" size="small">At specific times</v-btn>
+            </v-btn-toggle>
+
+            <v-row v-if="card.mode === 'interval'" dense align="center">
+              <v-col cols="6" sm="2">
+                <v-select
+                  v-model="card.every"
+                  :items="everyItems(card.unit)"
+                  label="Every"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="6" sm="3">
+                <v-select
+                  v-model="card.unit"
+                  :items="[
+                    { value: 'minutes', title: 'minutes' },
+                    { value: 'hours', title: 'hours' },
+                  ]"
+                  label="Unit"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="6" sm="3">
+                <v-select
+                  v-model="card.fromHour"
+                  :items="hourItems"
+                  label="From"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+              <v-col cols="6" sm="3">
+                <v-select
+                  v-model="card.toHour"
+                  :items="hourItems"
+                  label="To"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                />
+              </v-col>
+            </v-row>
+
+            <div v-else>
+              <div class="d-flex flex-wrap align-center ga-2">
+                <v-text-field
+                  v-for="(_t, ti) in card.times"
+                  :key="ti"
+                  v-model="card.times[ti]"
+                  type="time"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  style="max-width: 130px"
+                  append-inner-icon="mdi-close"
+                  @click:append-inner="removeTime(card, ti)"
+                />
+                <v-btn
+                  variant="text"
+                  size="small"
+                  prepend-icon="mdi-plus"
+                  @click="addTime(card)"
+                >
+                  Add time
+                </v-btn>
+              </div>
+            </div>
+          </template>
+
+          <div class="text-caption text-medium-emphasis mt-3">
+            {{ describeCard(card) }}
+          </div>
+
+          <v-btn
+            variant="text"
+            size="x-small"
+            class="mt-1 px-0"
+            @click="toggleAdvanced(card)"
+          >
+            {{ card.raw !== null ? 'Use builder' : 'Advanced (cron)' }}
+          </v-btn>
+        </v-card-text>
+      </v-card>
+    </div>
+
+    <v-btn
+      variant="outlined"
+      size="small"
+      prepend-icon="mdi-plus"
+      :disabled="disabled || totalRules >= 7"
+      @click="addCard"
+    >
+      Add another schedule
+    </v-btn>
+
+    <v-alert
+      v-if="overBudget"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      class="mt-3"
+    >
+      This uses {{ totalRules }} rules, but the device supports at most 7.
+      Remove a schedule or simplify the specific times.
+    </v-alert>
+
+    <div class="mt-4">
+      <div class="text-caption text-medium-emphasis mb-1">
+        Upcoming rotations
+      </div>
+      <template v-if="upcoming.length">
+        <v-chip
+          v-for="(r, i) in upcoming"
+          :key="i"
+          size="small"
+          class="mr-1 mb-1"
+          variant="tonal"
+        >
+          {{ r }}
+        </v-chip>
+      </template>
+      <div v-else class="text-caption text-disabled">
+        No upcoming rotations for this schedule.
+      </div>
+    </div>
+  </div>
+</template>

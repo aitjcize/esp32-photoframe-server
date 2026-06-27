@@ -1238,21 +1238,9 @@
                           class="mt-2 mb-2"
                         />
                         <div class="ml-10">
-                          <v-select
-                            v-model="deviceConfig.rotate_interval"
-                            :items="rotateIntervalOptions"
-                            label="Rotation Interval"
-                            variant="outlined"
-                            density="compact"
-                            hide-details
-                            class="mb-2"
-                            :disabled="!deviceConfig.auto_rotate"
-                          />
-                          <v-checkbox
-                            v-model="deviceConfig.auto_rotate_aligned"
-                            label="Align rotation to clock boundaries"
-                            hide-details
-                            class="mb-2"
+                          <RotationSchedule
+                            v-model="deviceConfig.rotate_cron"
+                            :sleep="sleepPreviewWindow"
                             :disabled="!deviceConfig.auto_rotate"
                           />
                           <v-select
@@ -2193,6 +2181,7 @@ import ConfirmDialog from './ConfirmDialog.vue';
 import AlbumPicker from './AlbumPicker.vue';
 import TopicManager from './TopicManager.vue';
 import SecurityTab from './SecurityTab.vue';
+import RotationSchedule from './RotationSchedule.vue';
 
 const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
@@ -2397,8 +2386,7 @@ const syncingFromDevice = ref(false);
 // Device config (synced remotely to device)
 const deviceConfig = reactive<Record<string, any>>({
   auto_rotate: false,
-  rotate_interval: 3600,
-  auto_rotate_aligned: true,
+  rotate_cron: ['0 */12 *'],
   rotation_mode: 'storage',
   image_url: '',
   save_downloaded_images: true,
@@ -2597,17 +2585,18 @@ const orientationOptions = computed(() => {
   ];
 });
 
-const rotateIntervalOptions = [
-  { title: '5 minutes', value: 300 },
-  { title: '15 minutes', value: 900 },
-  { title: '30 minutes', value: 1800 },
-  { title: '1 hour', value: 3600 },
-  { title: '2 hours', value: 7200 },
-  { title: '4 hours', value: 14400 },
-  { title: '6 hours', value: 21600 },
-  { title: '12 hours', value: 43200 },
-  { title: '24 hours', value: 86400 },
-];
+// Quiet-hours window (minutes since midnight) for the schedule preview.
+const sleepPreviewWindow = computed(() => {
+  const toMin = (hhmm: string) => {
+    const [h, m] = (hhmm || '0:0').split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  return {
+    enabled: deviceConfig.sleep_schedule_enabled,
+    start: toMin(deviceConfig.sleep_start_time),
+    end: toMin(deviceConfig.sleep_end_time),
+  };
+});
 
 const loadDeviceConfig = async (deviceId: number) => {
   try {
@@ -2623,8 +2612,10 @@ const loadDeviceConfig = async (deviceId: number) => {
     }
     Object.assign(deviceConfig, {
       auto_rotate: cfg.auto_rotate ?? false,
-      rotate_interval: cfg.rotate_interval ?? 3600,
-      auto_rotate_aligned: cfg.auto_rotate_aligned ?? true,
+      rotate_cron:
+        Array.isArray(cfg.rotate_cron) && cfg.rotate_cron.length
+          ? cfg.rotate_cron
+          : ['0 */12 *'],
       rotation_mode: cfg.rotation_mode ?? 'storage',
       image_url: cfg.image_url ?? '',
       save_downloaded_images: cfg.save_downloaded_images ?? true,
@@ -2949,8 +2940,7 @@ const openAddDeviceDialog = () => {
   });
   Object.assign(deviceConfig, {
     auto_rotate: false,
-    rotate_interval: 3600,
-    auto_rotate_aligned: true,
+    rotate_cron: ['0 */12 *'],
     rotation_mode: 'storage',
     image_url: '',
     save_downloaded_images: true,
@@ -3130,8 +3120,7 @@ const saveDevice = async () => {
         config: {
           device_name: editingDevice.name,
           auto_rotate: deviceConfig.auto_rotate,
-          rotate_interval: deviceConfig.rotate_interval,
-          auto_rotate_aligned: deviceConfig.auto_rotate_aligned,
+          rotate_cron: deviceConfig.rotate_cron,
           rotation_mode: deviceConfig.rotation_mode,
           image_url: imageUrl,
           save_downloaded_images: deviceConfig.save_downloaded_images,
