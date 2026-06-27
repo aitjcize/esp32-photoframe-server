@@ -428,14 +428,8 @@
                       </v-col>
                     </v-row>
 
-                    <div class="d-flex flex-wrap ga-2 mb-2">
-                      <v-btn
-                        color="primary"
-                        variant="flat"
-                        :loading="savingSynologySyncSelection"
-                        @click="saveSynologySyncSelection"
-                        >Save sync selection</v-btn
-                      >
+                    <div class="text-caption text-grey mb-2">
+                      Changes are saved automatically.
                     </div>
 
                     <v-row class="mt-1">
@@ -676,14 +670,8 @@
                       </v-col>
                     </v-row>
 
-                    <div class="d-flex flex-wrap ga-2 mb-2">
-                      <v-btn
-                        color="primary"
-                        variant="flat"
-                        :loading="savingSyncSelection"
-                        @click="saveSyncSelection"
-                        >Save sync selection</v-btn
-                      >
+                    <div class="text-caption text-grey mb-2">
+                      Changes are saved automatically.
                     </div>
 
                     <v-row class="mt-1">
@@ -2369,7 +2357,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed, watch } from 'vue';
+import { onMounted, nextTick, reactive, ref, computed, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
 import { useSynologyStore } from '../stores/synology';
@@ -2416,6 +2404,12 @@ const savingSyncSelection = ref(false);
 // Synology "albums to sync" selection (mirror of Immich, no virtual modes)
 const synologySyncAlbumIds = ref<string[]>([]);
 const savingSynologySyncSelection = ref(false);
+
+// Album selection auto-saves (debounced). Suppress the auto-save while we
+// apply the persisted state programmatically (load / post-save refresh).
+let suppressSyncAutoSave = false;
+let immichSyncSaveTimer: number | null = null;
+let synologySyncSaveTimer: number | null = null;
 
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
@@ -3474,9 +3468,13 @@ const filteredDeviceSynologyAlbums = computed(() =>
 // Derive the Synology checkbox selection from the persisted synced albums.
 // External ids are matched against String(album.id) of live Synology albums.
 const applySynologySyncedAlbumState = () => {
+  suppressSyncAutoSave = true;
   synologySyncAlbumIds.value = (synologyStore.syncedAlbums || [])
     .filter((a: any) => a.sync_enabled)
     .map((a: any) => a.external_id);
+  nextTick(() => {
+    suppressSyncAutoSave = false;
+  });
 };
 
 // Virtual sentinel external_ids used by the backend for non-album sources.
@@ -3486,6 +3484,7 @@ const IMMICH_MEMORIES_ID = '__memories__';
 
 // Derive the checkbox selection state from the persisted synced albums.
 const applySyncedAlbumState = () => {
+  suppressSyncAutoSave = true;
   const synced = (immichStore.syncedAlbums || []).filter(
     (a: any) => a.sync_enabled
   );
@@ -3505,7 +3504,34 @@ const applySyncedAlbumState = () => {
         a.external_id !== IMMICH_MEMORIES_ID
     )
     .map((a: any) => a.external_id);
+  nextTick(() => {
+    suppressSyncAutoSave = false;
+  });
 };
+
+// Auto-save the album selection (debounced) so the user doesn't need to click
+// a Save button. Suppressed while applying persisted state programmatically.
+watch(
+  [syncAlbumIds, syncFavorites, syncAll, syncMemories],
+  () => {
+    if (suppressSyncAutoSave) return;
+    if (immichSyncSaveTimer != null) clearTimeout(immichSyncSaveTimer);
+    immichSyncSaveTimer = window.setTimeout(() => saveSyncSelection(), 600);
+  },
+  { deep: true }
+);
+watch(
+  synologySyncAlbumIds,
+  () => {
+    if (suppressSyncAutoSave) return;
+    if (synologySyncSaveTimer != null) clearTimeout(synologySyncSaveTimer);
+    synologySyncSaveTimer = window.setTimeout(
+      () => saveSynologySyncSelection(),
+      600
+    );
+  },
+  { deep: true }
+);
 
 const immichMemoryModeOptions = [
   { title: 'All years', value: 'all' },
