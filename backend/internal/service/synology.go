@@ -280,8 +280,10 @@ func (s *SynologyService) ImportPhotos() error {
 		}
 		newCount, memberCount := s.importAlbumAssets(album, albumID)
 		totalNew += newCount
-		s.db.Model(&model.Album{}).Where("id = ?", album.ID).
-			Updates(map[string]interface{}{"asset_count": memberCount, "updated_at": time.Now()})
+		if err := s.db.Model(&model.Album{}).Where("id = ?", album.ID).
+			Updates(map[string]interface{}{"asset_count": memberCount, "updated_at": time.Now()}).Error; err != nil {
+			log.Printf("[synology] update album %d (%q) asset_count: %v", album.ID, album.Name, err)
+		}
 	}
 
 	s.gcOrphanImages()
@@ -340,11 +342,15 @@ func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (new
 				}
 				newCount++
 			} else if img.ThumbnailKey == "" && p.Additional.Thumbnail.M != "" {
-				s.db.Model(&img).Update("thumbnail_key", p.Additional.Thumbnail.M)
+				if err := s.db.Model(&img).Update("thumbnail_key", p.Additional.Thumbnail.M).Error; err != nil {
+					log.Printf("[synology] update thumbnail_key for image %d (photo %d): %v", img.ID, p.ID, err)
+				}
 			}
 
 			membership := model.ImageAlbumMembership{ImageID: img.ID, AlbumID: album.ID}
-			s.db.FirstOrCreate(&membership, membership)
+			if err := s.db.FirstOrCreate(&membership, membership).Error; err != nil {
+				log.Printf("[synology] upsert membership (image=%d, album=%d): %v", img.ID, album.ID, err)
+			}
 			seen = append(seen, img.ID)
 			memberCount++
 		}
@@ -359,16 +365,20 @@ func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (new
 	if len(seen) > 0 {
 		prune = prune.Where("image_id NOT IN ?", seen)
 	}
-	prune.Delete(&model.ImageAlbumMembership{})
+	if err := prune.Delete(&model.ImageAlbumMembership{}).Error; err != nil {
+		log.Printf("[synology] prune memberships for album %d: %v", album.ID, err)
+	}
 	return newCount, memberCount
 }
 
 // gcOrphanImages removes Synology image rows no longer a member of any album.
 func (s *SynologyService) gcOrphanImages() {
 	sub := s.db.Model(&model.ImageAlbumMembership{}).Select("image_id")
-	s.db.Unscoped().
+	if err := s.db.Unscoped().
 		Where("source = ? AND id NOT IN (?)", model.SourceSynologyPhotos, sub).
-		Delete(&model.Image{})
+		Delete(&model.Image{}).Error; err != nil {
+		log.Printf("[synology] gc orphan images: %v", err)
+	}
 }
 
 // ensureGlobalAlbumSeed materializes the legacy synology_album_id setting into
@@ -424,20 +434,26 @@ func (s *SynologyService) SetSyncAlbums(realIDs []string) error {
 		var existing model.Album
 		if err := s.db.Where("source = ? AND external_id = ?", model.SourceSynologyPhotos, id).
 			First(&existing).Error; err != nil {
-			s.db.Create(&model.Album{
+			if err := s.db.Create(&model.Album{
 				Source: model.SourceSynologyPhotos, ExternalID: id,
 				Kind: model.AlbumKindReal, Name: name, SyncEnabled: true, UpdatedAt: time.Now(),
-			})
+			}).Error; err != nil {
+				log.Printf("[synology] create album (external_id=%s, name=%q): %v", id, name, err)
+			}
 		} else {
-			s.db.Model(&model.Album{}).Where("id = ?", existing.ID).
-				Updates(map[string]interface{}{"sync_enabled": true, "name": name})
+			if err := s.db.Model(&model.Album{}).Where("id = ?", existing.ID).
+				Updates(map[string]interface{}{"sync_enabled": true, "name": name}).Error; err != nil {
+				log.Printf("[synology] update album %d (external_id=%s): %v", existing.ID, id, err)
+			}
 		}
 	}
 	var rows []model.Album
 	s.db.Where("source = ?", model.SourceSynologyPhotos).Find(&rows)
 	for _, a := range rows {
 		if !desired[a.ExternalID] && a.SyncEnabled {
-			s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false)
+			if err := s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false).Error; err != nil {
+				log.Printf("[synology] disable album %d (external_id=%s): %v", a.ID, a.ExternalID, err)
+			}
 		}
 	}
 	// Persist the selection only — the import is triggered explicitly (manual
@@ -450,7 +466,9 @@ func (s *SynologyService) ClearPhotos() error {
 	var albumIDs []uint
 	s.db.Model(&model.Album{}).Where("source = ?", model.SourceSynologyPhotos).Pluck("id", &albumIDs)
 	if len(albumIDs) > 0 {
-		s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{})
+		if err := s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{}).Error; err != nil {
+			log.Printf("[synology] clear memberships for albums %v: %v", albumIDs, err)
+		}
 	}
 	if err := s.db.Unscoped().Where("source = ?", model.SourceSynologyPhotos).Delete(&model.Image{}).Error; err != nil {
 		return err

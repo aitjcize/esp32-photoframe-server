@@ -200,18 +200,24 @@ func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories
 		if err := s.db.Where("source = ? AND external_id = ?", model.SourceImmich, ext).
 			First(&existing).Error; err != nil {
 			a.UpdatedAt = time.Now()
-			s.db.Create(&a)
+			if err := s.db.Create(&a).Error; err != nil {
+				log.Printf("[immich] create album (external_id=%s, name=%q): %v", ext, a.Name, err)
+			}
 		} else {
-			s.db.Model(&model.Album{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
+			if err := s.db.Model(&model.Album{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
 				"sync_enabled": true, "name": a.Name, "kind": a.Kind,
-			})
+			}).Error; err != nil {
+				log.Printf("[immich] update album %d (external_id=%s): %v", existing.ID, ext, err)
+			}
 		}
 	}
 	var rows []model.Album
 	s.db.Where("source = ?", model.SourceImmich).Find(&rows)
 	for _, a := range rows {
 		if _, ok := desired[a.ExternalID]; !ok && a.SyncEnabled {
-			s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false)
+			if err := s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false).Error; err != nil {
+				log.Printf("[immich] disable album %d (external_id=%s): %v", a.ID, a.ExternalID, err)
+			}
 		}
 	}
 
@@ -270,7 +276,9 @@ func (s *ImmichService) ImportPhotos() error {
 				updates["name"] = n
 			}
 		}
-		s.db.Model(&model.Album{}).Where("id = ?", album.ID).Updates(updates)
+		if err := s.db.Model(&model.Album{}).Where("id = ?", album.ID).Updates(updates).Error; err != nil {
+			log.Printf("[immich] update album %d (%q) asset_count/name: %v", album.ID, album.Name, err)
+		}
 	}
 
 	s.gcOrphanImages()
@@ -320,7 +328,9 @@ func (s *ImmichService) importAlbumAssets(album model.Album, assets []immich.Ass
 		}
 
 		membership := model.ImageAlbumMembership{ImageID: img.ID, AlbumID: album.ID}
-		s.db.FirstOrCreate(&membership, membership)
+		if err := s.db.FirstOrCreate(&membership, membership).Error; err != nil {
+			log.Printf("[immich] upsert membership (image=%d, album=%d): %v", img.ID, album.ID, err)
+		}
 		seen = append(seen, img.ID)
 		memberCount++
 	}
@@ -330,7 +340,9 @@ func (s *ImmichService) importAlbumAssets(album model.Album, assets []immich.Ass
 	if len(seen) > 0 {
 		prune = prune.Where("image_id NOT IN ?", seen)
 	}
-	prune.Delete(&model.ImageAlbumMembership{})
+	if err := prune.Delete(&model.ImageAlbumMembership{}).Error; err != nil {
+		log.Printf("[immich] prune memberships for album %d: %v", album.ID, err)
+	}
 	return newCount, memberCount
 }
 
@@ -338,9 +350,11 @@ func (s *ImmichService) importAlbumAssets(album model.Album, assets []immich.Ass
 // (their album was disabled, or they were removed upstream).
 func (s *ImmichService) gcOrphanImages() {
 	sub := s.db.Model(&model.ImageAlbumMembership{}).Select("image_id")
-	s.db.Unscoped().
+	if err := s.db.Unscoped().
 		Where("source = ? AND id NOT IN (?)", model.SourceImmich, sub).
-		Delete(&model.Image{})
+		Delete(&model.Image{}).Error; err != nil {
+		log.Printf("[immich] gc orphan images: %v", err)
+	}
 }
 
 // fetchAssetsForAlbum returns the assets for one album — a real Immich album
@@ -418,7 +432,9 @@ func (s *ImmichService) ClearPhotos() error {
 	var albumIDs []uint
 	s.db.Model(&model.Album{}).Where("source = ?", model.SourceImmich).Pluck("id", &albumIDs)
 	if len(albumIDs) > 0 {
-		s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{})
+		if err := s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{}).Error; err != nil {
+			log.Printf("[immich] clear memberships for albums %v: %v", albumIDs, err)
+		}
 	}
 	if err := s.db.Unscoped().Where("source = ?", model.SourceImmich).Delete(&model.Image{}).Error; err != nil {
 		return err
