@@ -377,6 +377,12 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 		h.db.Where("image_id IN ?", ids).Delete(&model.ImageAlbumMembership{})
 	}
 
+	// Disable sync for this source's albums so an auto-sync doesn't immediately
+	// re-import what was just deleted (no-op for sources without albums).
+	if source != "" {
+		h.db.Model(&model.Album{}).Where("source = ?", source).Update("sync_enabled", false)
+	}
+
 	for _, item := range items {
 		if item.Source == model.SourceGooglePhotos || item.Source == model.SourceGallery {
 			if item.FilePath != "" {

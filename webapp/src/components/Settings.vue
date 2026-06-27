@@ -233,7 +233,18 @@
 
                   <!-- Photos Section -->
                   <v-divider class="my-6"></v-divider>
-                  <h3 class="text-subtitle-1 font-weight-bold mb-3">Photos</h3>
+                  <div class="d-flex align-center justify-space-between mb-3">
+                    <h3 class="text-subtitle-1 font-weight-bold">Photos</h3>
+                    <v-btn
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      prepend-icon="mdi-delete"
+                      :loading="deletingAllPhotos"
+                      @click="deleteAllPhotosForSource('google_photos')"
+                      >Delete all photos</v-btn
+                    >
+                  </div>
 
                   <div v-if="form.google_connected === 'true'">
                     <v-alert
@@ -359,14 +370,25 @@
                           <h3 class="text-subtitle-1 font-weight-bold">
                             Albums to sync
                           </h3>
-                          <v-btn
-                            size="small"
-                            variant="text"
-                            prepend-icon="mdi-refresh"
-                            :loading="synologyStore.loading"
-                            @click="loadAlbums"
-                            >Refresh albums</v-btn
-                          >
+                          <div class="d-flex ga-2">
+                            <v-btn
+                              size="small"
+                              variant="text"
+                              prepend-icon="mdi-refresh"
+                              :loading="synologyStore.loading"
+                              @click="loadAlbums"
+                              >Refresh albums</v-btn
+                            >
+                            <v-btn
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              prepend-icon="mdi-delete"
+                              :loading="deletingAllPhotos"
+                              @click="deleteAllPhotosForSource('synology_photos')"
+                              >Delete all photos</v-btn
+                            >
+                          </div>
                         </div>
                         <div class="text-caption text-grey mb-2">
                           Choose which Synology Photos albums to pull photos
@@ -558,14 +580,25 @@
                           <h3 class="text-subtitle-1 font-weight-bold">
                             Albums to sync
                           </h3>
-                          <v-btn
-                            size="small"
-                            variant="text"
-                            prepend-icon="mdi-refresh"
-                            :loading="immichStore.loading"
-                            @click="loadImmichAlbums"
-                            >Refresh albums</v-btn
-                          >
+                          <div class="d-flex ga-2">
+                            <v-btn
+                              size="small"
+                              variant="text"
+                              prepend-icon="mdi-refresh"
+                              :loading="immichStore.loading"
+                              @click="loadImmichAlbums"
+                              >Refresh albums</v-btn
+                            >
+                            <v-btn
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              prepend-icon="mdi-delete"
+                              :loading="deletingAllPhotos"
+                              @click="deleteAllPhotosForSource('immich')"
+                              >Delete all photos</v-btn
+                            >
+                          </div>
                         </div>
                         <div class="text-caption text-grey mb-2">
                           Choose which Immich albums and collections to pull
@@ -760,6 +793,17 @@
                     Gallery tab above, or send them to the Telegram bot
                     configured below.
                   </v-alert>
+
+                  <div class="d-flex mb-2">
+                    <v-btn
+                      color="error"
+                      variant="outlined"
+                      prepend-icon="mdi-delete"
+                      :loading="deletingAllPhotos"
+                      @click="deleteAllPhotosForSource('gallery')"
+                      >Delete all photos</v-btn
+                    >
+                  </div>
 
                   <v-divider class="my-4"></v-divider>
 
@@ -3500,6 +3544,58 @@ const showMessage = (msg: string, isError = false) => {
   snackbar.message = msg;
   snackbar.color = isError ? 'error' : 'success';
   snackbar.show = true;
+};
+
+// Delete all photos for a given image source. Also disables that source's
+// album sync on the backend, so refresh the sync-selection UI afterwards.
+const deletingAllPhotos = ref(false);
+const deleteAllPhotosForSource = async (
+  source: 'immich' | 'synology_photos' | 'google_photos' | 'gallery'
+) => {
+  if (
+    !(await confirmDialog.value.open(
+      'Delete all photos for this source? This also turns off its album sync.'
+    ))
+  )
+    return;
+
+  deletingAllPhotos.value = true;
+  try {
+    await api.delete('/gallery/photos?source=' + source);
+
+    if (source === 'immich') {
+      await immichStore.fetchSyncedAlbums();
+      try {
+        await immichStore.fetchAlbums();
+        form.immich_albums = immichStore.albums;
+      } catch (e) {
+        // Non-fatal: keep whatever albums we already have.
+      }
+      applySyncedAlbumState();
+    } else if (source === 'synology_photos') {
+      await synologyStore.fetchSyncedAlbums();
+      try {
+        await synologyStore.fetchAlbums();
+        form.albums = synologyStore.albums;
+      } catch (e) {
+        // Non-fatal.
+      }
+      applySynologySyncedAlbumState();
+    }
+
+    showMessage('All photos deleted.');
+
+    if (galleryStore.source === source) {
+      await galleryStore.fetchPhotos();
+    }
+  } catch (e: any) {
+    showMessage(
+      'Failed to delete photos: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  } finally {
+    deletingAllPhotos.value = false;
+  }
 };
 
 onMounted(async () => {
