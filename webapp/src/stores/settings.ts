@@ -19,15 +19,16 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
     async saveSettings(newSettings: Record<string, string>) {
-      this.loading = true;
+      // NOTE: deliberately does NOT toggle `loading`. The settings panel is
+      // gated on `loading` for the INITIAL fetch only; flipping it on every
+      // save (e.g. the debounced album auto-save) would unmount/remount the
+      // whole panel and reset the user's scroll position.
       try {
         await updateSettings(newSettings);
         this.settings = { ...this.settings, ...newSettings };
       } catch (err: any) {
         this.error = err.message;
         throw err;
-      } finally {
-        this.loading = false;
       }
     },
   },
