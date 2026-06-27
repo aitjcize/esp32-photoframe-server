@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from '../api';
 import { useSettingsStore } from './settings';
+import { getApiError } from '../utils/errors';
 
 export const useSynologyStore = defineStore('synology', {
   state: () => ({
@@ -15,7 +16,7 @@ export const useSynologyStore = defineStore('synology', {
       try {
         const res = await api.get('/synology/count');
         this.count = res.data.count || 0;
-      } catch (e: any) {
+      } catch (e) {
         console.error('Failed to fetch Synology photo count', e);
       }
     },
@@ -24,17 +25,13 @@ export const useSynologyStore = defineStore('synology', {
       this.loading = true;
       this.error = null;
       try {
-        // Ensure settings are saved/fresh?
-        // Logic in Settings.vue was "saveSettingsInternal()" before loading.
-        // We assume the caller handles saving settings mostly, or we rely on backend having latest.
         const res = await api.get('/synology/albums');
         this.albums = res.data;
       } catch (e: any) {
         if (e.response && e.response.status === 401) {
-          // Let the component handle UI feedback for now, or throw
           throw new Error('Session expired');
         }
-        this.error = e.response?.data?.error || e.message;
+        this.error = getApiError(e);
         throw e;
       } finally {
         this.loading = false;
@@ -46,7 +43,7 @@ export const useSynologyStore = defineStore('synology', {
         const res = await api.get('/albums?source=synology_photos');
         this.syncedAlbums = res.data || [];
         return this.syncedAlbums;
-      } catch (e: any) {
+      } catch (e) {
         console.error('Failed to fetch synced Synology albums', e);
         throw e;
       }
@@ -58,8 +55,6 @@ export const useSynologyStore = defineStore('synology', {
         await api.post('/synology/sync-albums', { album_ids });
         await this.fetchSyncedAlbums();
         await this.fetchCount();
-      } catch (e: any) {
-        throw e;
       } finally {
         this.loading = false;
       }
@@ -69,14 +64,11 @@ export const useSynologyStore = defineStore('synology', {
       this.loading = true;
       try {
         const res = await api.post('/synology/test', { otp_code: otpCode });
-        // Start using settings store to refresh settings as SID might be updated
+        // SID may be updated server-side; refresh settings view.
         const settingsStore = useSettingsStore();
         await settingsStore.fetchSettings();
-        // also fetch count
         await this.fetchCount();
         return res.data;
-      } catch (e: any) {
-        throw e;
       } finally {
         this.loading = false;
       }
@@ -87,8 +79,6 @@ export const useSynologyStore = defineStore('synology', {
       try {
         await api.post('/synology/sync');
         await this.fetchCount();
-      } catch (e: any) {
-        throw e;
       } finally {
         this.loading = false;
       }
@@ -103,8 +93,6 @@ export const useSynologyStore = defineStore('synology', {
         this.count = 0;
         this.albums = [];
         this.syncedAlbums = [];
-      } catch (e: any) {
-        throw e;
       } finally {
         this.loading = false;
       }
