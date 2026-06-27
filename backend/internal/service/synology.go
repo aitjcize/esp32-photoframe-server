@@ -61,17 +61,8 @@ func (s *SynologyService) isAutoSyncConfigured() bool {
 }
 
 func (s *SynologyService) getAutoSyncConfig() (bool, time.Duration) {
-	enabledStr, _ := s.settings.Get("synology_auto_sync_enabled")
-	enabled := strings.EqualFold(enabledStr, "true")
-
-	minutes := 60
-	if intervalStr, err := s.settings.Get("synology_auto_sync_interval_minutes"); err == nil {
-		if parsed, parseErr := strconv.Atoi(intervalStr); parseErr == nil && parsed > 0 {
-			minutes = parsed
-		}
-	}
-
-	return enabled, time.Duration(minutes) * time.Minute
+	return parseAutoSyncConfig(s.settings,
+		"synology_auto_sync_enabled", "synology_auto_sync_interval_minutes")
 }
 
 // ensureClient initializes and logs in the client if needed
@@ -373,12 +364,7 @@ func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (new
 
 // gcOrphanImages removes Synology image rows no longer a member of any album.
 func (s *SynologyService) gcOrphanImages() {
-	sub := s.db.Model(&model.ImageAlbumMembership{}).Select("image_id")
-	if err := s.db.Unscoped().
-		Where("source = ? AND id NOT IN (?)", model.SourceSynologyPhotos, sub).
-		Delete(&model.Image{}).Error; err != nil {
-		log.Printf("[synology] gc orphan images: %v", err)
-	}
+	gcOrphanImagesForSource(s.db, model.SourceSynologyPhotos)
 }
 
 // ensureGlobalAlbumSeed materializes the legacy synology_album_id setting into
@@ -463,18 +449,7 @@ func (s *SynologyService) SetSyncAlbums(realIDs []string) error {
 
 // ClearPhotos deletes all Synology photos and their album memberships.
 func (s *SynologyService) ClearPhotos() error {
-	var albumIDs []uint
-	s.db.Model(&model.Album{}).Where("source = ?", model.SourceSynologyPhotos).Pluck("id", &albumIDs)
-	if len(albumIDs) > 0 {
-		if err := s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{}).Error; err != nil {
-			log.Printf("[synology] clear memberships for albums %v: %v", albumIDs, err)
-		}
-	}
-	if err := s.db.Unscoped().Where("source = ?", model.SourceSynologyPhotos).Delete(&model.Image{}).Error; err != nil {
-		return err
-	}
-	log.Println("Cleared all Synology photos from database")
-	return nil
+	return clearSourcePhotos(s.db, model.SourceSynologyPhotos)
 }
 
 // ClearAndResync deletes all Synology photos and re-imports them
@@ -499,11 +474,7 @@ func (s *SynologyService) clearAndResyncInternal() error {
 
 // GetPhotoCount returns the number of Synology photos in the database
 func (s *SynologyService) GetPhotoCount() (int64, error) {
-	var count int64
-	if err := s.db.Model(&model.Image{}).Where("source = ?", model.SourceSynologyPhotos).Count(&count).Error; err != nil {
-		return 0, err
-	}
-	return count, nil
+	return sourcePhotoCount(s.db, model.SourceSynologyPhotos)
 }
 
 // DownloadPhoto fetches the large thumbnail by ID (avoiding full download/EXIF issues)

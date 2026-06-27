@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -102,17 +101,8 @@ func (s *ImmichService) isAutoSyncConfigured() bool {
 }
 
 func (s *ImmichService) getAutoSyncConfig() (bool, time.Duration) {
-	enabledStr, _ := s.settings.Get("immich_auto_sync_enabled")
-	enabled := strings.EqualFold(enabledStr, "true")
-
-	minutes := 60
-	if intervalStr, err := s.settings.Get("immich_auto_sync_interval_minutes"); err == nil {
-		if parsed, parseErr := strconv.Atoi(intervalStr); parseErr == nil && parsed > 0 {
-			minutes = parsed
-		}
-	}
-
-	return enabled, time.Duration(minutes) * time.Minute
+	return parseAutoSyncConfig(s.settings,
+		"immich_auto_sync_enabled", "immich_auto_sync_interval_minutes")
 }
 
 // getClient returns the current client, initializing from stored settings if needed.
@@ -349,12 +339,7 @@ func (s *ImmichService) importAlbumAssets(album model.Album, assets []immich.Ass
 // gcOrphanImages removes Immich image rows no longer a member of any album
 // (their album was disabled, or they were removed upstream).
 func (s *ImmichService) gcOrphanImages() {
-	sub := s.db.Model(&model.ImageAlbumMembership{}).Select("image_id")
-	if err := s.db.Unscoped().
-		Where("source = ? AND id NOT IN (?)", model.SourceImmich, sub).
-		Delete(&model.Image{}).Error; err != nil {
-		log.Printf("[immich] gc orphan images: %v", err)
-	}
+	gcOrphanImagesForSource(s.db, model.SourceImmich)
 }
 
 // fetchAssetsForAlbum returns the assets for one album — a real Immich album
@@ -428,19 +413,7 @@ func (s *ImmichService) ensureGlobalAlbumSeed(client *immich.Client) {
 
 // ClearPhotos deletes all Immich photos from the database
 func (s *ImmichService) ClearPhotos() error {
-	// Drop memberships for Immich albums first so they don't dangle.
-	var albumIDs []uint
-	s.db.Model(&model.Album{}).Where("source = ?", model.SourceImmich).Pluck("id", &albumIDs)
-	if len(albumIDs) > 0 {
-		if err := s.db.Where("album_id IN ?", albumIDs).Delete(&model.ImageAlbumMembership{}).Error; err != nil {
-			log.Printf("[immich] clear memberships for albums %v: %v", albumIDs, err)
-		}
-	}
-	if err := s.db.Unscoped().Where("source = ?", model.SourceImmich).Delete(&model.Image{}).Error; err != nil {
-		return err
-	}
-	log.Println("Cleared all Immich photos from database")
-	return nil
+	return clearSourcePhotos(s.db, model.SourceImmich)
 }
 
 // ClearAndResync deletes all Immich photos and re-imports from the configured album
@@ -485,11 +458,7 @@ func parseImmichDate(s string) *time.Time {
 
 // GetPhotoCount returns the number of Immich photos in the database
 func (s *ImmichService) GetPhotoCount() (int64, error) {
-	var count int64
-	if err := s.db.Model(&model.Image{}).Where("source = ?", model.SourceImmich).Count(&count).Error; err != nil {
-		return 0, err
-	}
-	return count, nil
+	return sourcePhotoCount(s.db, model.SourceImmich)
 }
 
 // GetPhoto fetches the image bytes for an Immich asset by its UUID.
