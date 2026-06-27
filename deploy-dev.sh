@@ -6,9 +6,10 @@
 # (slow) Raspberry Pi. First-time installs still build once on-device.
 #
 # Requirements on the HA host:
-#   - "Advanced SSH & Web Terminal" add-on with Protection mode OFF
-#     (Settings -> Add-ons -> Advanced SSH & Web Terminal -> Protection mode),
-#     otherwise the host `docker load` is blocked.
+#   - HAOS host debug SSH enabled on port 22222 (your key in the boot CONFIG
+#     partition's authorized_keys). This reaches the real Docker daemon
+#     directly, bypassing the SSH add-on's Protection-mode wrapper.
+#   - The SSH add-on (port 22) for rsync to /addons and `ha` CLI commands.
 #
 # Usage: ./deploy-dev.sh [homeassistant-host]   (default: root@homeassistant.local)
 set -euo pipefail
@@ -21,6 +22,10 @@ ADDON_PORT="9608"
 BUILD_FROM="ghcr.io/home-assistant/aarch64-base:3.19"
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
 REMOTE_DIR="/addons/${ADDON_NAME}"
+
+# HAOS host debug SSH (port 22222): direct access to the real Docker daemon.
+HOST_SSH_PORT="${HOST_SSH_PORT:-22222}"
+HOST_DOCKER_SSH=(ssh -p "${HOST_SSH_PORT}" -o StrictHostKeyChecking=accept-new "${HA_HOST}")
 
 echo "=== Syncing add-on config to ${HA_HOST}:${REMOTE_DIR} ==="
 ssh "${HA_HOST}" "mkdir -p ${REMOTE_DIR}"
@@ -62,11 +67,11 @@ if ! ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" >/dev/null 2>&1; then
   exit 0
 fi
 
-# Preflight: host Docker must be reachable (SSH add-on Protection mode OFF).
-if ! ssh "${HA_HOST}" "docker version" >/dev/null 2>&1; then
-  echo "ERROR: cannot access Docker on ${HA_HOST}." >&2
-  echo "Turn OFF Protection mode on the 'Advanced SSH & Web Terminal' add-on," >&2
-  echo "then restart that add-on and re-run this script." >&2
+# Preflight: host Docker reachable via the HAOS debug SSH (port 22222).
+if ! "${HOST_DOCKER_SSH[@]}" "docker version" >/dev/null 2>&1; then
+  echo "ERROR: cannot reach Docker on ${HA_HOST}:${HOST_SSH_PORT}." >&2
+  echo "Enable HAOS debug SSH on port ${HOST_SSH_PORT} and authorize your key" >&2
+  echo "(authorized_keys on the boot CONFIG partition)." >&2
   exit 1
 fi
 
@@ -87,8 +92,8 @@ docker buildx build "${LOCAL_DIR}" \
   --label io.hass.url="https://github.com/aitjcize/esp32-photoframe-server" \
   --load
 
-echo "=== Transferring image to ${HA_HOST} (docker save | gzip | ssh docker load) ==="
-docker save "${IMAGE}" | gzip | ssh "${HA_HOST}" "docker load"
+echo "=== Transferring image to ${HA_HOST}:${HOST_SSH_PORT} (docker save | gzip | docker load) ==="
+docker save "${IMAGE}" | gzip | "${HOST_DOCKER_SSH[@]}" "docker load"
 
 echo "=== Restarting add-on ${ADDON_SLUG} (no rebuild) ==="
 ssh "${HA_HOST}" "ha apps restart ${ADDON_SLUG}" \
