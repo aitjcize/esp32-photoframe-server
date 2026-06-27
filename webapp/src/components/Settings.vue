@@ -1049,7 +1049,7 @@
                 ></v-text-field>
               </v-alert>
 
-              <v-card variant="tonal" class="mb-6">
+              <v-card variant="flat" class="border rounded mb-6">
                 <v-card-title class="text-subtitle-1"
                   >Generate New Token</v-card-title
                 >
@@ -1153,8 +1153,8 @@
                 <v-card
                   v-for="token in authStore.tokens"
                   :key="token.id"
-                  variant="tonal"
-                  class="mb-2"
+                  variant="flat"
+                  class="border rounded mb-2"
                 >
                   <v-card-text class="pa-3">
                     <div class="d-flex align-center">
