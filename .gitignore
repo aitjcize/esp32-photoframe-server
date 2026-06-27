@@ -20,6 +20,9 @@ start.db
 photoframe.db
 *.db
 *.sqlite
+*.db-wal
+*.db-shm
+*.db-journal
 
 # Data & Temp files
 data/photos/
