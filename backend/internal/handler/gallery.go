@@ -71,12 +71,12 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to count photos"})
+		return respondError(c, http.StatusInternalServerError, "failed to count photos")
 	}
 
 	var items []model.Image
 	if err := query.Order("created_at desc").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list photos"})
+		return respondError(c, http.StatusInternalServerError, "failed to list photos")
 	}
 
 	type PhotoResponse struct {
@@ -117,29 +117,29 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 func (h *GalleryHandler) UploadPhoto(c echo.Context) error {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "file is required"})
+		return respondError(c, http.StatusBadRequest, "file is required")
 	}
 
 	galleryDir := filepath.Join(h.dataDir, "photos", "gallery")
 	if err := os.MkdirAll(galleryDir, 0755); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create gallery directory"})
+		return respondError(c, http.StatusInternalServerError, "failed to create gallery directory")
 	}
 
 	src, err := fileHeader.Open()
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "failed to open upload"})
+		return respondError(c, http.StatusBadRequest, "failed to open upload")
 	}
 	defer src.Close()
 
 	destPath := filepath.Join(galleryDir, fmt.Sprintf("upload_%d%s", time.Now().UnixNano(), filepath.Ext(fileHeader.Filename)))
 	dst, err := os.Create(destPath)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write file"})
+		return respondError(c, http.StatusInternalServerError, "failed to write file")
 	}
 	if _, err := io.Copy(dst, src); err != nil {
 		dst.Close()
 		os.Remove(destPath)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save file"})
+		return respondError(c, http.StatusInternalServerError, "failed to save file")
 	}
 	dst.Close()
 
@@ -153,7 +153,7 @@ func (h *GalleryHandler) UploadPhoto(c echo.Context) error {
 	width, height, orientation := decodeImageDimensions(destPath)
 	if width == 0 || height == 0 {
 		os.Remove(destPath)
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "uploaded file is not a supported image"})
+		return respondError(c, http.StatusBadRequest, "uploaded file is not a supported image")
 	}
 
 	img := model.Image{
@@ -169,7 +169,7 @@ func (h *GalleryHandler) UploadPhoto(c echo.Context) error {
 	}
 	if err := h.db.Create(&img).Error; err != nil {
 		os.Remove(destPath)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save photo"})
+		return respondError(c, http.StatusInternalServerError, "failed to save photo")
 	}
 
 	return c.JSON(http.StatusCreated, map[string]interface{}{
@@ -208,12 +208,12 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return respondError(c, http.StatusBadRequest, "invalid id")
 	}
 
 	var item model.Image
 	if err := h.db.First(&item, id).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
+		return respondError(c, http.StatusNotFound, "photo not found")
 	}
 
 	// Case 1: Synology (Proxy)
@@ -224,7 +224,7 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		thumbBytes, err := h.synology.GetPhoto(item.SynologyPhotoID, item.ThumbnailKey, "small")
 		if err != nil {
 			fmt.Printf("Failed to fetch synology thumbnail (ID=%d): %v\n", item.SynologyPhotoID, err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch synology thumbnail"})
+			return respondError(c, http.StatusInternalServerError, "failed to fetch synology thumbnail")
 		}
 		c.Response().Header().Set("Content-Type", "image/jpeg")
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
@@ -237,7 +237,7 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		thumbBytes, err := h.immich.GetPhoto(item.ImmichAssetID, "thumbnail")
 		if err != nil {
 			fmt.Printf("Failed to fetch immich thumbnail (asset=%s): %v\n", item.ImmichAssetID, err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch immich thumbnail"})
+			return respondError(c, http.StatusInternalServerError, "failed to fetch immich thumbnail")
 		}
 		c.Response().Header().Set("Content-Type", "image/jpeg")
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400")
@@ -256,16 +256,16 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 
 	// Generate from high-res file if missing
 	if item.FilePath == "" {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "source file missing"})
+		return respondError(c, http.StatusNotFound, "source file missing")
 	}
 
 	if _, err := os.Stat(item.FilePath); os.IsNotExist(err) {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "source file missing"})
+		return respondError(c, http.StatusNotFound, "source file missing")
 	}
 
 	if err := h.generateThumbnail(item.FilePath, thumbPath); err != nil {
 		fmt.Printf("Thumbnail generation failed for %d: %v\n", item.ID, err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate thumbnail"})
+		return respondError(c, http.StatusInternalServerError, "failed to generate thumbnail")
 	}
 
 	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
@@ -316,7 +316,7 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 	id := c.Param("id")
 	var item model.Image
 	if err := h.db.First(&item, id).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
+		return respondError(c, http.StatusNotFound, "photo not found")
 	}
 
 	// Delete the row first. If we removed the file before the DB delete and
@@ -324,7 +324,7 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 	// a row pointing at a missing file. Orphaned files are easier to recover
 	// from than orphaned rows.
 	if err := h.db.Unscoped().Delete(&item).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
+		return respondError(c, http.StatusInternalServerError, "failed to delete from db")
 	}
 
 	// Drop album memberships for this image (consistent with the bulk delete).
@@ -355,7 +355,7 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 	}
 
 	if err := query.Find(&items).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to find photos"})
+		return respondError(c, http.StatusInternalServerError, "failed to find photos")
 	}
 
 	// Delete DB rows first; clean up files only after the DB delete succeeds
@@ -367,7 +367,7 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 	}
 	if err := delQuery.Unscoped().Delete(&model.Image{}).Error; err != nil {
 		fmt.Printf("DeletePhotos failed: %v\n", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
+		return respondError(c, http.StatusInternalServerError, "failed to delete from db")
 	}
 
 	// Drop album memberships for the deleted images so album counts reflect
@@ -413,11 +413,11 @@ type CreateURLSourceRequest struct {
 func (h *GalleryHandler) CreateURLSource(c echo.Context) error {
 	req := new(CreateURLSourceRequest)
 	if err := c.Bind(req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	if req.URL == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "url is required"})
+		return respondError(c, http.StatusBadRequest, "url is required")
 	}
 
 	// Create URL Source Record
@@ -427,7 +427,7 @@ func (h *GalleryHandler) CreateURLSource(c echo.Context) error {
 	}
 
 	if err := h.db.Create(&src).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create url source"})
+		return respondError(c, http.StatusInternalServerError, "failed to create url source")
 	}
 
 	// Create Bindings
@@ -449,7 +449,7 @@ func (h *GalleryHandler) CreateURLSource(c echo.Context) error {
 func (h *GalleryHandler) ListURLSources(c echo.Context) error {
 	var sources []model.URLSource
 	if err := h.db.Find(&sources).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list url sources"})
+		return respondError(c, http.StatusInternalServerError, "failed to list url sources")
 	}
 
 	// Fetch Mappings
@@ -489,7 +489,7 @@ func (h *GalleryHandler) DeleteURLSource(c echo.Context) error {
 	h.db.Where("url_source_id = ?", id).Delete(&model.DeviceURLMapping{})
 	// Delete source
 	if err := h.db.Delete(&model.URLSource{}, id).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete url source"})
+		return respondError(c, http.StatusInternalServerError, "failed to delete url source")
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -498,21 +498,21 @@ func (h *GalleryHandler) UpdateURLSource(c echo.Context) error {
 	id := c.Param("id")
 	req := new(CreateURLSourceRequest)
 	if err := c.Bind(req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	if req.URL == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "url is required"})
+		return respondError(c, http.StatusBadRequest, "url is required")
 	}
 
 	// Update Source
 	var src model.URLSource
 	if err := h.db.First(&src, id).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "url source not found"})
+		return respondError(c, http.StatusNotFound, "url source not found")
 	}
 	src.URL = req.URL
 	if err := h.db.Save(&src).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update url source"})
+		return respondError(c, http.StatusInternalServerError, "failed to update url source")
 	}
 
 	// Re-create bindings

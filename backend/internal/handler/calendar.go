@@ -25,15 +25,15 @@ func NewCalendarHandler(google *googlephotos.Client, calendar *gcalendar.Client)
 func (h *CalendarHandler) ListCalendars(c echo.Context) error {
 	httpClient, err := h.google.GetClient()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "google calendar not connected"})
+		return respondError(c, http.StatusInternalServerError, "google calendar not connected")
 	}
 
 	calendars, err := h.calendar.GetCalendarList(httpClient)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	if calendars == nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "calendar_not_authorized"})
+		return respondError(c, http.StatusForbidden, "calendar_not_authorized")
 	}
 
 	return c.JSON(http.StatusOK, calendars)

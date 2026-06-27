@@ -105,9 +105,9 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	if deviceFound && device.Source != "" {
 		source = device.Source
 	} else if source == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "no image source for this device — set the device's Image Source in the server, or request /image/<source>",
-		})
+		return respondError(c, http.StatusBadRequest,
+			"no image source for this device — set the device's Image Source in the server, or request /image/<source>")
+
 	}
 
 	// Native resolution of the device panel
@@ -211,7 +211,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// (gallery, immich, synology, google_photos, url_proxy) — flow through
 	// the unified imagesource.Registry.
 	if !h.sources.Has(source) {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "invalid source"})
+		return respondError(c, http.StatusNotFound, "invalid source")
 	}
 	var devicePtr *model.Device
 	if deviceFound {
@@ -229,12 +229,12 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "invalid source filter") {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "invalid source"})
+			return respondError(c, http.StatusNotFound, "invalid source")
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) || strings.Contains(err.Error(), "record not found") {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "no photos found for this device"})
+			return respondError(c, http.StatusNotFound, "no photos found for this device")
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch photo: " + err.Error()})
+		return respondError(c, http.StatusInternalServerError, "failed to fetch photo: "+err.Error())
 	}
 	img = sourceResp.Image
 	servedImageIDs := sourceResp.ImageIDs
@@ -253,7 +253,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		}
 		var buf bytes.Buffer
 		if err := png.Encode(&buf, out); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "png encode: " + err.Error()})
+			return respondError(c, http.StatusInternalServerError, "png encode: "+err.Error())
 		}
 		body := buf.Bytes()
 
@@ -363,7 +363,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 			DateFormat:    device.DateFormat,
 		})
 		if renderErr != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "render failed: " + renderErr.Error()})
+			return respondError(c, http.StatusInternalServerError, "render failed: "+renderErr.Error())
 		}
 	} else {
 		imgWithOverlay = img
@@ -414,7 +414,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	processedBytes, thumbBytes, err := h.processor.ProcessImage(imgWithOverlay, procOptions)
 	if err != nil {
 		fmt.Printf("Processor failed: %v\n", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "processor service failed: " + err.Error()})
+		return respondError(c, http.StatusInternalServerError, "processor service failed: "+err.Error())
 	}
 
 	// 4. Cache Thumbnail & Set Headers
@@ -450,7 +450,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 func (h *ImageHandler) SyncDeviceConfig(c echo.Context) error {
 	device, deviceFound := h.identifyDevice(c)
 	if !deviceFound {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "device not found"})
+		return respondError(c, http.StatusNotFound, "device not found")
 	}
 
 	// Parse request body: { "config": {...}, "processing_settings": {...}, "color_palette": {...}, "config_last_updated": 123 }
@@ -461,7 +461,7 @@ func (h *ImageHandler) SyncDeviceConfig(c echo.Context) error {
 		ConfigLastUpdated  int64           `json:"config_last_updated"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	// Store device's config in database
@@ -499,7 +499,7 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 
 	var device model.Device
 	if err := h.db.First(&device, uint(id)).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "device not found"})
+		return respondError(c, http.StatusNotFound, "device not found")
 	}
 
 	var req struct {
@@ -508,7 +508,7 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 		ColorPalette       json.RawMessage `json:"color_palette"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	updates := map[string]interface{}{
@@ -576,7 +576,7 @@ func (h *ImageHandler) GetDeviceConfig(c echo.Context) error {
 
 	var device model.Device
 	if err := h.db.First(&device, uint(id)).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "device not found"})
+		return respondError(c, http.StatusNotFound, "device not found")
 	}
 
 	resp := map[string]interface{}{
@@ -626,16 +626,16 @@ func (h *ImageHandler) GetServedImageThumbnail(c echo.Context) error {
 	id := c.Param("id")
 	// Prevent directory traversal
 	if id == "" || id == "." || id == ".." {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return respondError(c, http.StatusBadRequest, "invalid id")
 	}
 
 	thumbPath := filepath.Join(h.dataDir, fmt.Sprintf("thumb_%s.jpg", id))
 	data, err := os.ReadFile(thumbPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "thumbnail not found"})
+			return respondError(c, http.StatusNotFound, "thumbnail not found")
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to read thumbnail"})
+		return respondError(c, http.StatusInternalServerError, "failed to read thumbnail")
 	}
 
 	// Delete after 5 minutes instead of immediately

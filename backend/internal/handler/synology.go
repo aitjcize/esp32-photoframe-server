@@ -28,14 +28,14 @@ func (h *SynologyHandler) TestConnection(c echo.Context) error {
 	}
 
 	if err := h.synology.TestConnection(req.OTPCode); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusBadRequest, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *SynologyHandler) Logout(c echo.Context) error {
 	if err := h.synology.Logout(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -43,7 +43,7 @@ func (h *SynologyHandler) Logout(c echo.Context) error {
 func (h *SynologyHandler) ListAlbums(c echo.Context) error {
 	albums, err := h.synology.ListAlbums()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, albums)
 }
@@ -55,13 +55,13 @@ func (h *SynologyHandler) SetSyncAlbums(c echo.Context) error {
 		AlbumIDs []string `json:"album_ids"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 	if err := h.synology.SetSyncAlbums(req.AlbumIDs); err != nil {
 		if strings.Contains(err.Error(), "authentication expired") {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Session expired. Please reconnect to Synology."})
+			return respondError(c, http.StatusUnauthorized, "Session expired. Please reconnect to Synology.")
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }

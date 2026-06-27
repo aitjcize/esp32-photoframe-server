@@ -37,7 +37,7 @@ func NewDeviceHandler(deviceService *service.DeviceService, synologyService *ser
 func (h *DeviceHandler) ListDevices(c echo.Context) error {
 	devices, err := h.deviceService.ListDevices()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, devices)
 }
@@ -59,11 +59,11 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		DateFormat    string  `json:"date_format"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	if req.Host == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "host required"})
+		return respondError(c, http.StatusBadRequest, "host required")
 	}
 
 	if req.Layout == "" {
@@ -72,7 +72,7 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 
 	device, err := h.deviceService.AddDevice(req.Host, req.EnableCollage, req.ShowDate, req.ShowPhotoDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusCreated, device)
 }
@@ -103,7 +103,7 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		Source        string  `json:"source"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	if req.Layout == "" {
@@ -112,12 +112,12 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 
 	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Orientation, req.EnableCollage, req.ShowDate, req.ShowPhotoDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	// Per-device image source for the unified /image endpoint (kept out of the
 	// long UpdateDevice signature; persisted directly).
 	if err := h.db.Model(device).Update("source", req.Source).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	device.Source = req.Source
 	return c.JSON(http.StatusOK, device)
@@ -132,9 +132,9 @@ func (h *DeviceHandler) RefreshDevice(c echo.Context) error {
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "failed to fetch") {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": errMsg})
+			return respondError(c, http.StatusServiceUnavailable, errMsg)
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": errMsg})
+		return respondError(c, http.StatusInternalServerError, errMsg)
 	}
 	return c.JSON(http.StatusOK, device)
 }
@@ -143,7 +143,7 @@ func (h *DeviceHandler) RefreshDevice(c echo.Context) error {
 func (h *DeviceHandler) DeleteDevice(c echo.Context) error {
 	id, _ := strconv.Atoi(c.Param("id"))
 	if err := h.deviceService.DeleteDevice(uint(id)); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -156,7 +156,7 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 		URL     string `json:"url"` // Optional direct URL/Path
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	imagePath := req.URL
@@ -165,27 +165,27 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 	if req.ImageID != 0 {
 		var img model.Image
 		if err := h.db.First(&img, req.ImageID).Error; err != nil {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "image not found"})
+			return respondError(c, http.StatusNotFound, "image not found")
 		}
 
 		if img.Source == model.SourceSynologyPhotos {
 			// Download to temporary file
 			data, err := h.synologyService.DownloadPhoto(int(img.SynologyPhotoID))
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to download synology photo: %v", err)})
+				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download synology photo: %v", err))
 			}
 
 			// Save to temp file
 			tmp, err := ioutil.TempFile("", "syno_push_*.jpg")
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create temp file"})
+				return respondError(c, http.StatusInternalServerError, "failed to create temp file")
 			}
 			defer os.Remove(tmp.Name()) // Clean up
 			tempFile = tmp.Name()
 
 			if _, err := tmp.Write(data); err != nil {
 				tmp.Close()
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write temp file"})
+				return respondError(c, http.StatusInternalServerError, "failed to write temp file")
 			}
 			tmp.Close()
 			imagePath = tempFile
@@ -193,19 +193,19 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			// Download from Immich to temporary file
 			data, err := h.immichService.DownloadPhoto(img.ImmichAssetID)
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to download immich photo: %v", err)})
+				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download immich photo: %v", err))
 			}
 
 			tmp, err := ioutil.TempFile("", "immich_push_*.jpg")
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create temp file"})
+				return respondError(c, http.StatusInternalServerError, "failed to create temp file")
 			}
 			defer os.Remove(tmp.Name())
 			tempFile = tmp.Name()
 
 			if _, err := tmp.Write(data); err != nil {
 				tmp.Close()
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to write temp file"})
+				return respondError(c, http.StatusInternalServerError, "failed to write temp file")
 			}
 			tmp.Close()
 			imagePath = tempFile
@@ -215,22 +215,22 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 	}
 
 	if imagePath == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "image path or id required"})
+		return respondError(c, http.StatusBadRequest, "image path or id required")
 	}
 
 	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "image file not found on server"})
+		return respondError(c, http.StatusNotFound, "image file not found on server")
 	}
 
 	// Push
 	if err := h.deviceService.PushToDevice(uint(deviceID), imagePath); err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "not reachable") || strings.Contains(errMsg, "failed to resolve") {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{
-				"error": "Device is not reachable. Please ensure the device is online and accessible.",
-			})
+			return respondError(c, http.StatusServiceUnavailable,
+				"Device is not reachable. Please ensure the device is online and accessible.")
+
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("push failed: %v", err)})
+		return respondError(c, http.StatusInternalServerError, fmt.Sprintf("push failed: %v", err))
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "pushed"})
@@ -249,7 +249,7 @@ func (h *DeviceHandler) ListAlbums(c echo.Context) error {
 	}
 	var albums []model.Album
 	if err := q.Order("name").Find(&albums).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	// Report the LIVE photo count (memberships joined to existing images) rather
 	// than the cached Album.asset_count, which can go stale when images are
@@ -281,7 +281,7 @@ func (h *DeviceHandler) ListAlbums(c echo.Context) error {
 func (h *DeviceHandler) GetDeviceAlbums(c echo.Context) error {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid device id"})
+		return respondError(c, http.StatusBadRequest, "invalid device id")
 	}
 	q := h.db.Model(&model.DeviceAlbumMapping{}).
 		Joins("JOIN albums ON albums.id = device_album_mappings.album_id").
@@ -291,7 +291,7 @@ func (h *DeviceHandler) GetDeviceAlbums(c echo.Context) error {
 	}
 	ids := []uint{}
 	if err := q.Pluck("device_album_mappings.album_id", &ids).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]interface{}{"album_ids": ids})
 }
@@ -301,17 +301,17 @@ func (h *DeviceHandler) GetDeviceAlbums(c echo.Context) error {
 func (h *DeviceHandler) UpdateDeviceAlbums(c echo.Context) error {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid device id"})
+		return respondError(c, http.StatusBadRequest, "invalid device id")
 	}
 	var req struct {
 		Source   string `json:"source"`
 		AlbumIDs []uint `json:"album_ids"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 	if req.Source == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "source required"})
+		return respondError(c, http.StatusBadRequest, "source required")
 	}
 
 	err = h.db.Transaction(func(tx *gorm.DB) error {
@@ -333,7 +333,7 @@ func (h *DeviceHandler) UpdateDeviceAlbums(c echo.Context) error {
 		return nil
 	})
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusBadRequest, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }

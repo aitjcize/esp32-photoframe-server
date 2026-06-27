@@ -60,17 +60,17 @@ func (h *GoogleHandler) Callback(c echo.Context) error {
 	code := c.QueryParam("code")
 	state := c.QueryParam("state")
 	if code == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "code is required"})
+		return respondError(c, http.StatusBadRequest, "code is required")
 	}
 
 	switch state {
 	case "calendar":
 		if err := h.calendarClient.Exchange(code); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 	default: // "photos" or legacy "state"
 		if err := h.client.Exchange(code); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 	}
 
@@ -80,14 +80,14 @@ func (h *GoogleHandler) Callback(c echo.Context) error {
 
 func (h *GoogleHandler) Logout(c echo.Context) error {
 	if err := h.client.Logout(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *GoogleHandler) CalendarLogout(c echo.Context) error {
 	if err := h.calendarClient.Logout(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -105,7 +105,7 @@ func buildRedirectURL(c echo.Context) string {
 func (h *GoogleHandler) CreatePickerSession(c echo.Context) error {
 	id, uri, err := h.picker.CreateSession()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{
 		"id":        id,
@@ -116,12 +116,12 @@ func (h *GoogleHandler) CreatePickerSession(c echo.Context) error {
 func (h *GoogleHandler) PollPickerSession(c echo.Context) error {
 	id := c.Param("id")
 	if id == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "session id required"})
+		return respondError(c, http.StatusBadRequest, "session id required")
 	}
 
 	complete, err := h.picker.PollSession(id)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
 	if complete {
@@ -154,7 +154,7 @@ func (h *GoogleHandler) PollPickerProgress(c echo.Context) error {
 	id := c.Param("id")
 	progress := h.picker.GetProgress(id)
 	if progress == nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "session not found"})
+		return respondError(c, http.StatusNotFound, "session not found")
 	}
 	return c.JSON(http.StatusOK, progress)
 }
@@ -163,7 +163,7 @@ func (h *GoogleHandler) DeleteAllGooglePhotos(c echo.Context) error {
 	var items []model.Image
 	// Only fetch Google Photos
 	if err := h.db.Where("source = ?", model.SourceGooglePhotos).Find(&items).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch photos"})
+		return respondError(c, http.StatusInternalServerError, "failed to fetch photos")
 	}
 
 	// Delete local files
@@ -175,7 +175,7 @@ func (h *GoogleHandler) DeleteAllGooglePhotos(c echo.Context) error {
 
 	// Delete from DB
 	if err := h.db.Where("source = ?", model.SourceGooglePhotos).Delete(&model.Image{}).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete photos from db"})
+		return respondError(c, http.StatusInternalServerError, "failed to delete photos from db")
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
@@ -188,7 +188,7 @@ func (h *GoogleHandler) DeleteGooglePhoto(c echo.Context) error {
 	id := c.Param("id")
 	var item model.Image
 	if err := h.db.Where("source = ?", model.SourceGooglePhotos).First(&item, id).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
+		return respondError(c, http.StatusNotFound, "photo not found")
 	}
 
 	// Delete file
@@ -198,7 +198,7 @@ func (h *GoogleHandler) DeleteGooglePhoto(c echo.Context) error {
 
 	// Delete from DB
 	if err := h.db.Delete(&item).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete photo from db"})
+		return respondError(c, http.StatusInternalServerError, "failed to delete photo from db")
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
@@ -208,7 +208,7 @@ func (h *GoogleHandler) GetGooglePhotoThumbnail(c echo.Context) error {
 	id := c.Param("id")
 	var item model.Image
 	if err := h.db.Where("source = ?", model.SourceGooglePhotos).First(&item, id).Error; err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "photo not found"})
+		return respondError(c, http.StatusNotFound, "photo not found")
 	}
 
 	// 1. Check Cache
@@ -220,19 +220,19 @@ func (h *GoogleHandler) GetGooglePhotoThumbnail(c echo.Context) error {
 	// 2. Generate
 	thumbsDir := filepath.Join(h.dataDir, "thumbnails")
 	if err := os.MkdirAll(thumbsDir, 0755); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create thumb dir"})
+		return respondError(c, http.StatusInternalServerError, "failed to create thumb dir")
 	}
 
 	f, err := os.Open(item.FilePath)
 	if err != nil {
 		fmt.Printf("Failed to open image for thumbnail: path=%s, error=%v\n", item.FilePath, err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to open image"})
+		return respondError(c, http.StatusInternalServerError, "failed to open image")
 	}
 	defer f.Close()
 
 	img, _, err := image.Decode(f)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to decode image: " + err.Error()})
+		return respondError(c, http.StatusInternalServerError, "failed to decode image: "+err.Error())
 	}
 
 	// Calculate 400x240 fit
@@ -251,7 +251,7 @@ func (h *GoogleHandler) GetGooglePhotoThumbnail(c echo.Context) error {
 	// Save
 	out, err := os.Create(thumbPath)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save thumb"})
+		return respondError(c, http.StatusInternalServerError, "failed to save thumb")
 	}
 	defer out.Close()
 	jpeg.Encode(out, dst, &jpeg.Options{Quality: 80})
@@ -280,13 +280,13 @@ func (h *GoogleHandler) ListGooglePhotos(c echo.Context) error {
 	// Get total count of Google Photos only
 	var total int64
 	if err := h.db.Model(&model.Image{}).Where("source = ?", model.SourceGooglePhotos).Count(&total).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to count photos"})
+		return respondError(c, http.StatusInternalServerError, "failed to count photos")
 	}
 
 	// Get paginated Google Photos only
 	var items []model.Image
 	if err := h.db.Where("source = ?", model.SourceGooglePhotos).Order("created_at desc").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list photos"})
+		return respondError(c, http.StatusInternalServerError, "failed to list photos")
 	}
 
 	type PhotoResponse struct {
