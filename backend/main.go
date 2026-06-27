@@ -252,8 +252,13 @@ func main() {
 	// Echo instance
 	e := echo.New()
 
-	// Middleware
-	e.Use(echoMiddleware.Logger())
+	// Middleware. Log ${path} (not ${uri}) so secrets in query strings — e.g.
+	// the device ?token= — never end up in access logs.
+	e.Use(echoMiddleware.LoggerWithConfig(echoMiddleware.LoggerConfig{
+		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}",` +
+			`"method":"${method}","path":"${path}","status":${status},` +
+			`"error":"${error}","latency_human":"${latency_human}"}` + "\n",
+	}))
 	e.Use(echoMiddleware.Recover())
 	e.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
 		AllowOrigins: []string{"http://localhost:5173", "http://homeassistant.local:8123"},

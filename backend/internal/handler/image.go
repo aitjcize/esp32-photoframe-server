@@ -76,43 +76,26 @@ func NewImageHandler(deps ImageHandlerDeps) *ImageHandler {
 	}
 }
 
+// identifyDevice resolves the requesting device SOLELY from its per-device
+// token (the device_id set by the auth middleware). The previous X-Hostname /
+// client-IP fallbacks were client-spoofable and have been removed — the token
+// is the single source of truth. Returns the device and whether one was found.
+func (h *ImageHandler) identifyDevice(c echo.Context) (model.Device, bool) {
+	var device model.Device
+	if devID, ok := c.Get("device_id").(uint); ok && devID > 0 {
+		if err := h.db.First(&device, devID).Error; err == nil {
+			return device, true
+		}
+	}
+	return device, false
+}
+
 func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// Get source from route parameter
 	source := c.Param("source")
 
-	// 1. Identify Device and Determine Settings
-	// Three-tier identification: token DeviceID → X-Hostname → client IP
-	var device model.Device
-	deviceFound := false
-	// tokenAuthed = identified via the per-device token (trustworthy). The
-	// hostname/IP tiers are client-spoofable, so we don't let them mutate the
-	// device row.
-	tokenAuthed := false
-
-	// Tier 1: Token-based identification (works over internet)
-	if devID, ok := c.Get("device_id").(uint); ok && devID > 0 {
-		if err := h.db.First(&device, devID).Error; err == nil {
-			deviceFound = true
-			tokenAuthed = true
-		}
-	}
-
-	// Tier 2: X-Hostname header (backward compat, LAN setups)
-	if !deviceFound {
-		if hostname := c.Request().Header.Get("X-Hostname"); hostname != "" {
-			if err := h.db.Where("host = ?", hostname).First(&device).Error; err == nil {
-				deviceFound = true
-			}
-		}
-	}
-
-	// Tier 3: Client IP (backward compat, LAN setups)
-	if !deviceFound {
-		clientIP := c.RealIP()
-		if err := h.db.Where("host = ?", clientIP).First(&device).Error; err == nil {
-			deviceFound = true
-		}
-	}
+	// 1. Identify the device from its token (the single source of truth).
+	device, deviceFound := h.identifyDevice(c)
 
 	// Resolve the image source. An identified device with a configured source
 	// ALWAYS gets that source — the URL path param cannot override it — so a
@@ -154,7 +137,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		if w, err := strconv.Atoi(wStr); err == nil && w > 0 {
 			logicalW = w
 			nativeW = w
-			if tokenAuthed && device.Width != w {
+			if deviceFound && device.Width != w {
 				device.Width = w
 				h.db.Model(&device).Update("width", w)
 			}
@@ -164,7 +147,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		if he, err := strconv.Atoi(hStr); err == nil && he > 0 {
 			logicalH = he
 			nativeH = he
-			if tokenAuthed && device.Height != he {
+			if deviceFound && device.Height != he {
 				device.Height = he
 				h.db.Model(&device).Update("height", he)
 			}
@@ -175,7 +158,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	if oStr := c.Request().Header.Get("X-Display-Orientation"); oStr != "" {
 		orientation = oStr
 		// Persist orientation update to database if it changed
-		if tokenAuthed && device.Orientation != oStr {
+		if deviceFound && device.Orientation != oStr {
 			device.Orientation = oStr
 			h.db.Model(&device).Update("orientation", oStr)
 		}
@@ -465,29 +448,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 // config if it's newer.
 // POST /api/device-config/sync
 func (h *ImageHandler) SyncDeviceConfig(c echo.Context) error {
-	// Identify device using same logic as ServeImage
-	var device model.Device
-	deviceFound := false
-
-	if devID, ok := c.Get("device_id").(uint); ok && devID > 0 {
-		if err := h.db.First(&device, devID).Error; err == nil {
-			deviceFound = true
-		}
-	}
-	if !deviceFound {
-		if hostname := c.Request().Header.Get("X-Hostname"); hostname != "" {
-			if err := h.db.Where("host = ?", hostname).First(&device).Error; err == nil {
-				deviceFound = true
-			}
-		}
-	}
-	if !deviceFound {
-		clientIP := c.RealIP()
-		if err := h.db.Where("host = ?", clientIP).First(&device).Error; err == nil {
-			deviceFound = true
-		}
-	}
-
+	device, deviceFound := h.identifyDevice(c)
 	if !deviceFound {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "device not found"})
 	}
