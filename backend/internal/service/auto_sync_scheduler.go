@@ -20,14 +20,28 @@ type AutoSyncScheduler struct {
 	stateMu       sync.Mutex
 	lastSuccessAt time.Time
 	retryAfter    time.Time
-	running       bool
+	running       int
 }
 
-// IsRunning reports whether a sync is currently executing.
+// IsRunning reports whether any sync is currently in flight (queued or
+// executing). running is a counter so overlapping triggers each track their own
+// in-flight sync; the indicator only clears once every sync has finished.
 func (s *AutoSyncScheduler) IsRunning() bool {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
-	return s.running
+	return s.running > 0
+}
+
+func (s *AutoSyncScheduler) incRunning() {
+	s.stateMu.Lock()
+	s.running++
+	s.stateMu.Unlock()
+}
+
+func (s *AutoSyncScheduler) decRunning() {
+	s.stateMu.Lock()
+	s.running--
+	s.stateMu.Unlock()
 }
 
 func NewAutoSyncScheduler(opts AutoSyncSchedulerOptions) *AutoSyncScheduler {
@@ -76,17 +90,17 @@ func (s *AutoSyncScheduler) TriggerReset() {
 }
 
 func (s *AutoSyncScheduler) SyncNow() error {
+	s.incRunning()
+	defer s.decRunning()
+	return s.runSyncNow()
+}
+
+// runSyncNow performs a single sync run without touching the in-flight counter.
+// Callers are responsible for incrementing/decrementing running exactly once
+// around their logical sync so it isn't double-counted.
+func (s *AutoSyncScheduler) runSyncNow() error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
-
-	s.stateMu.Lock()
-	s.running = true
-	s.stateMu.Unlock()
-	defer func() {
-		s.stateMu.Lock()
-		s.running = false
-		s.stateMu.Unlock()
-	}()
 
 	if err := s.runSync(); err != nil {
 		s.stateMu.Lock()
@@ -109,12 +123,13 @@ func (s *AutoSyncScheduler) SyncNow() error {
 // hold the HTTP request open for a full clear+resync.
 func (s *AutoSyncScheduler) SyncNowAsync() {
 	// Mark running synchronously so the UI can observe an in-flight sync right
-	// away, even before the goroutine acquires the run lock and starts.
-	s.stateMu.Lock()
-	s.running = true
-	s.stateMu.Unlock()
+	// away, even before the goroutine acquires the run lock and starts. The
+	// goroutine calls runSyncNow (which does not touch the counter) so this
+	// logical sync is counted exactly once.
+	s.incRunning()
 	go func() {
-		if err := s.SyncNow(); err != nil {
+		defer s.decRunning()
+		if err := s.runSyncNow(); err != nil {
 			log.Printf("[%s] async sync failed: %v", s.name, err)
 		}
 	}()
