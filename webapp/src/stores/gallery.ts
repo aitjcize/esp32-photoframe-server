@@ -56,19 +56,30 @@ export const useGalleryStore = defineStore('gallery', {
 
     async fetchPhotos() {
       this.loading = true;
+      // Capture the request context so a slow response from a previous
+      // source/album/page doesn't clobber a newer one (e.g. on load, the
+      // default 'gallery' fetch racing the hash-restored source).
+      const reqSource = this.source;
+      const reqAlbum = this.album;
+      const reqPage = this.page;
+      const isCurrent = () =>
+        this.source === reqSource &&
+        this.album === reqAlbum &&
+        this.page === reqPage;
       try {
-        const offset = (this.page - 1) * this.limit;
-        let url = `/gallery/photos?source=${this.source}&limit=${this.limit}&offset=${offset}`;
-        if (this.album != null) {
-          url += `&album=${this.album}`;
+        const offset = (reqPage - 1) * this.limit;
+        let url = `/gallery/photos?source=${reqSource}&limit=${this.limit}&offset=${offset}`;
+        if (reqAlbum != null) {
+          url += `&album=${reqAlbum}`;
         }
         const res = await api.get(url);
+        if (!isCurrent()) return; // discard stale response
         this.photos = res.data.photos || [];
         this.totalPhotos = res.data.total || 0;
       } catch (e) {
         console.error('Failed to fetch photos', e);
       } finally {
-        this.loading = false;
+        if (isCurrent()) this.loading = false;
       }
     },
 
