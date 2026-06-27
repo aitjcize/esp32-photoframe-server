@@ -255,22 +255,29 @@ func (s *DeviceService) DeleteDevice(id uint) error {
 	// explicitly (in one transaction) to avoid orphans that a reused device id
 	// could later inherit.
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Child tables to clear (HasTable-guarded below, since not every model
+		// has a migration-created table in all DBs).
 		children := []interface{}{
 			&model.DeviceHistory{},
-			&model.DeviceImageMapping{},
 			&model.DeviceAlbumMapping{},
 			&model.DeviceURLMapping{},
 			&model.GenerativeState{},
 		}
 		for _, m := range children {
+			// Some of these models have no migration-created table; skip those.
+			if !tx.Migrator().HasTable(m) {
+				continue
+			}
 			if err := tx.Where("device_id = ?", id).Delete(m).Error; err != nil {
 				return err
 			}
 		}
 		// Unbind (don't delete) any API tokens pointing at this device.
-		if err := tx.Model(&model.APIKey{}).
-			Where("device_id = ?", id).Update("device_id", nil).Error; err != nil {
-			return err
+		if tx.Migrator().HasTable(&model.APIKey{}) {
+			if err := tx.Model(&model.APIKey{}).
+				Where("device_id = ?", id).Update("device_id", nil).Error; err != nil {
+				return err
+			}
 		}
 		return tx.Delete(&model.Device{}, id).Error
 	})

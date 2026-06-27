@@ -110,11 +110,6 @@ type UserSession struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type DeviceImageMapping struct {
-	DeviceID uint `gorm:"primaryKey" json:"device_id"`
-	ImageID  uint `gorm:"primaryKey" json:"image_id"`
-}
-
 type URLSource struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	URL       string    `json:"url"`
