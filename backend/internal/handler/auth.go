@@ -9,10 +9,23 @@ import (
 
 type AuthHandler struct {
 	authService *service.AuthService
+	settings    *service.SettingsService
 }
 
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+func NewAuthHandler(authService *service.AuthService, settings *service.SettingsService) *AuthHandler {
+	return &AuthHandler{authService: authService, settings: settings}
+}
+
+// RotateJWTSecret generates a brand-new signing secret, invalidating ALL tokens
+// (the admin will be logged out and every device token must be regenerated).
+// POST /api/auth/rotate-secret
+func (h *AuthHandler) RotateJWTSecret(c echo.Context) error {
+	if err := h.authService.RotateSecret(func(secret string) error {
+		return h.settings.Set("jwt_secret", secret)
+	}); err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 type loginRequest struct {

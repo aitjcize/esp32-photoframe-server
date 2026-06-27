@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/db"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/handler"
@@ -131,9 +134,11 @@ func main() {
 	// Initialize Services
 	settingsService := service.NewSettingsService(database)
 	tokenStore := service.NewDBTokenStore(database, "photos")
-	// JWT Secret - In production, this should come from env but for Addon we might generate or fix it
-	jwtSecret := os.Getenv("JWT_SECRET")
-	authService := service.NewAuthService(database, jwtSecret)
+	// Resolve the JWT secret: env → persisted setting → freshly generated.
+	// A fresh install is secure with no configuration instead of falling back
+	// to a hard-coded default.
+	jwtSecret, jwtFromEnv := resolveJWTSecret(settingsService)
+	authService := service.NewAuthService(database, jwtSecret, !jwtFromEnv)
 
 	// Schema is owned by golang-migrate (db/migrations); no AutoMigrate here.
 
@@ -239,7 +244,7 @@ func main() {
 		DataDir:        dataDir,
 	})
 	ch := handler.NewCalendarHandler(googleCalendarClient, calendarClient)
-	ah := handler.NewAuthHandler(authService)
+	ah := handler.NewAuthHandler(authService, settingsService)
 
 	// Echo instance
 	e := echo.New()
@@ -318,6 +323,7 @@ func main() {
 	protectedApi.GET("/auth/sessions", ah.ListSessions)
 	protectedApi.DELETE("/auth/sessions/:id", ah.RevokeSession)
 	protectedApi.POST("/auth/account", ah.UpdateAccount)
+	protectedApi.POST("/auth/rotate-secret", ah.RotateJWTSecret)
 
 	// Gallery (Protected) - Unified
 	protectedApi.GET("/gallery/photos", gh.ListPhotos)
@@ -417,6 +423,30 @@ func cleanupTempThumbnails(dataDir string) {
 // the token name to device names. This is idempotent and handles the migration
 // from tokens without device_id to tokens with device_id.
 // Ambiguous matches (multiple devices with the same name) are skipped.
+// resolveJWTSecret returns the JWT signing secret and whether it came from the
+// JWT_SECRET env var. Resolution order: env var → persisted setting → a freshly
+// generated random secret (persisted). A fresh install is therefore secure with
+// no configuration instead of falling back to a hard-coded default.
+func resolveJWTSecret(settings *service.SettingsService) (string, bool) {
+	if env := strings.TrimSpace(os.Getenv("JWT_SECRET")); env != "" {
+		return env, true
+	}
+	if v, err := settings.Get("jwt_secret"); err == nil && v != "" {
+		return v, false
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("Failed to generate JWT secret: %v", err)
+	}
+	secret := hex.EncodeToString(buf)
+	if err := settings.Set("jwt_secret", secret); err != nil {
+		log.Printf("WARNING: failed to persist generated JWT secret (will regenerate next boot): %v", err)
+	} else {
+		log.Println("auth: generated and persisted a new random JWT secret")
+	}
+	return secret, false
+}
+
 func backfillDeviceTokens(database *gorm.DB) {
 	var keys []model.APIKey
 	database.Where("device_id IS NULL").Find(&keys)

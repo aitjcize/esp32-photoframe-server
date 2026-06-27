@@ -1,8 +1,11 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
@@ -11,9 +14,50 @@ import (
 	"gorm.io/gorm"
 )
 
+// legacyDefaultSecret is the hard-coded secret older builds used when no
+// JWT_SECRET was configured. Device tokens issued back then are still signed
+// with it; we accept those (device tokens only) as a migration bridge so
+// existing frames keep working until their tokens are rotated.
+const legacyDefaultSecret = "default-insecure-secret-change-me"
+
 type AuthService struct {
-	db        *gorm.DB
+	db *gorm.DB
+	// mu guards jwtSecret + allowLegacyDeviceTokens, which RotateSecret can swap
+	// at runtime while requests are validating/signing tokens.
+	mu        sync.RWMutex
 	jwtSecret []byte
+	// allowLegacyDeviceTokens enables the legacy-secret fallback for DEVICE
+	// tokens only. Off when JWT_SECRET is explicitly set (full enforcement)
+	// and after a manual secret rotation.
+	allowLegacyDeviceTokens bool
+}
+
+// secret returns the current signing secret under a read lock.
+func (s *AuthService) secret() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.jwtSecret
+}
+
+// RotateSecret generates a fresh random signing secret, persists it via the
+// supplied callback, then swaps it in and disables the legacy fallback. Every
+// existing token (admin sessions AND device tokens) is invalidated — the admin
+// must re-login and device tokens must be regenerated. Persist first so a
+// storage failure leaves the running secret unchanged.
+func (s *AuthService) RotateSecret(persist func(secret string) error) error {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return err
+	}
+	newSecret := hex.EncodeToString(buf)
+	if err := persist(newSecret); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.jwtSecret = []byte(newSecret)
+	s.allowLegacyDeviceTokens = false
+	s.mu.Unlock()
+	return nil
 }
 
 type JWTClaims struct {
@@ -24,16 +68,18 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-func NewAuthService(db *gorm.DB, secret string) *AuthService {
-	// If no secret provided, generate or use default (in prod, MUST be provided)
+// NewAuthService builds the auth service. The caller resolves `secret`
+// (env → persisted → generated), so it should never be empty. When
+// allowLegacyDeviceTokens is true, device tokens signed with the old hard-coded
+// default still validate (migration bridge); session/admin tokens never do.
+func NewAuthService(db *gorm.DB, secret string, allowLegacyDeviceTokens bool) *AuthService {
 	if secret == "" {
-		secret = "default-insecure-secret-change-me"
-		log.Println("WARNING: JWT_SECRET is not set — using an insecure default. " +
-			"Set JWT_SECRET to a strong random value; otherwise device/admin tokens are forgeable.")
+		log.Println("WARNING: empty JWT secret passed to NewAuthService — tokens cannot be trusted")
 	}
 	return &AuthService{
-		db:        db,
-		jwtSecret: []byte(secret),
+		db:                      db,
+		jwtSecret:               []byte(secret),
+		allowLegacyDeviceTokens: allowLegacyDeviceTokens,
 	}
 }
 
@@ -105,7 +151,7 @@ func (s *AuthService) generateToken(user *model.User, userAgent, ip string) (str
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.jwtSecret)
+	tokenString, err := token.SignedString(s.secret())
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +190,7 @@ func (s *AuthService) GenerateDeviceToken(userID uint, username string, name str
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.jwtSecret)
+	return token.SignedString(s.secret())
 }
 
 func (s *AuthService) GetOrGenerateDeviceToken(userID uint, username string, name string, deviceID *uint) (string, error) {
@@ -174,49 +220,76 @@ func (s *AuthService) GetOrGenerateDeviceToken(userID uint, username string, nam
 			},
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		return token.SignedString(s.jwtSecret)
+		return token.SignedString(s.secret())
 	}
 	// No existing key — create a new one
 	return s.GenerateDeviceToken(userID, username, name, deviceID)
 }
 
-func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
+// parseToken verifies the signature (HS256 only) with the given secret and
+// returns the claims if the token is structurally valid.
+func (s *AuthService) parseToken(tokenString string, secret []byte) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return s.jwtSecret, nil
+		return secret, nil
 	}, jwt.WithValidMethods([]string{"HS256"}))
-
 	if err != nil {
 		return nil, err
 	}
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok || !token.Valid {
+		return nil, errors.New("invalid token")
+	}
+	return claims, nil
+}
 
-	if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
-		// If subject is device, check APIKey table
-		if claims.Subject == "device" {
-			if claims.KeyID > 0 {
-				var apiKey model.APIKey
-				if err := s.db.First(&apiKey, claims.KeyID).Error; err != nil {
-					return nil, errors.New("token revoked")
-				}
-				// Enrich from DB for legacy tokens (no DeviceID in JWT)
-				if claims.DeviceID == 0 && apiKey.DeviceID != nil {
-					claims.DeviceID = *apiKey.DeviceID
-				}
-			}
-			return claims, nil
+func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
+	s.mu.RLock()
+	secret := s.jwtSecret
+	allowLegacy := s.allowLegacyDeviceTokens
+	s.mu.RUnlock()
+
+	claims, err := s.parseToken(tokenString, secret)
+	if err != nil {
+		// Migration bridge: accept DEVICE tokens still signed with the legacy
+		// default secret so existing frames keep working until their tokens are
+		// rotated. Session/admin tokens are NEVER accepted under the legacy
+		// secret — the admin simply re-logs in — so a forged admin token cannot
+		// be honored even on an install that never set JWT_SECRET.
+		if !allowLegacy {
+			return nil, err
 		}
+		legacy, lerr := s.parseToken(tokenString, []byte(legacyDefaultSecret))
+		if lerr != nil || legacy.Subject != "device" {
+			return nil, err
+		}
+		log.Println("auth: accepted a device token signed with the legacy default secret — rotate device tokens to retire the legacy fallback")
+		claims = legacy
+	}
 
-		// Otherwise check UserSession table
+	// If subject is device, check APIKey table
+	if claims.Subject == "device" {
 		if claims.KeyID > 0 {
-			var count int64
-			s.db.Model(&model.UserSession{}).Where("id = ?", claims.KeyID).Count(&count)
-			if count == 0 {
-				return nil, errors.New("session revoked or expired")
+			var apiKey model.APIKey
+			if err := s.db.First(&apiKey, claims.KeyID).Error; err != nil {
+				return nil, errors.New("token revoked")
+			}
+			// Enrich from DB for legacy tokens (no DeviceID in JWT)
+			if claims.DeviceID == 0 && apiKey.DeviceID != nil {
+				claims.DeviceID = *apiKey.DeviceID
 			}
 		}
 		return claims, nil
 	}
 
-	return nil, errors.New("invalid token")
+	// Otherwise check UserSession table
+	if claims.KeyID > 0 {
+		var count int64
+		s.db.Model(&model.UserSession{}).Where("id = ?", claims.KeyID).Count(&count)
+		if count == 0 {
+			return nil, errors.New("session revoked or expired")
+		}
+	}
+	return claims, nil
 }
 
 func (s *AuthService) ListTokens(userID uint) ([]model.APIKey, error) {

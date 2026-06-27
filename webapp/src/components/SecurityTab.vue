@@ -63,6 +63,25 @@
       </v-card>
     </v-expand-transition>
 
+    <div class="d-flex align-center justify-space-between mb-6">
+      <div class="mr-4">
+        <div class="text-body-2 font-weight-medium">JWT signing secret</div>
+        <div class="text-caption text-grey">
+          Regenerate to fully rotate the secret. This signs you out and
+          invalidates every device token — each frame will need a new token
+          generated and applied.
+        </div>
+      </div>
+      <v-btn
+        color="error"
+        variant="outlined"
+        size="small"
+        :loading="rotatingSecret"
+        @click="regenerateJWTSecret"
+        >Regenerate</v-btn
+      >
+    </div>
+
     <v-divider class="mb-6"></v-divider>
 
     <h3 class="text-h6 mb-4">Active Sessions</h3>
@@ -261,7 +280,12 @@ import { useDisplay } from 'vuetify';
 import { useAuthStore } from '../stores/auth';
 import { useSnackbar } from '../composables/useSnackbar';
 import { getApiError } from '../utils/errors';
-import { updateAccount, listSessions, revokeSession } from '../api';
+import {
+  updateAccount,
+  listSessions,
+  revokeSession,
+  rotateJWTSecret,
+} from '../api';
 import type { Device } from '../api';
 import ConfirmDialog from './ConfirmDialog.vue';
 
@@ -372,6 +396,28 @@ const updateAccountSettings = async () => {
     showMessage('Account updated successfully!');
   } catch (e) {
     showMessage('Failed: ' + getApiError(e), true);
+  }
+};
+
+const rotatingSecret = ref(false);
+
+const regenerateJWTSecret = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Regenerate the JWT signing secret? This signs you out and invalidates ALL device tokens — every frame will need a new token generated and applied. Continue?'
+    ))
+  )
+    return;
+  rotatingSecret.value = true;
+  try {
+    await rotateJWTSecret();
+    showMessage('JWT secret regenerated. Signing out…');
+    // The current session token is now invalid; sign out so the user re-logs in.
+    setTimeout(() => authStore.logout(), 800);
+  } catch (e) {
+    showMessage('Failed to regenerate secret: ' + getApiError(e), true);
+  } finally {
+    rotatingSecret.value = false;
   }
 };
 

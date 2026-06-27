@@ -27,7 +27,7 @@ func setupAuthDB(t *testing.T) *gorm.DB {
 // that previously had no test coverage.
 func TestAuthService_TokenLifecycle(t *testing.T) {
 	db := setupAuthDB(t)
-	svc := NewAuthService(db, "secret-a")
+	svc := NewAuthService(db, "secret-a", false)
 
 	require.NoError(t, svc.Register("admin", "pw"))
 	assert.Error(t, svc.Register("admin", "pw2"), "duplicate username must be rejected")
@@ -56,7 +56,7 @@ func TestAuthService_TokenLifecycle(t *testing.T) {
 	assert.Equal(t, "device", devClaims.Subject)
 
 	// A token signed with a different secret must not validate.
-	svcB := NewAuthService(db, "secret-b")
+	svcB := NewAuthService(db, "secret-b", false)
 	_, err = svcB.ValidateToken(devTok)
 	assert.Error(t, err, "token signed with secret-a must not validate under secret-b")
 
@@ -75,7 +75,7 @@ func TestAuthService_TokenLifecycle(t *testing.T) {
 // (jwt.WithValidMethods) — an alg=none token must be rejected.
 func TestAuthService_RejectsNonHS256(t *testing.T) {
 	db := setupAuthDB(t)
-	svc := NewAuthService(db, "secret-a")
+	svc := NewAuthService(db, "secret-a", false)
 
 	claims := JWTClaims{
 		UserID:   1,
@@ -90,4 +90,89 @@ func TestAuthService_RejectsNonHS256(t *testing.T) {
 
 	_, err = svc.ValidateToken(signed)
 	assert.Error(t, err, "alg=none token must be rejected")
+}
+
+// TestAuthService_LegacyDeviceFallback verifies the migration bridge: a DEVICE
+// token signed with the old hard-coded default validates under a new secret when
+// the fallback is enabled, but a SESSION token signed with the legacy secret
+// never does, and nothing legacy validates when the fallback is off.
+func TestAuthService_LegacyDeviceFallback(t *testing.T) {
+	db := setupAuthDB(t)
+	require.NoError(t, NewAuthService(db, "x", false).Register("admin", "pw"))
+	var user model.User
+	require.NoError(t, db.Where("username = ?", "admin").First(&user).Error)
+
+	// Sign tokens with the legacy default secret (as an old build would).
+	legacySigner := NewAuthService(db, legacyDefaultSecret, false)
+	devID := uint(3)
+	legacyDevTok, err := legacySigner.GenerateDeviceToken(user.ID, "admin", "frame", &devID)
+	require.NoError(t, err)
+	legacySessTok, err := legacySigner.Login("admin", "pw", "ua", "ip")
+	require.NoError(t, err)
+
+	// New secret WITH fallback: legacy device token accepted, legacy session not.
+	withFallback := NewAuthService(db, "new-random-secret", true)
+	claims, err := withFallback.ValidateToken(legacyDevTok)
+	require.NoError(t, err, "legacy device token must validate under the fallback")
+	assert.Equal(t, devID, claims.DeviceID)
+	_, err = withFallback.ValidateToken(legacySessTok)
+	assert.Error(t, err, "legacy session token must NOT validate (no admin forgery)")
+
+	// New secret WITHOUT fallback: legacy device token rejected too.
+	noFallback := NewAuthService(db, "new-random-secret", false)
+	_, err = noFallback.ValidateToken(legacyDevTok)
+	assert.Error(t, err, "with fallback off, legacy device token must be rejected")
+}
+
+// TestAuthService_RotateSecret verifies rotation invalidates existing tokens,
+// persists the new secret, and disables the legacy fallback.
+func TestAuthService_RotateSecret(t *testing.T) {
+	db := setupAuthDB(t)
+	require.NoError(t, NewAuthService(db, "x", false).Register("admin", "pw"))
+	var user model.User
+	require.NoError(t, db.Where("username = ?", "admin").First(&user).Error)
+
+	svc := NewAuthService(db, "old-secret", true)
+	devID := uint(5)
+	oldTok, err := svc.GenerateDeviceToken(user.ID, "admin", "frame", &devID)
+	require.NoError(t, err)
+	_, err = svc.ValidateToken(oldTok)
+	require.NoError(t, err)
+
+	var captured string
+	require.NoError(t, svc.RotateSecret(func(secret string) error {
+		captured = secret
+		return nil
+	}))
+	assert.Len(t, captured, 64, "rotated secret should be 32 random bytes as hex")
+
+	// Old token no longer validates (secret changed + legacy fallback now off).
+	_, err = svc.ValidateToken(oldTok)
+	assert.Error(t, err, "tokens issued before rotation must be invalidated")
+
+	// A token minted after rotation validates.
+	newTok, err := svc.GenerateDeviceToken(user.ID, "admin", "frame2", &devID)
+	require.NoError(t, err)
+	_, err = svc.ValidateToken(newTok)
+	require.NoError(t, err, "tokens minted after rotation must validate")
+}
+
+// TestRotateSecret_PersistFailureKeepsOldSecret ensures a storage failure during
+// rotation leaves the running secret intact (persist-first ordering).
+func TestRotateSecret_PersistFailureKeepsOldSecret(t *testing.T) {
+	db := setupAuthDB(t)
+	require.NoError(t, NewAuthService(db, "x", false).Register("admin", "pw"))
+	var user model.User
+	require.NoError(t, db.Where("username = ?", "admin").First(&user).Error)
+
+	svc := NewAuthService(db, "old-secret", false)
+	devID := uint(9)
+	tok, err := svc.GenerateDeviceToken(user.ID, "admin", "frame", &devID)
+	require.NoError(t, err)
+
+	err = svc.RotateSecret(func(string) error { return assert.AnError })
+	require.Error(t, err)
+
+	_, err = svc.ValidateToken(tok)
+	require.NoError(t, err, "secret must be unchanged when persistence fails")
 }

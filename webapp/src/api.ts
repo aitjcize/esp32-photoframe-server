@@ -254,6 +254,13 @@ export const revokeSession = async (id: number) => {
   return response.data;
 };
 
+// Regenerate the JWT signing secret. Invalidates ALL tokens (the caller is
+// signed out and every device token must be regenerated).
+export const rotateJWTSecret = async () => {
+  const response = await api.post('auth/rotate-secret');
+  return response.data;
+};
+
 // Calendar
 export const listCalendars = async () => {
   const response = await api.get('calendar/calendars');
