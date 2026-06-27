@@ -3354,7 +3354,18 @@ watch(galleryTab, (val) => {
   } else if (val === 'gallery') {
     galleryStore.setSource('gallery');
   }
+  // Persist the active gallery tab in the URL hash so a refresh restores it.
+  if (val) window.location.hash = 'gtab=' + val;
 });
+
+const GALLERY_TABS = ['gallery', 'immich', 'google_photos', 'synology_photos'];
+// Restore the gallery tab from the URL hash (#gtab=<tab>) on load.
+const restoreGalleryTabFromHash = () => {
+  const m = window.location.hash.match(/gtab=([\w-]+)/);
+  if (m && GALLERY_TABS.includes(m[1])) {
+    galleryTab.value = m[1];
+  }
+};
 
 const snackbar = reactive({
   show: false,
@@ -3589,6 +3600,7 @@ const deleteAllPhotosForSource = async (
 };
 
 onMounted(async () => {
+  restoreGalleryTabFromHash();
   loadSessions();
   await store.fetchSettings();
   Object.assign(form, {
