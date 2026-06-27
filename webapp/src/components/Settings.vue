@@ -39,30 +39,26 @@
           <v-tab value="security">Security</v-tab>
         </v-tabs>
 
-        <v-window v-model="activeMainTab">
+        <v-window v-model="activeMainTab" :touch="false">
           <!-- General Tab -->
           <v-window-item value="general">
-            <v-card variant="outlined" class="mb-4">
-              <v-card-title class="text-subtitle-1 font-weight-bold">
-                Server
-              </v-card-title>
-              <v-card-text>
-                <v-text-field
-                  v-model="form.device_image_base_url"
-                  label="Server URL for devices"
-                  placeholder="http://homeassistant.local:9608"
-                  hint="Base address your photo frames use to reach this server. Leave empty to derive it from your browser's address. Set this for Tailscale, reverse proxies, or custom domains."
-                  persistent-hint
-                  variant="outlined"
-                  density="compact"
-                  clearable
-                  @update:model-value="saveSettingsInternal()"
-                ></v-text-field>
-                <div class="text-caption text-grey mt-2">
-                  Frames will fetch: <code>{{ getImageUrl() }}</code>
-                </div>
-              </v-card-text>
-            </v-card>
+            <v-card-text>
+              <h3 class="text-subtitle-1 font-weight-bold mb-3">Server</h3>
+              <v-text-field
+                v-model="form.device_image_base_url"
+                label="Server URL for devices"
+                placeholder="http://homeassistant.local:9608"
+                hint="Base address your photo frames use to reach this server. Leave empty to derive it from your browser's address. Set this for Tailscale, reverse proxies, or custom domains."
+                persistent-hint
+                variant="outlined"
+                density="compact"
+                clearable
+                @update:model-value="saveSettingsInternal()"
+              ></v-text-field>
+              <div class="text-caption text-grey mt-2">
+                Frames will fetch: <code>{{ getImageUrl() }}</code>
+              </div>
+            </v-card-text>
           </v-window-item>
 
           <!-- Data Sources Tab -->
@@ -81,7 +77,7 @@
               <v-tab value="ai_generation">AI Generation</v-tab>
             </v-tabs>
 
-            <v-window v-model="activeDataSourceTab">
+            <v-window v-model="activeDataSourceTab" :touch="false">
               <!-- URL Proxy -->
               <v-window-item value="url">
                 <v-card-text>
@@ -1183,27 +1179,83 @@
                 ></v-progress-circular>
               </div>
 
-              <v-table v-else density="comfortable" class="border rounded">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Model</th>
-                    <th>Host</th>
-                    <th class="text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="device in availableDevices" :key="device.id">
-                    <td>{{ device.name }}</td>
-                    <td>
-                      {{
-                        device.board_name || `${device.width}x${device.height}`
-                      }}
-                    </td>
-                    <td>
-                      {{ device.host }}
-                    </td>
-                    <td class="text-right">
+              <template v-else>
+                <!-- Table on tablet/desktop -->
+                <v-table
+                  v-if="!smAndDown"
+                  density="comfortable"
+                  class="border rounded"
+                >
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Model</th>
+                      <th>Host</th>
+                      <th class="text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="device in availableDevices" :key="device.id">
+                      <td>{{ device.name }}</td>
+                      <td>
+                        {{
+                          device.board_name ||
+                          `${device.width}x${device.height}`
+                        }}
+                      </td>
+                      <td>
+                        {{ device.host }}
+                      </td>
+                      <td class="text-right">
+                        <v-btn
+                          color="primary"
+                          variant="text"
+                          size="small"
+                          icon="mdi-pencil"
+                          title="Edit Device"
+                          @click="editDevice(device)"
+                        ></v-btn>
+                        <v-btn
+                          color="error"
+                          variant="text"
+                          size="small"
+                          icon="mdi-delete"
+                          title="Delete Device"
+                          @click="removeDevice(device.id)"
+                        ></v-btn>
+                      </td>
+                    </tr>
+                    <tr v-if="availableDevices.length === 0">
+                      <td colspan="4" class="text-center text-grey py-4">
+                        No devices added.
+                      </td>
+                    </tr>
+                  </tbody>
+                </v-table>
+
+                <!-- Stacked cards on phones (no horizontal scroll) -->
+                <div v-else>
+                  <v-card
+                    v-for="device in availableDevices"
+                    :key="device.id"
+                    variant="outlined"
+                    class="mb-2"
+                  >
+                    <v-card-text class="d-flex align-center pa-3">
+                      <div class="flex-grow-1 text-truncate">
+                        <div class="font-weight-medium text-truncate">
+                          {{ device.name }}
+                        </div>
+                        <div class="text-caption text-grey text-truncate">
+                          {{
+                            device.board_name ||
+                            `${device.width}x${device.height}`
+                          }}
+                        </div>
+                        <div class="text-caption text-grey text-truncate">
+                          {{ device.host }}
+                        </div>
+                      </div>
                       <v-btn
                         color="primary"
                         variant="text"
@@ -1220,15 +1272,16 @@
                         title="Delete Device"
                         @click="removeDevice(device.id)"
                       ></v-btn>
-                    </td>
-                  </tr>
-                  <tr v-if="availableDevices.length === 0">
-                    <td colspan="4" class="text-center text-grey py-4">
-                      No devices added.
-                    </td>
-                  </tr>
-                </tbody>
-              </v-table>
+                    </v-card-text>
+                  </v-card>
+                  <div
+                    v-if="availableDevices.length === 0"
+                    class="text-center text-grey py-4"
+                  >
+                    No devices added.
+                  </div>
+                </div>
+              </template>
 
               <!-- Edit Device Dialog (tabbed like device webapp) -->
               <v-dialog
