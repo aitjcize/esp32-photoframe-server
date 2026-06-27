@@ -567,7 +567,12 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 		json.Unmarshal(req.Config, &configMap)
 	}
 	if configMap != nil {
-		if imageURL, ok := configMap["image_url"].(string); ok && strings.Contains(imageURL, "/image/") {
+		// Matches the unified bare "/image", the legacy "/image/<source>",
+		// and any "/image?..." query form.
+		if imageURL, ok := configMap["image_url"].(string); ok &&
+			(strings.Contains(imageURL, "/image/") ||
+				strings.HasSuffix(imageURL, "/image") ||
+				strings.Contains(imageURL, "/image?")) {
 			// Generate or reuse a device token
 			if userID, ok := c.Get("user_id").(uint); ok {
 				username, _ := c.Get("username").(string)
