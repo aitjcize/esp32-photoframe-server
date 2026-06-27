@@ -42,6 +42,19 @@
         </div>
       </v-container>
     </v-main>
+
+    <!-- Global snackbar shared via useSnackbar() -->
+    <v-snackbar
+      v-model="snackbar.show"
+      :color="snackbar.color"
+      :timeout="3000"
+      location="bottom right"
+    >
+      {{ snackbar.message }}
+      <template v-slot:actions>
+        <v-btn variant="text" @click="snackbar.show = false">Close</v-btn>
+      </template>
+    </v-snackbar>
   </v-app>
 </template>
 
@@ -51,8 +64,10 @@ import Settings from './components/Settings.vue';
 import Login from './components/Login.vue';
 import Setup from './components/Setup.vue';
 import { useAuthStore } from './stores/auth';
+import { useSnackbar } from './composables/useSnackbar';
 
 const authStore = useAuthStore();
+const { snackbar } = useSnackbar();
 
 onMounted(async () => {
   await authStore.checkStatus();

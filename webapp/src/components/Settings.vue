@@ -2327,19 +2327,6 @@
         </v-window>
       </div>
 
-      <!-- Global Snackbar for Messages -->
-      <v-snackbar
-        v-model="snackbar.show"
-        :color="snackbar.color"
-        :timeout="3000"
-        location="bottom right"
-      >
-        {{ snackbar.message }}
-        <template v-slot:actions>
-          <v-btn variant="text" @click="snackbar.show = false">Close</v-btn>
-        </template>
-      </v-snackbar>
-
       <ConfirmDialog ref="confirmDialog" />
     </v-card>
   </div>
@@ -2353,6 +2340,7 @@ import { useSynologyStore } from '../stores/synology';
 import { useImmichStore } from '../stores/immich';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
+import { useSnackbar } from '../composables/useSnackbar';
 import {
   api,
   listDevices,
@@ -3336,11 +3324,7 @@ const restoreGalleryTabFromHash = () => {
   }
 };
 
-const snackbar = reactive({
-  show: false,
-  message: '',
-  color: 'success',
-});
+const { showMessage } = useSnackbar();
 
 const form = reactive({
   Orientation: 'landscape',
@@ -3566,13 +3550,6 @@ const autoSyncIntervalOptions = [
   { title: 'Every 12 hours', value: 720 },
   { title: 'Every 24 hours', value: 1440 },
 ];
-
-// Helper to show snackbar
-const showMessage = (msg: string, isError = false) => {
-  snackbar.message = msg;
-  snackbar.color = isError ? 'error' : 'success';
-  snackbar.show = true;
-};
 
 // Delete all photos for a given image source. Also disables that source's
 // album sync on the backend, so refresh the sync-selection UI afterwards.
