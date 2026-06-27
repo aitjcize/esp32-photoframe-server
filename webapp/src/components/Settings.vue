@@ -1234,6 +1234,7 @@
               <v-dialog
                 v-model="showEditDeviceDialog"
                 max-width="1100px"
+                :fullscreen="smAndDown"
                 scrollable
               >
                 <v-card>
@@ -1246,6 +1247,7 @@
                     v-if="!isAddingDevice"
                     v-model="deviceDialogTab"
                     density="compact"
+                    show-arrows
                   >
                     <v-tab value="general">General</v-tab>
                     <v-tab value="autoRotate">Auto Rotate</v-tab>
@@ -1257,7 +1259,9 @@
                   </v-tabs>
                   <v-card-text
                     :style="
-                      isAddingDevice ? '' : 'height: 455px; overflow-y: auto'
+                      isAddingDevice || smAndDown
+                        ? ''
+                        : 'height: 455px; overflow-y: auto'
                     "
                   >
                     <!-- Add Device: just host input -->
@@ -1276,6 +1280,7 @@
                     <v-tabs-window
                       v-if="!isAddingDevice"
                       v-model="deviceDialogTab"
+                      :touch="false"
                     >
                       <!-- General Tab -->
                       <v-tabs-window-item value="general">
@@ -1565,7 +1570,7 @@
                           class="ml-10"
                         >
                           <v-row dense>
-                            <v-col cols="6">
+                            <v-col cols="12" sm="6">
                               <v-text-field
                                 v-model="deviceConfig.sleep_start_time"
                                 label="From"
@@ -1575,7 +1580,7 @@
                                 hide-details
                               />
                             </v-col>
-                            <v-col cols="6">
+                            <v-col cols="12" sm="6">
                               <v-text-field
                                 v-model="deviceConfig.sleep_end_time"
                                 label="To"
@@ -1669,7 +1674,7 @@
                             dense
                             class="mt-3"
                           >
-                            <v-col cols="6">
+                            <v-col cols="12" sm="6">
                               <v-text-field
                                 v-model.number="editingDevice.weather_lat"
                                 label="Latitude"
@@ -1679,7 +1684,7 @@
                                 type="number"
                               ></v-text-field>
                             </v-col>
-                            <v-col cols="6">
+                            <v-col cols="12" sm="6">
                               <v-text-field
                                 v-model.number="editingDevice.weather_lon"
                                 label="Longitude"
@@ -2237,6 +2242,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed, watch } from 'vue';
+import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
 import { useSynologyStore } from '../stores/synology';
 import { useImmichStore } from '../stores/immich';
@@ -2266,6 +2272,7 @@ import {
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 
+const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
 const synologyStore = useSynologyStore();
 const immichStore = useImmichStore();
