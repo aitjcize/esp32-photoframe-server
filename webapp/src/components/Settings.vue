@@ -2815,15 +2815,6 @@ const dateFormatOptions = [
   { label: 'YYYY.MM.DD', value: '2006.01.02' },
 ];
 
-const layoutDescriptions: Record<string, string> = {
-  photo_info:
-    'Photo on top with a dedicated info strip showing date, weather, and calendar events.',
-  photo_overlay:
-    'Full-screen photo with a semi-transparent overlay showing date, weather, and events.',
-  side_panel:
-    'Photo with a side panel (landscape) or bottom panel (portrait) showing weather and events.',
-};
-
 const aiModelOptionsForProvider = (provider: string | undefined) => {
   if (provider === 'openai') {
     return [
@@ -4034,16 +4025,6 @@ const getImageUrl = (source?: string) => {
     (form.device_image_base_url || '').trim().replace(/\/+$/, '') ||
     derivedServerBase.value;
   return `${origin}/image${source ? '/' + source : ''}`;
-};
-
-// Copy to clipboard
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text);
-    showMessage('URL copied to clipboard!');
-  } catch (e) {
-    showMessage('Failed to copy to clipboard', true);
-  }
 };
 
 const getDeviceFromUA = (ua: string) => {

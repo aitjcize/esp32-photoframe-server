@@ -75,6 +75,7 @@ export interface Device {
   calendar_id?: string;
   date_format?: string;
   source?: string;
+  board_name?: string;
   created_at: string;
   model?: any;
 }

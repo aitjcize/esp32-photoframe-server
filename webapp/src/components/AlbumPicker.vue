@@ -43,7 +43,9 @@ import { matchesAlbum, sortCheckedFirst } from '../utils/albums';
 const props = withDefaults(
   defineProps<{
     albums: any[];
-    modelValue: string[];
+    // Source albums use string ids (Immich UUID / Synology String(id)); per-device
+    // pickers use numeric album ids — so accept both.
+    modelValue: (string | number)[];
     labelField: string;
     // Synology source albums key on a numeric id; selections are stored as
     // strings, so stringify the value to match.
@@ -59,7 +61,7 @@ const props = withDefaults(
     maxHeight: 320,
   }
 );
-const emit = defineEmits<{ 'update:modelValue': [string[]] }>();
+const emit = defineEmits<{ 'update:modelValue': [(string | number)[]] }>();
 
 const slots = useSlots();
 const hasPrepend = computed(() => !!slots.prepend);

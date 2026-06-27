@@ -7,3 +7,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// JS-only package with no bundled type declarations.
+declare module '@aitjcize/epaper-image-convert';
