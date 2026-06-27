@@ -251,6 +251,17 @@ func (h *DeviceHandler) ListAlbums(c echo.Context) error {
 	if err := q.Order("name").Find(&albums).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
+	// Report the LIVE photo count (memberships joined to existing images) rather
+	// than the cached Album.asset_count, which can go stale when images are
+	// removed (cleared, or an album emptied/deleted upstream).
+	for i := range albums {
+		var n int64
+		h.db.Model(&model.ImageAlbumMembership{}).
+			Joins("JOIN images ON images.id = image_album_memberships.image_id").
+			Where("image_album_memberships.album_id = ? AND images.deleted_at IS NULL", albums[i].ID).
+			Count(&n)
+		albums[i].AssetCount = int(n)
+	}
 	return c.JSON(http.StatusOK, albums)
 }
 

@@ -421,7 +421,10 @@ const fetchAlbumChips = async () => {
     const res = await api.get(
       `/albums?source=${galleryStore.source}&synced=true`
     );
-    albumChips.value = res.data || [];
+    // Only show albums that currently have photos — hide ones emptied upstream.
+    albumChips.value = (res.data || []).filter(
+      (a: any) => (a.asset_count ?? 0) > 0
+    );
   } catch (e) {
     console.error('Failed to fetch album chips', e);
     albumChips.value = [];
