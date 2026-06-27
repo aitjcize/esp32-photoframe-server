@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.8.0
+
+### Added
+- **Multi-album sync** for Immich and Synology: pick several albums per source and assign different album sets per device. Albums are now first-class entities (real albums plus Immich `all`/`favorites`/`memories` virtual albums), the gallery is grouped by album, and each album shows a live photo count.
+- **Album picker UX**: type-to-filter search, alphabetical sorting, and checked albums grouped at the top for quick review/unchecking.
+- **Configurable device-facing server URL** in Settings, so frames fetch images from the correct host in Tailscale / reverse-proxy setups instead of an auto-detected hostname.
+- **Background sync with live feedback**: a sync-status endpoint drives an in-progress indicator and auto-refreshes the gallery as photos import, and the gallery tab is restored after a page refresh (hash routing).
+- **Mobile-friendly Settings**: no more horizontal scrolling/accidental tab swipes on phones; the device dialog, device list, token list, and gallery header all adapt to small screens.
+
+### Changed
+- **Unified `/image` endpoint**: the photo source is resolved server-side from the requesting device (its token) instead of the URL path. The old `/image/:source` paths still work for back-compat, and per-source image URLs were removed from the UI.
+- **Album selection now persists immediately**; syncing is manual (a Sync button) or prompted when you leave the tab — no more accidental resyncs on every checkbox toggle.
+- Sync runs in the **background** (no more hung spinners), and "General" + "Security" were merged into a single **System** tab.
+- Google Photos "Clear All Photos" now matches the Immich/Synology layout.
+- **Smaller Docker image** (~1.83 GB → ~1.14 GB) by dropping the unused Mesa/LLVM GL stack and other runtime cruft.
+- Internal cleanups: shared source-parameterized sync helpers, a unified Immich/Synology sync handler, and live album counts via a single query.
+
+### Fixed
+- **Per-device source isolation**: a configured frame can no longer be served a different source/album via a URL-path override — it always gets the source it's configured for.
+- **Album import is now transactional and batched**, eliminating an N+1 per asset and preventing half-synced album state if an import fails midway.
+- Deleting a device no longer 500s (it referenced a table that never existed) and now cleans up the device's child rows in one transaction.
+- Album chips show live counts, emptied albums are hidden in the gallery, and a refresh no longer shows one tab's photos under another tab.
+- The device API token is auto-provisioned for the bare `/image` URL again.
+
+### Security
+- **Token-only device identification**: the spoofable `X-Hostname` and client-IP fallbacks were removed; a device is identified solely by its token.
+- Auth tokens are redacted from request logs, JWT validation is restricted to HS256, and the server warns when `JWT_SECRET` is unset.
+
 ## v1.7.8
 
 ### Added
