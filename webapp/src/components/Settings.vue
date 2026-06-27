@@ -1,6 +1,6 @@
 ```html
 <template>
-  <div class="pa-4">
+  <div class="pa-1 pa-sm-4">
     <!-- Gallery Card -->
     <v-card class="mb-6">
       <v-tabs v-model="galleryTab" color="primary">
@@ -1233,53 +1233,53 @@
                   </tbody>
                 </v-table>
 
-                <!-- Stacked cards on phones (no horizontal scroll) -->
-                <div v-else>
-                  <v-card
-                    v-for="device in availableDevices"
+                <!-- Stacked list on phones (no horizontal scroll) -->
+                <v-list
+                  v-else-if="availableDevices.length"
+                  class="border rounded"
+                  density="comfortable"
+                >
+                  <template
+                    v-for="(device, i) in availableDevices"
                     :key="device.id"
-                    variant="outlined"
-                    class="mb-2"
                   >
-                    <v-card-text class="d-flex align-center pa-3">
-                      <div class="flex-grow-1 text-truncate">
-                        <div class="font-weight-medium text-truncate">
-                          {{ device.name }}
-                        </div>
-                        <div class="text-caption text-grey text-truncate">
-                          {{
-                            device.board_name ||
-                            `${device.width}x${device.height}`
-                          }}
-                        </div>
-                        <div class="text-caption text-grey text-truncate">
-                          {{ device.host }}
-                        </div>
-                      </div>
-                      <v-btn
-                        color="primary"
-                        variant="text"
-                        size="small"
-                        icon="mdi-pencil"
-                        title="Edit Device"
-                        @click="editDevice(device)"
-                      ></v-btn>
-                      <v-btn
-                        color="error"
-                        variant="text"
-                        size="small"
-                        icon="mdi-delete"
-                        title="Delete Device"
-                        @click="removeDevice(device.id)"
-                      ></v-btn>
-                    </v-card-text>
-                  </v-card>
-                  <div
-                    v-if="availableDevices.length === 0"
-                    class="text-center text-grey py-4"
-                  >
-                    No devices added.
-                  </div>
+                    <v-divider v-if="i > 0"></v-divider>
+                    <v-list-item>
+                      <v-list-item-title class="text-truncate">
+                        {{ device.name }}
+                      </v-list-item-title>
+                      <v-list-item-subtitle class="text-truncate">
+                        {{
+                          device.board_name ||
+                          `${device.width}x${device.height}`
+                        }}
+                      </v-list-item-subtitle>
+                      <v-list-item-subtitle class="text-truncate">
+                        {{ device.host }}
+                      </v-list-item-subtitle>
+                      <template #append>
+                        <v-btn
+                          color="primary"
+                          variant="text"
+                          size="small"
+                          icon="mdi-pencil"
+                          title="Edit Device"
+                          @click="editDevice(device)"
+                        ></v-btn>
+                        <v-btn
+                          color="error"
+                          variant="text"
+                          size="small"
+                          icon="mdi-delete"
+                          title="Delete Device"
+                          @click="removeDevice(device.id)"
+                        ></v-btn>
+                      </template>
+                    </v-list-item>
+                  </template>
+                </v-list>
+                <div v-else class="text-center text-grey py-4">
+                  No devices added.
                 </div>
               </template>
 

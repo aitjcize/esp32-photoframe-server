@@ -3,7 +3,9 @@
     <!-- Gallery Content -->
     <div>
       <!-- Header with Stats and Actions -->
-      <div class="d-flex justify-space-between align-center mb-4">
+      <div
+        class="d-flex flex-column flex-sm-row justify-space-between align-start align-sm-center ga-2 mb-4"
+      >
         <div>
           <h2 class="text-h6 text-capitalize">
             {{ galleryStore.source.replace('_', ' ') }} Gallery
@@ -15,7 +17,7 @@
             total
           </div>
         </div>
-        <div class="d-flex gap-2 ga-2">
+        <div class="d-flex flex-wrap ga-2">
           <v-btn
             v-if="galleryStore.totalPhotos > 0"
             color="error"
