@@ -428,9 +428,6 @@
                       </v-col>
                     </v-row>
 
-                    <div class="text-caption text-grey mb-2">
-                      Changes are saved automatically.
-                    </div>
 
                     <v-row class="mt-1">
                       <v-col cols="12" md="6">
@@ -670,9 +667,6 @@
                       </v-col>
                     </v-row>
 
-                    <div class="text-caption text-grey mb-2">
-                      Changes are saved automatically.
-                    </div>
 
                     <v-row class="mt-1">
                       <v-col cols="12" md="6">
