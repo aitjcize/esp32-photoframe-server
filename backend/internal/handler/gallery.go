@@ -327,6 +327,9 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete from db"})
 	}
 
+	// Drop album memberships for this image (consistent with the bulk delete).
+	h.db.Where("image_id = ?", item.ID).Delete(&model.ImageAlbumMembership{})
+
 	// For local sources (gallery / google), drop the file and thumbnail.
 	// Synology / Immich keep the original on the source, so nothing on disk.
 	if item.Source == model.SourceGooglePhotos || item.Source == model.SourceGallery {

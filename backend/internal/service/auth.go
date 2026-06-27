@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"log"
 	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
@@ -27,6 +28,8 @@ func NewAuthService(db *gorm.DB, secret string) *AuthService {
 	// If no secret provided, generate or use default (in prod, MUST be provided)
 	if secret == "" {
 		secret = "default-insecure-secret-change-me"
+		log.Println("WARNING: JWT_SECRET is not set — using an insecure default. " +
+			"Set JWT_SECRET to a strong random value; otherwise device/admin tokens are forgeable.")
 	}
 	return &AuthService{
 		db:        db,
@@ -180,7 +183,7 @@ func (s *AuthService) GetOrGenerateDeviceToken(userID uint, username string, nam
 func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return s.jwtSecret, nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}))
 
 	if err != nil {
 		return nil, err

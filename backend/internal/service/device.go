@@ -251,8 +251,29 @@ func (s *DeviceService) RefreshDeviceFromHardware(id uint) (*model.Device, error
 }
 
 func (s *DeviceService) DeleteDevice(id uint) error {
-	result := s.db.Delete(&model.Device{}, id)
-	return result.Error
+	// SQLite has no FK cascades enabled, so remove the device's child rows
+	// explicitly (in one transaction) to avoid orphans that a reused device id
+	// could later inherit.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		children := []interface{}{
+			&model.DeviceHistory{},
+			&model.DeviceImageMapping{},
+			&model.DeviceAlbumMapping{},
+			&model.DeviceURLMapping{},
+			&model.GenerativeState{},
+		}
+		for _, m := range children {
+			if err := tx.Where("device_id = ?", id).Delete(m).Error; err != nil {
+				return err
+			}
+		}
+		// Unbind (don't delete) any API tokens pointing at this device.
+		if err := tx.Model(&model.APIKey{}).
+			Where("device_id = ?", id).Update("device_id", nil).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.Device{}, id).Error
+	})
 }
 
 // --- Push Logic ---
