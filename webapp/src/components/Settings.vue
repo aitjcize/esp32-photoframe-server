@@ -3269,25 +3269,28 @@ const deviceSynologyAlbumSearch = ref('');
 const matchesAlbum = (name: string, q: string) =>
   !q || (name || '').toLowerCase().includes(q.toLowerCase());
 
+const byName = (key: string) => (a: any, b: any) =>
+  (a[key] || '').localeCompare(b[key] || '', undefined, { sensitivity: 'base' });
+
 const filteredImmichAlbums = computed(() =>
-  (immichStore.albums || []).filter((a: any) =>
-    matchesAlbum(a.albumName, immichAlbumSearch.value)
-  )
+  (immichStore.albums || [])
+    .filter((a: any) => matchesAlbum(a.albumName, immichAlbumSearch.value))
+    .sort(byName('albumName'))
 );
 const filteredSynologyAlbums = computed(() =>
-  (synologyStore.albums || []).filter((a: any) =>
-    matchesAlbum(a.name, synologyAlbumSearch.value)
-  )
+  (synologyStore.albums || [])
+    .filter((a: any) => matchesAlbum(a.name, synologyAlbumSearch.value))
+    .sort(byName('name'))
 );
 const filteredDeviceImmichAlbums = computed(() =>
-  deviceImmichAlbumOptions.value.filter((a: any) =>
-    matchesAlbum(a.name, deviceImmichAlbumSearch.value)
-  )
+  deviceImmichAlbumOptions.value
+    .filter((a: any) => matchesAlbum(a.name, deviceImmichAlbumSearch.value))
+    .sort(byName('name'))
 );
 const filteredDeviceSynologyAlbums = computed(() =>
-  deviceSynologyAlbumOptions.value.filter((a: any) =>
-    matchesAlbum(a.name, deviceSynologyAlbumSearch.value)
-  )
+  deviceSynologyAlbumOptions.value
+    .filter((a: any) => matchesAlbum(a.name, deviceSynologyAlbumSearch.value))
+    .sort(byName('name'))
 );
 
 // Derive the Synology checkbox selection from the persisted synced albums.
