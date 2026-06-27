@@ -135,19 +135,7 @@ func main() {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	authService := service.NewAuthService(database, jwtSecret)
 
-	// Migrate All Models
-	// Device and other models are handled by golang-migrate now
-	/*
-		if err := database.AutoMigrate(
-			&model.User{},
-			&model.APIKey{},
-			&model.Setting{},
-			&model.Image{},
-			&model.GoogleAuth{},
-		); err != nil {
-			log.Fatal("Failed to migrate database:", err)
-		}
-	*/
+	// Schema is owned by golang-migrate (db/migrations); no AutoMigrate here.
 
 	// Initialize Google Photos Client
 	// Pass settingsService as ConfigProvider so it fetches latest config on every request
