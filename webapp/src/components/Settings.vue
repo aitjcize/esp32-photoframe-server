@@ -383,45 +383,13 @@
                           from. Saving replaces the entire sync set.
                         </div>
 
-                        <v-text-field
-                          v-model="synologyAlbumSearch"
-                          placeholder="Search albums…"
-                          prepend-inner-icon="mdi-magnify"
-                          variant="outlined"
-                          density="compact"
-                          hide-details
-                          clearable
-                          class="mb-2"
-                        ></v-text-field>
-
-                        <v-card variant="outlined" class="mb-3">
-                          <v-list
-                            density="compact"
-                            class="py-0 overflow-y-auto"
-                            style="max-height: 320px"
-                          >
-                            <v-list-item
-                              v-for="album in filteredSynologyAlbums"
-                              :key="album.id"
-                            >
-                              <v-checkbox
-                                v-model="synologySyncAlbumIds"
-                                :value="String(album.id)"
-                                :label="album.name"
-                                color="primary"
-                                density="compact"
-                                hide-details
-                              ></v-checkbox>
-                            </v-list-item>
-                            <v-list-item
-                              v-if="!synologyStore.albums.length"
-                              class="text-caption text-grey"
-                            >
-                              No albums found. Click "Refresh albums" to load
-                              them from Synology.
-                            </v-list-item>
-                          </v-list>
-                        </v-card>
+                        <AlbumPicker
+                          v-model="synologySyncAlbumIds"
+                          :albums="synologyStore.albums"
+                          label-field="name"
+                          stringify
+                          empty-text='No albums found. Click "Refresh albums" to load them from Synology.'
+                        ></AlbumPicker>
                       </v-col>
                     </v-row>
 
@@ -574,23 +542,13 @@
                           photos from. Saving replaces the entire sync set.
                         </div>
 
-                        <v-text-field
-                          v-model="immichAlbumSearch"
-                          placeholder="Search albums…"
-                          prepend-inner-icon="mdi-magnify"
-                          variant="outlined"
-                          density="compact"
-                          hide-details
-                          clearable
-                          class="mb-2"
-                        ></v-text-field>
-
-                        <v-card variant="outlined" class="mb-3">
-                          <v-list
-                            density="compact"
-                            class="py-0 overflow-y-auto"
-                            style="max-height: 320px"
-                          >
+                        <AlbumPicker
+                          v-model="syncAlbumIds"
+                          :albums="immichStore.albums"
+                          label-field="albumName"
+                          empty-text='No albums found. Click "Refresh albums" to load them from Immich.'
+                        >
+                          <template #prepend>
                             <v-list-item>
                               <v-checkbox
                                 v-model="syncFavorites"
@@ -618,31 +576,8 @@
                                 hide-details
                               ></v-checkbox>
                             </v-list-item>
-                            <v-divider
-                              v-if="immichStore.albums.length"
-                            ></v-divider>
-                            <v-list-item
-                              v-for="album in filteredImmichAlbums"
-                              :key="album.id"
-                            >
-                              <v-checkbox
-                                v-model="syncAlbumIds"
-                                :value="album.id"
-                                :label="album.albumName"
-                                color="primary"
-                                density="compact"
-                                hide-details
-                              ></v-checkbox>
-                            </v-list-item>
-                            <v-list-item
-                              v-if="!immichStore.albums.length"
-                              class="text-caption text-grey"
-                            >
-                              No albums found. Click "Refresh albums" to load
-                              them from Immich.
-                            </v-list-item>
-                          </v-list>
-                        </v-card>
+                          </template>
+                        </AlbumPicker>
                       </v-col>
                     </v-row>
 
@@ -1543,45 +1478,14 @@
                                 Albums for this frame — leave all unchecked to
                                 use every synced Immich photo.
                               </div>
-                              <v-text-field
-                                v-model="deviceImmichAlbumSearch"
-                                placeholder="Search albums…"
-                                prepend-inner-icon="mdi-magnify"
-                                variant="outlined"
-                                density="compact"
-                                hide-details
-                                clearable
-                                class="mb-2"
-                              ></v-text-field>
-                              <v-card variant="outlined">
-                                <v-list
-                                  density="compact"
-                                  class="py-0 overflow-y-auto"
-                                  style="max-height: 220px"
-                                >
-                                  <v-list-item
-                                    v-for="album in filteredDeviceImmichAlbums"
-                                    :key="album.id"
-                                  >
-                                    <v-checkbox
-                                      v-model="deviceImmichAlbumIds"
-                                      :value="album.id"
-                                      :label="album.name"
-                                      color="primary"
-                                      density="compact"
-                                      hide-details
-                                      :disabled="!deviceConfig.auto_rotate"
-                                    ></v-checkbox>
-                                  </v-list-item>
-                                  <v-list-item
-                                    v-if="!deviceImmichAlbumOptions.length"
-                                    class="text-caption text-grey"
-                                  >
-                                    No synced Immich albums. Add some in Data
-                                    Sources → Immich first.
-                                  </v-list-item>
-                                </v-list>
-                              </v-card>
+                              <AlbumPicker
+                                v-model="deviceImmichAlbumIds"
+                                :albums="deviceImmichAlbumOptions"
+                                label-field="name"
+                                :max-height="220"
+                                :disabled="!deviceConfig.auto_rotate"
+                                empty-text="No synced Immich albums. Add some in Data Sources → Immich first."
+                              ></AlbumPicker>
                             </div>
 
                             <div
@@ -1596,45 +1500,14 @@
                                 Albums for this frame — leave all unchecked to
                                 use every synced Synology photo.
                               </div>
-                              <v-text-field
-                                v-model="deviceSynologyAlbumSearch"
-                                placeholder="Search albums…"
-                                prepend-inner-icon="mdi-magnify"
-                                variant="outlined"
-                                density="compact"
-                                hide-details
-                                clearable
-                                class="mb-2"
-                              ></v-text-field>
-                              <v-card variant="outlined">
-                                <v-list
-                                  density="compact"
-                                  class="py-0 overflow-y-auto"
-                                  style="max-height: 220px"
-                                >
-                                  <v-list-item
-                                    v-for="album in filteredDeviceSynologyAlbums"
-                                    :key="album.id"
-                                  >
-                                    <v-checkbox
-                                      v-model="deviceSynologyAlbumIds"
-                                      :value="album.id"
-                                      :label="album.name"
-                                      color="primary"
-                                      density="compact"
-                                      hide-details
-                                      :disabled="!deviceConfig.auto_rotate"
-                                    ></v-checkbox>
-                                  </v-list-item>
-                                  <v-list-item
-                                    v-if="!deviceSynologyAlbumOptions.length"
-                                    class="text-caption text-grey"
-                                  >
-                                    No synced Synology albums. Add some in Data
-                                    Sources → Synology first.
-                                  </v-list-item>
-                                </v-list>
-                              </v-card>
+                              <AlbumPicker
+                                v-model="deviceSynologyAlbumIds"
+                                :albums="deviceSynologyAlbumOptions"
+                                label-field="name"
+                                :max-height="220"
+                                :disabled="!deviceConfig.auto_rotate"
+                                empty-text="No synced Synology albums. Add some in Data Sources → Synology first."
+                              ></AlbumPicker>
                             </div>
 
                             <!-- Custom URL -->
@@ -2364,6 +2237,7 @@ import {
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
+import AlbumPicker from './AlbumPicker.vue';
 
 const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
@@ -3384,63 +3258,7 @@ const deviceSynologyAlbumOptions = computed(() => {
     .map((a: any) => ({ id: a.id, name: a.name }));
 });
 
-// Typeable filters for the (potentially long) album lists.
-const immichAlbumSearch = ref('');
-const synologyAlbumSearch = ref('');
-const deviceImmichAlbumSearch = ref('');
-const deviceSynologyAlbumSearch = ref('');
-
-const matchesAlbum = (name: string, q: string) =>
-  !q || (name || '').toLowerCase().includes(q.toLowerCase());
-
-// Sort checked albums to the top, then alphabetically — so selected albums
-// are grouped and easy to find/uncheck.
-const sortCheckedFirst =
-  (key: string, isChecked: (a: any) => boolean) => (a: any, b: any) => {
-    const ca = isChecked(a) ? 1 : 0;
-    const cb = isChecked(b) ? 1 : 0;
-    if (ca !== cb) return cb - ca;
-    return (a[key] || '').localeCompare(b[key] || '', undefined, {
-      sensitivity: 'base',
-    });
-  };
-
-const filteredImmichAlbums = computed(() =>
-  (immichStore.albums || [])
-    .filter((a: any) => matchesAlbum(a.albumName, immichAlbumSearch.value))
-    .sort(
-      sortCheckedFirst('albumName', (a: any) =>
-        syncAlbumIds.value.includes(a.id)
-      )
-    )
-);
-const filteredSynologyAlbums = computed(() =>
-  (synologyStore.albums || [])
-    .filter((a: any) => matchesAlbum(a.name, synologyAlbumSearch.value))
-    .sort(
-      sortCheckedFirst('name', (a: any) =>
-        synologySyncAlbumIds.value.includes(String(a.id))
-      )
-    )
-);
-const filteredDeviceImmichAlbums = computed(() =>
-  deviceImmichAlbumOptions.value
-    .filter((a: any) => matchesAlbum(a.name, deviceImmichAlbumSearch.value))
-    .sort(
-      sortCheckedFirst('name', (a: any) =>
-        deviceImmichAlbumIds.value.includes(a.id)
-      )
-    )
-);
-const filteredDeviceSynologyAlbums = computed(() =>
-  deviceSynologyAlbumOptions.value
-    .filter((a: any) => matchesAlbum(a.name, deviceSynologyAlbumSearch.value))
-    .sort(
-      sortCheckedFirst('name', (a: any) =>
-        deviceSynologyAlbumIds.value.includes(a.id)
-      )
-    )
-);
+// Album search + checked-first sorting now live in <AlbumPicker>.
 
 // Derive the Synology checkbox selection from the persisted synced albums.
 // External ids are matched against String(album.id) of live Synology albums.
