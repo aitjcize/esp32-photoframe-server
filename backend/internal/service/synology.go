@@ -440,8 +440,8 @@ func (s *SynologyService) SetSyncAlbums(realIDs []string) error {
 			s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false)
 		}
 	}
-	// Run the clear+resync in the background so the request returns promptly.
-	s.autoSync.SyncNowAsync()
+	// Persist the selection only — the import is triggered explicitly (manual
+	// Sync) or by the auto-sync scheduler, not on every album toggle.
 	return nil
 }
 
@@ -461,7 +461,10 @@ func (s *SynologyService) ClearPhotos() error {
 
 // ClearAndResync deletes all Synology photos and re-imports them
 func (s *SynologyService) ClearAndResync() error {
-	return s.autoSync.SyncNow()
+	// Run the clear+resync in the background so the manual Sync request returns
+	// promptly; the client polls sync-status to show progress.
+	s.autoSync.SyncNowAsync()
+	return nil
 }
 
 // IsSyncing reports whether a Synology sync is currently running.

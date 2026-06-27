@@ -2399,11 +2399,15 @@ const savingSyncSelection = ref(false);
 const synologySyncAlbumIds = ref<string[]>([]);
 const savingSynologySyncSelection = ref(false);
 
-// Album selection auto-saves (debounced). Suppress the auto-save while we
-// apply the persisted state programmatically (load / post-save refresh).
+// Album selection auto-saves (debounced) but does NOT trigger an import — the
+// user syncs manually or is prompted on leaving. Suppress the auto-save while
+// applying persisted state programmatically (load / post-save refresh).
+// *SyncDirty marks selection changed since the last actual sync.
 let suppressSyncAutoSave = false;
 let immichSyncSaveTimer: number | null = null;
 let synologySyncSaveTimer: number | null = null;
+const immichSyncDirty = ref(false);
+const synologySyncDirty = ref(false);
 
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
@@ -3503,12 +3507,13 @@ const applySyncedAlbumState = () => {
   });
 };
 
-// Auto-save the album selection (debounced) so the user doesn't need to click
-// a Save button. Suppressed while applying persisted state programmatically.
+// Persist the album selection (debounced) without importing — the user syncs
+// manually or is prompted on leaving. Suppressed during programmatic apply.
 watch(
   [syncAlbumIds, syncFavorites, syncAll, syncMemories],
   () => {
     if (suppressSyncAutoSave) return;
+    immichSyncDirty.value = true;
     if (immichSyncSaveTimer != null) clearTimeout(immichSyncSaveTimer);
     immichSyncSaveTimer = window.setTimeout(() => saveSyncSelection(), 600);
   },
@@ -3518,6 +3523,7 @@ watch(
   synologySyncAlbumIds,
   () => {
     if (suppressSyncAutoSave) return;
+    synologySyncDirty.value = true;
     if (synologySyncSaveTimer != null) clearTimeout(synologySyncSaveTimer);
     synologySyncSaveTimer = window.setTimeout(
       () => saveSynologySyncSelection(),
@@ -3526,6 +3532,30 @@ watch(
   },
   { deep: true }
 );
+
+// When the user leaves the Immich/Synology config (sub-tab or the whole Data
+// Sources tab) with unsynced selection changes, offer to sync now.
+const maybePromptSync = async (source: 'immich' | 'synology_photos') => {
+  const dirty = source === 'immich' ? immichSyncDirty : synologySyncDirty;
+  if (!dirty.value) return;
+  dirty.value = false; // ask once
+  const ok = await confirmDialog.value.open(
+    'You changed which albums to sync. Sync now to apply the changes?'
+  );
+  if (!ok) return;
+  if (source === 'immich') await syncImmich();
+  else await syncSynology();
+};
+watch(activeDataSourceTab, (_newVal, oldVal) => {
+  if (oldVal === 'immich') maybePromptSync('immich');
+  if (oldVal === 'synology_photos') maybePromptSync('synology_photos');
+});
+watch(activeMainTab, (_newVal, oldVal) => {
+  if (oldVal === 'datasources') {
+    maybePromptSync('immich');
+    maybePromptSync('synology_photos');
+  }
+});
 
 const immichMemoryModeOptions = [
   { title: 'All years', value: 'all' },
@@ -3914,8 +3944,7 @@ const saveSynologySyncSelection = async () => {
   try {
     await synologyStore.saveSyncAlbums(synologySyncAlbumIds.value);
     applySynologySyncedAlbumState();
-    galleryStore.triggerRefresh();
-    showMessage('Sync selection saved — importing photos in the background.');
+    // Selection persisted only; no import here (manual Sync / prompt triggers it).
   } catch (e: any) {
     showMessage(
       'Failed to save sync selection: ' +
@@ -3931,7 +3960,8 @@ const syncSynology = async () => {
   await saveSettingsInternal();
   try {
     await synologyStore.sync();
-    showMessage('Sync started/completed successfully!');
+    synologySyncDirty.value = false;
+    showMessage('Sync started — importing in the background.');
     galleryStore.triggerRefresh();
     // Refresh the gallery preview above so the freshly synced photos show.
     // Switching the source triggers a fetch; if it's already on synology the
@@ -4022,8 +4052,7 @@ const saveSyncSelection = async () => {
       memories: syncMemories.value,
     });
     applySyncedAlbumState();
-    galleryStore.triggerRefresh();
-    showMessage('Sync selection saved — importing photos in the background.');
+    // Selection persisted only; no import here (manual Sync / prompt triggers it).
   } catch (e: any) {
     showMessage(
       'Failed to save sync selection: ' +
@@ -4039,7 +4068,8 @@ const syncImmich = async () => {
   await saveSettingsInternal();
   try {
     await immichStore.sync();
-    showMessage('Sync completed successfully!');
+    immichSyncDirty.value = false;
+    showMessage('Sync started — importing in the background.');
     galleryStore.triggerRefresh();
     // Refresh the gallery preview above so the freshly synced photos show.
     // Switching the source triggers a fetch; if it's already on immich the

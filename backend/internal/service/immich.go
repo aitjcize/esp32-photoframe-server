@@ -215,10 +215,9 @@ func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories
 		}
 	}
 
-	// The sync set (album rows) is updated synchronously above; run the
-	// potentially long clear+resync in the background so the HTTP request
-	// returns immediately instead of hanging the client's spinner.
-	s.autoSync.SyncNowAsync()
+	// Persist the selection only — do NOT import here. The import is triggered
+	// explicitly (manual Sync) or by the auto-sync scheduler, so toggling
+	// albums doesn't kick off a clear+resync on every change.
 	return nil
 }
 
@@ -430,7 +429,10 @@ func (s *ImmichService) ClearPhotos() error {
 
 // ClearAndResync deletes all Immich photos and re-imports from the configured album
 func (s *ImmichService) ClearAndResync() error {
-	return s.autoSync.SyncNow()
+	// Run the clear+resync in the background so the manual Sync request returns
+	// promptly; the client polls sync-status to show progress.
+	s.autoSync.SyncNowAsync()
+	return nil
 }
 
 // IsSyncing reports whether an Immich sync is currently running.
