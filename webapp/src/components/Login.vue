@@ -15,6 +15,8 @@
               variant="outlined"
               class="mb-2"
               required
+              name="username"
+              id="username"
               autocomplete="username"
             ></v-text-field>
 
@@ -26,6 +28,8 @@
               variant="outlined"
               class="mb-4"
               required
+              name="password"
+              id="current-password"
               autocomplete="current-password"
             ></v-text-field>
 
