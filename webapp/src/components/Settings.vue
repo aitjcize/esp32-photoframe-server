@@ -386,7 +386,7 @@
                         color="error"
                         variant="text"
                         @click="logoutSynology"
-                        >Log Out</v-btn
+                        >Disconnect</v-btn
                       >
                     </div>
                   </div>
