@@ -1,61 +1,21 @@
-```html
 <template>
   <div class="pa-1 pa-sm-4">
-    <!-- Gallery Card -->
+    <!-- Sources Card (gallery on top, settings below) -->
     <v-card class="mb-6">
-      <v-tabs v-model="galleryTab" color="primary">
+      <v-tabs v-model="sourceTab" color="primary" show-arrows>
         <v-tab value="gallery">Gallery</v-tab>
         <v-tab value="immich">Immich</v-tab>
         <v-tab value="synology_photos">Synology</v-tab>
         <v-tab value="google_photos">Google Photos</v-tab>
+        <v-tab value="url">URL Proxy</v-tab>
+        <v-tab value="ai_generation">AI Generation</v-tab>
       </v-tabs>
       <v-card-text>
-        <Gallery />
-      </v-card-text>
-    </v-card>
-
-    <!-- Settings Card -->
-    <v-card>
-      <v-card-title class="d-flex align-center">
-        <v-icon icon="mdi-cog" class="mr-2" />
-        Settings
-      </v-card-title>
-
-      <div
-        v-if="store.loading"
-        class="d-flex justify-center align-center pa-10"
-      >
-        <v-progress-circular
-          indeterminate
-          color="primary"
-        ></v-progress-circular>
-      </div>
-
-      <div v-else>
-        <v-tabs v-model="activeMainTab" color="primary" grow>
-          <v-tab value="devices">Devices</v-tab>
-          <v-tab value="datasources">Data Sources</v-tab>
-          <v-tab value="security">System</v-tab>
-        </v-tabs>
-
-        <v-window v-model="activeMainTab" :touch="false">
-          <!-- Data Sources Tab -->
-          <v-window-item value="datasources">
-            <v-tabs
-              v-model="activeDataSourceTab"
-              color="primary"
-              density="compact"
-              class="mb-4"
-            >
-              <v-tab value="gallery">Gallery</v-tab>
-              <v-tab value="immich">Immich</v-tab>
-              <v-tab value="synology_photos">Synology</v-tab>
-              <v-tab value="google">Google</v-tab>
-              <v-tab value="url">URL Proxy</v-tab>
-              <v-tab value="ai_generation">AI Generation</v-tab>
-            </v-tabs>
-
-            <v-window v-model="activeDataSourceTab" :touch="false">
+        <div v-if="sourceHasGallery">
+          <Gallery />
+          <v-divider class="my-6"></v-divider>
+        </div>
+            <v-window v-model="sourceTab" :touch="false">
               <!-- URL Proxy -->
               <v-window-item value="url">
                 <v-card-text>
@@ -183,7 +143,7 @@
               </v-dialog>
 
               <!-- Google (Photos + Calendar) -->
-              <v-window-item value="google">
+              <v-window-item value="google_photos">
                 <v-card-text>
                   <!-- Shared Google API Credentials -->
                   <h3 class="text-subtitle-1 font-weight-bold mb-3">
@@ -841,7 +801,33 @@
                 </v-card-text>
               </v-window-item>
             </v-window>
-          </v-window-item>
+      </v-card-text>
+    </v-card>
+
+    <!-- Settings Card -->
+    <v-card>
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-cog" class="mr-2" />
+        Settings
+      </v-card-title>
+
+      <div
+        v-if="store.loading"
+        class="d-flex justify-center align-center pa-10"
+      >
+        <v-progress-circular
+          indeterminate
+          color="primary"
+        ></v-progress-circular>
+      </div>
+
+      <div v-else>
+        <v-tabs v-model="activeMainTab" color="primary" grow>
+          <v-tab value="devices">Devices</v-tab>
+          <v-tab value="security">System</v-tab>
+        </v-tabs>
+
+        <v-window v-model="activeMainTab" :touch="false">
 
           <!-- System Tab (server + security) -->
           <v-window-item value="security">
@@ -1992,8 +1978,13 @@ const deviceImmichAlbumIds = ref<number[]>([]);
 const deviceSynologyAlbumIds = ref<number[]>([]);
 const galleryStore = useGalleryStore();
 const activeMainTab = ref('devices');
-const activeDataSourceTab = ref('gallery');
-const galleryTab = ref('gallery');
+// Unified source selector for the top card (per-source gallery + settings).
+const sourceTab = ref('gallery');
+const sourceHasGallery = computed(() =>
+  ['gallery', 'immich', 'synology_photos', 'google_photos'].includes(
+    sourceTab.value
+  )
+);
 const confirmDialog = ref();
 
 // Image Source Binding State
@@ -2559,12 +2550,21 @@ const getDeviceName = (id: number) => {
   return dev ? dev.name : `Device ${id}`;
 };
 
-watch(activeDataSourceTab, (val) => {
+watch(sourceTab, (val) => {
+  // Drive the top gallery for gallery-capable sources.
+  if (sourceHasGallery.value) {
+    galleryStore.setSource(
+      val as 'gallery' | 'immich' | 'synology_photos' | 'google_photos'
+    );
+  }
+  // Lazy-load per-source data the first time its tab is opened.
   if (val === 'url') {
     loadURLSources();
-  } else if (val === 'google') {
+  } else if (val === 'google_photos') {
     loadCalendars();
   }
+  // Persist the active source tab in the URL hash so a refresh restores it.
+  if (val) window.location.hash = 'gtab=' + val;
 });
 
 // Devices State
@@ -2885,26 +2885,19 @@ const removeDevice = async (id: number) => {
   }
 };
 
-watch(galleryTab, (val) => {
-  if (val === 'google_photos') {
-    galleryStore.setSource('google_photos');
-  } else if (val === 'synology_photos') {
-    galleryStore.setSource('synology_photos');
-  } else if (val === 'immich') {
-    galleryStore.setSource('immich');
-  } else if (val === 'gallery') {
-    galleryStore.setSource('gallery');
-  }
-  // Persist the active gallery tab in the URL hash so a refresh restores it.
-  if (val) window.location.hash = 'gtab=' + val;
-});
-
-const GALLERY_TABS = ['gallery', 'immich', 'google_photos', 'synology_photos'];
-// Restore the gallery tab from the URL hash (#gtab=<tab>) on load.
+const SOURCE_TABS = [
+  'gallery',
+  'immich',
+  'synology_photos',
+  'google_photos',
+  'url',
+  'ai_generation',
+];
+// Restore the active source tab from the URL hash (#gtab=<tab>) on load.
 const restoreGalleryTabFromHash = () => {
   const m = window.location.hash.match(/gtab=([\w-]+)/);
-  if (m && GALLERY_TABS.includes(m[1])) {
-    galleryTab.value = m[1];
+  if (m && SOURCE_TABS.includes(m[1])) {
+    sourceTab.value = m[1];
   }
 };
 
@@ -3053,7 +3046,7 @@ const maybePromptSync = async (source: 'immich' | 'synology_photos') => {
   if (source === 'immich') await syncImmich();
   else await syncSynology();
 };
-watch(activeDataSourceTab, (_newVal, oldVal) => {
+watch(sourceTab, (_newVal, oldVal) => {
   if (oldVal === 'immich') maybePromptSync('immich');
   if (oldVal === 'synology_photos') maybePromptSync('synology_photos');
 });
@@ -3249,11 +3242,11 @@ onMounted(async () => {
   const tab = params.get('tab');
   const source = params.get('source');
 
-  if (tab) {
+  if (tab && tab !== 'datasources') {
     activeMainTab.value = tab;
   }
   if (source) {
-    activeDataSourceTab.value = source;
+    sourceTab.value = source === 'google' ? 'google_photos' : source;
   }
 
   // Clean up URL if params were present
@@ -3464,10 +3457,10 @@ const syncSynology = async () => {
     // Refresh the gallery preview above so the freshly synced photos show.
     // Switching the source triggers a fetch; if it's already on synology the
     // watch won't fire, so refetch explicitly.
-    if (galleryTab.value === 'synology_photos') {
+    if (sourceTab.value === 'synology_photos') {
       await galleryStore.fetchPhotos();
     } else {
-      galleryTab.value = 'synology_photos';
+      sourceTab.value = 'synology_photos';
     }
   } catch (e: any) {
     if (e.response && e.response.status === 401) {
@@ -3572,10 +3565,10 @@ const syncImmich = async () => {
     // Refresh the gallery preview above so the freshly synced photos show.
     // Switching the source triggers a fetch; if it's already on immich the
     // watch won't fire, so refetch explicitly.
-    if (galleryTab.value === 'immich') {
+    if (sourceTab.value === 'immich') {
       await galleryStore.fetchPhotos();
     } else {
-      galleryTab.value = 'immich';
+      sourceTab.value = 'immich';
     }
   } catch (e: any) {
     showMessage(
