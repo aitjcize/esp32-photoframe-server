@@ -655,6 +655,7 @@
                       color="primary"
                       hide-details
                       density="compact"
+                      @update:model-value="saveSettingsInternal()"
                     ></v-checkbox>
 
                     <v-expand-transition>
@@ -672,14 +673,12 @@
                           multiple
                           chips
                           closable-chips
+                          @update:model-value="saveSettingsInternal()"
                         ></v-select>
                       </div>
                     </v-expand-transition>
 
                     <div class="d-flex flex-wrap ga-2 mt-4">
-                      <v-btn color="primary" @click="save"
-                        >Update Settings</v-btn
-                      >
                       <v-btn
                         color="warning"
                         :loading="deletingAllPhotos"
