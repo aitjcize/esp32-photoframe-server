@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.8.2
+
+### Changed
+- **Unified Sources view.** The per-source settings are merged into the gallery: one tab per source (Gallery, Immich, Synology, Google, URL Proxy, AI Generation), each showing its gallery on top and that source's settings directly below. The separate "Data Sources" tab is gone; Devices + System remain as their own tabs.
+- **Less clicking to set up a source.** Connecting Immich/Synology now auto-loads the album list (no separate "Refresh albums" step), and the gallery refreshes immediately after you clear photos.
+- **Consistent connection controls.** Telegram and Synology now show a **Disconnect** button once configured (matching Immich/Google), and the gallery's Telegram/push-to-device settings save automatically (no "Update Settings" button).
+- **Tab/label tidy-up.** "Google Photos" → "Google", Synology now sits before Google, the redundant "N photos synced" lines and the gallery info banner were removed, and the album-list border now matches the search field.
+
+### Fixed
+- Login form exposes proper `name`/`id`/autocomplete attributes so password managers (e.g. 1Password) reliably detect it. Note: iOS Safari still restricts autofill to HTTPS origins, so use an HTTPS URL (Tailscale/Nabu Casa/reverse proxy) on mobile.
+
 ## v1.8.1
 
 ### Security
