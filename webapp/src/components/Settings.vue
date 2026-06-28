@@ -6,7 +6,7 @@
         <v-tab value="gallery">Gallery</v-tab>
         <v-tab value="immich">Immich</v-tab>
         <v-tab value="synology_photos">Synology</v-tab>
-        <v-tab value="google_photos">Google Photos</v-tab>
+        <v-tab value="google_photos">Google</v-tab>
         <v-tab value="url">URL Proxy</v-tab>
         <v-tab value="ai_generation">AI Generation</v-tab>
       </v-tabs>
@@ -619,17 +619,6 @@
               <!-- Gallery -->
               <v-window-item value="gallery">
                 <v-card-text>
-                  <div class="d-flex flex-wrap ga-2 mb-2">
-                    <v-btn
-                      color="warning"
-                      :loading="deletingAllPhotos"
-                      @click="deleteAllPhotosForSource('gallery')"
-                      >Clear All Photos</v-btn
-                    >
-                  </div>
-
-                  <v-divider class="my-4"></v-divider>
-
                   <h3 class="text-subtitle-1 font-weight-bold mb-1">
                     Telegram Bot (Upload)
                   </h3>
@@ -648,12 +637,6 @@
                     >
                       Telegram Bot Configured
                     </v-alert>
-
-                    <v-text-field
-                      v-model="form.telegram_bot_token"
-                      label="Telegram Bot Token"
-                      variant="outlined"
-                    ></v-text-field>
 
                     <v-divider class="my-4"></v-divider>
 
@@ -693,9 +676,23 @@
                       </div>
                     </v-expand-transition>
 
-                    <v-btn color="primary" class="mt-4" @click="save"
-                      >Update Settings</v-btn
-                    >
+                    <div class="d-flex flex-wrap ga-2 mt-4">
+                      <v-btn color="primary" @click="save"
+                        >Update Settings</v-btn
+                      >
+                      <v-btn
+                        color="warning"
+                        :loading="deletingAllPhotos"
+                        @click="deleteAllPhotosForSource('gallery')"
+                        >Clear All Photos</v-btn
+                      >
+                      <v-btn
+                        color="error"
+                        variant="text"
+                        @click="disconnectTelegram"
+                        >Disconnect</v-btn
+                      >
+                    </div>
                   </div>
 
                   <div v-else>
@@ -3463,6 +3460,19 @@ const testImmich = async () => {
       true
     );
   }
+};
+
+const disconnectTelegram = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Disconnect the Telegram bot? You can reconnect by entering a token again.'
+    ))
+  )
+    return;
+  form.telegram_bot_token = '';
+  form.telegram_push_enabled = false;
+  await saveSettingsInternal();
+  showMessage('Telegram bot disconnected.');
 };
 
 const disconnectImmich = async () => {

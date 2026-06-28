@@ -454,6 +454,11 @@ const checkSyncStatus = async () => {
 watch(
   () => galleryStore.refreshSignal,
   () => {
+    // A sync or delete just happened — refetch immediately (a delete is instant
+    // and has no sync status to poll, so we can't rely on checkSyncStatus alone)...
+    galleryStore.fetchPhotos();
+    fetchAlbumChips();
+    // ...then poll in case a background sync is still importing more photos.
     syncing.value = true;
     prevSyncing = true;
     checkSyncStatus();

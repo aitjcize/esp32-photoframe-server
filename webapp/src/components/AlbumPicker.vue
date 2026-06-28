@@ -88,10 +88,13 @@ function toggle(album: any, checked: boolean | null) {
 </script>
 
 <style scoped>
-/* The v-card outlined default renders as a solid black border here; match it to
-   the outlined search field's effective border (≈ rgba(0,0,0,0.87) at 0.38
-   opacity) so the two look consistent. */
+/* Vuetify's .v-card--variant-outlined sets `border: thin solid` with no color,
+   so the border falls back to currentColor (near-black) here. Match the
+   outlined search field's border instead: the field draws currentColor at
+   --v-field-border-opacity (0.38), so use the theme border color at 0.38
+   (dark-mode aware via --v-border-color) rather than the card's lighter 0.12
+   divider opacity. */
 .album-list-card {
-  border-color: rgba(0, 0, 0, 0.38) !important;
+  border-color: rgba(var(--v-border-color), 0.38) !important;
 }
 </style>
