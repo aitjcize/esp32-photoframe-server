@@ -308,15 +308,6 @@
                         form.synology_account
                       }}
                       @ {{ form.synology_url }})
-                      <div
-                        v-if="synologyStore.count !== null"
-                        class="text-caption mt-1"
-                      >
-                        {{ synologyStore.count }} photo{{
-                          synologyStore.count !== 1 ? 's' : ''
-                        }}
-                        synced
-                      </div>
                     </v-alert>
 
                     <v-row class="mt-2">
@@ -467,15 +458,6 @@
                       icon="mdi-check-circle"
                     >
                       Connected to Immich ({{ form.immich_url }})
-                      <div
-                        v-if="immichStore.count !== null"
-                        class="text-caption mt-1"
-                      >
-                        {{ immichStore.count }} photo{{
-                          immichStore.count !== 1 ? 's' : ''
-                        }}
-                        synced
-                      </div>
                     </v-alert>
 
                     <v-row class="mt-2">
@@ -637,25 +619,12 @@
               <!-- Gallery -->
               <v-window-item value="gallery">
                 <v-card-text>
-                  <v-alert
-                    type="info"
-                    variant="tonal"
-                    class="mb-4"
-                    density="compact"
-                  >
-                    Photos in the gallery live on this server. Add them from the
-                    Gallery tab above, or send them to the Telegram bot
-                    configured below.
-                  </v-alert>
-
-                  <div class="d-flex mb-2">
+                  <div class="d-flex flex-wrap ga-2 mb-2">
                     <v-btn
-                      color="error"
-                      variant="outlined"
-                      prepend-icon="mdi-delete"
+                      color="warning"
                       :loading="deletingAllPhotos"
                       @click="deleteAllPhotosForSource('gallery')"
-                      >Delete all photos</v-btn
+                      >Clear All Photos</v-btn
                     >
                   </div>
 
@@ -3369,6 +3338,8 @@ const testSynology = async () => {
     form.synology_otp_code = '';
     // Store updates settings internally, but we need to update form
     form.synology_sid = store.settings.synology_sid;
+    // Auto-load the album list so the user can pick albums right away.
+    await loadAlbums();
   } catch (e: any) {
     const err = e.response?.data?.error || 'Unknown error';
     if (err.includes('code: 403')) {
@@ -3484,6 +3455,8 @@ const testImmich = async () => {
     await immichStore.testConnection();
     immichConnected.value = true;
     showMessage('Connection Successful!');
+    // Auto-load the album list so the user can pick albums right away.
+    await loadImmichAlbums();
   } catch (e: any) {
     showMessage(
       'Connection Failed: ' + (e.response?.data?.error || e.message),

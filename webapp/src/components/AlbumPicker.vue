@@ -89,8 +89,9 @@ function toggle(album: any, checked: boolean | null) {
 
 <style scoped>
 /* The v-card outlined default renders as a solid black border here; match it to
-   the outlined search field's border (currentColor) so the two look consistent. */
+   the outlined search field's effective border (≈ rgba(0,0,0,0.87) at 0.38
+   opacity) so the two look consistent. */
 .album-list-card {
-  border-color: currentColor !important;
+  border-color: rgba(0, 0, 0, 0.38) !important;
 }
 </style>
