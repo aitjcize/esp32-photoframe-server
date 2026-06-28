@@ -10,7 +10,7 @@
     class="mb-2"
   ></v-text-field>
 
-  <v-card variant="outlined" class="mb-3">
+  <v-card variant="outlined" class="mb-3 album-list-card">
     <v-list
       density="compact"
       class="py-0 overflow-y-auto"
@@ -86,3 +86,11 @@ function toggle(album: any, checked: boolean | null) {
   emit('update:modelValue', next);
 }
 </script>
+
+<style scoped>
+/* The v-card outlined default renders as a solid black border here; match it to
+   the outlined search field's border (currentColor) so the two look consistent. */
+.album-list-card {
+  border-color: currentColor !important;
+}
+</style>

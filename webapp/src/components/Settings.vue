@@ -6,8 +6,8 @@
       <v-tabs v-model="galleryTab" color="primary">
         <v-tab value="gallery">Gallery</v-tab>
         <v-tab value="immich">Immich</v-tab>
-        <v-tab value="google_photos">Google Photos</v-tab>
         <v-tab value="synology_photos">Synology</v-tab>
+        <v-tab value="google_photos">Google Photos</v-tab>
       </v-tabs>
       <v-card-text>
         <Gallery />
@@ -49,8 +49,8 @@
             >
               <v-tab value="gallery">Gallery</v-tab>
               <v-tab value="immich">Immich</v-tab>
-              <v-tab value="google">Google</v-tab>
               <v-tab value="synology_photos">Synology</v-tab>
+              <v-tab value="google">Google</v-tab>
               <v-tab value="url">URL Proxy</v-tab>
               <v-tab value="ai_generation">AI Generation</v-tab>
             </v-tabs>
