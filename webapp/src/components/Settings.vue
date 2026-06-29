@@ -2351,6 +2351,9 @@ const loadDeviceConfig = async (deviceId: number) => {
         ditherAlgorithm: proc.ditherAlgorithm ?? 'floyd-steinberg',
         compressDynamicRange: proc.compressDynamicRange ?? true,
       });
+    } else if (isGrayscale.value) {
+      // New grayscale frame (no saved settings): default to the grayscale preset.
+      applyProcessingPreset('grayscale');
     }
     detectProcessingPreset();
 
