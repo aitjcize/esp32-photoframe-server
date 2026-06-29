@@ -2182,6 +2182,7 @@ import AlbumPicker from './AlbumPicker.vue';
 import TopicManager from './TopicManager.vue';
 import SecurityTab from './SecurityTab.vue';
 import RotationSchedule from './RotationSchedule.vue';
+import { intervalToCron, cronToInterval } from '../utils/cron';
 
 const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
@@ -2612,10 +2613,14 @@ const loadDeviceConfig = async (deviceId: number) => {
     }
     Object.assign(deviceConfig, {
       auto_rotate: cfg.auto_rotate ?? false,
+      // Prefer rotate_cron; fall back to a legacy rotate_interval (older
+      // firmware) so the schedule still shows correctly, else the default.
       rotate_cron:
         Array.isArray(cfg.rotate_cron) && cfg.rotate_cron.length
           ? cfg.rotate_cron
-          : ['0 */12 *'],
+          : typeof cfg.rotate_interval === 'number'
+            ? [intervalToCron(cfg.rotate_interval)]
+            : ['0 */12 *'],
       rotation_mode: cfg.rotation_mode ?? 'storage',
       image_url: cfg.image_url ?? '',
       save_downloaded_images: cfg.save_downloaded_images ?? true,
@@ -3116,11 +3121,17 @@ const saveDevice = async () => {
         imageUrl = getImageUrl();
       }
 
+      // Also send a derived rotate_interval (when the schedule is a simple
+      // every-day interval) so older firmware that predates rotate_cron still
+      // applies it; newer firmware ignores it in favour of rotate_cron.
+      const legacyInterval = cronToInterval(deviceConfig.rotate_cron);
+
       const result = await updateDeviceConfig(editingDevice.id, {
         config: {
           device_name: editingDevice.name,
           auto_rotate: deviceConfig.auto_rotate,
           rotate_cron: deviceConfig.rotate_cron,
+          ...(legacyInterval !== null ? { rotate_interval: legacyInterval } : {}),
           rotation_mode: deviceConfig.rotation_mode,
           image_url: imageUrl,
           save_downloaded_images: deviceConfig.save_downloaded_images,
