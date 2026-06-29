@@ -454,9 +454,9 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 	}
 
 	// Parse the device's stored processing settings; nil if absent or empty.
-	// MapProcessingSettings returns an empty map for nil settings (and would
-	// then emit no palette), so for grayscale panels we fall back to a
-	// zero-valued settings struct to ensure the gray palette is still emitted.
+	// MapProcessingSettings still emits the (grayscale) palette for nil settings
+	// and leaves tone/dither to the CLI's defaults, so no zero-valued fallback is
+	// needed -- that would have forced exposure/contrast to 0 (a black image).
 	var settings *photoframe.ProcessingSettings
 	if raw := strings.TrimSpace(device.DeviceProcessingSettings); raw != "" && raw != "{}" {
 		var ps photoframe.ProcessingSettings
@@ -465,9 +465,6 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		} else {
 			log.Printf("Failed to parse stored processing settings for %s: %v", device.Name, err)
 		}
-	}
-	if settings == nil && grayscale {
-		settings = &photoframe.ProcessingSettings{}
 	}
 
 	// Merge the mapped CLI options (palette, tone-mapping, etc.) without

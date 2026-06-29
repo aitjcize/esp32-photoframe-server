@@ -23,30 +23,34 @@ func NewProcessorService() *ProcessorService {
 
 func (s *ProcessorService) MapProcessingSettings(settings *photoframe.ProcessingSettings, palette *photoframe.Palette, grayscale bool) map[string]string {
 	opts := make(map[string]string)
-	if settings == nil {
-		return opts
-	}
 
-	opts["exposure"] = fmt.Sprintf("%v", settings.Exposure)
-	opts["saturation"] = fmt.Sprintf("%v", settings.Saturation)
-	if settings.ToneMode != "" {
-		opts["tone-mode"] = settings.ToneMode
-	}
-	opts["contrast"] = fmt.Sprintf("%v", settings.Contrast)
-	if settings.ToneMode == "scurve" {
-		opts["scurve-strength"] = fmt.Sprintf("%v", settings.Strength)
-		opts["scurve-shadow"] = fmt.Sprintf("%v", settings.ShadowBoost)
-		opts["scurve-highlight"] = fmt.Sprintf("%v", settings.HighlightCompress)
-		opts["scurve-midpoint"] = fmt.Sprintf("%v", settings.Midpoint)
-	}
-	if settings.ColorMethod != "" {
-		opts["color-method"] = settings.ColorMethod
-	}
-	if settings.DitherAlgorithm != "" {
-		opts["dither-algorithm"] = settings.DitherAlgorithm
-	}
-	if settings.CompressDynamicRange {
-		opts["compress-dynamic-range"] = "" // Boolean flag
+	// Tone/dither options come from the device's stored settings. When settings
+	// are absent (e.g. a push to a device that never saved any), emit none and
+	// let the CLI use its sane defaults -- emitting zeros here would, for
+	// example, force exposure/contrast to 0 and render a black image. The
+	// palette below is still emitted so a grayscale panel dithers to gray.
+	if settings != nil {
+		opts["exposure"] = fmt.Sprintf("%v", settings.Exposure)
+		opts["saturation"] = fmt.Sprintf("%v", settings.Saturation)
+		if settings.ToneMode != "" {
+			opts["tone-mode"] = settings.ToneMode
+		}
+		opts["contrast"] = fmt.Sprintf("%v", settings.Contrast)
+		if settings.ToneMode == "scurve" {
+			opts["scurve-strength"] = fmt.Sprintf("%v", settings.Strength)
+			opts["scurve-shadow"] = fmt.Sprintf("%v", settings.ShadowBoost)
+			opts["scurve-highlight"] = fmt.Sprintf("%v", settings.HighlightCompress)
+			opts["scurve-midpoint"] = fmt.Sprintf("%v", settings.Midpoint)
+		}
+		if settings.ColorMethod != "" {
+			opts["color-method"] = settings.ColorMethod
+		}
+		if settings.DitherAlgorithm != "" {
+			opts["dither-algorithm"] = settings.DitherAlgorithm
+		}
+		if settings.CompressDynamicRange {
+			opts["compress-dynamic-range"] = "" // Boolean flag
+		}
 	}
 
 	if grayscale {
