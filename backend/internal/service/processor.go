@@ -21,7 +21,7 @@ func NewProcessorService() *ProcessorService {
 	return &ProcessorService{}
 }
 
-func (s *ProcessorService) MapProcessingSettings(settings *photoframe.ProcessingSettings, palette *photoframe.Palette) map[string]string {
+func (s *ProcessorService) MapProcessingSettings(settings *photoframe.ProcessingSettings, palette *photoframe.Palette, grayscale bool) map[string]string {
 	opts := make(map[string]string)
 	if settings == nil {
 		return opts
@@ -49,7 +49,27 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		opts["compress-dynamic-range"] = "" // Boolean flag
 	}
 
-	if palette != nil {
+	if grayscale {
+		// GC16: a 16-level gray ramp (level i -> i*17, since 255/15 == 17).
+		// theoretical is the panel's actual output levels; perceived defaults to
+		// the same ramp but honors a device-calibrated ramp from X-Color-Palette.
+		ramp := make([][]int, 16)
+		for i := range ramp {
+			v := i * 17
+			ramp[i] = []int{v, v, v}
+		}
+		perceived := ramp
+		if palette != nil && len(palette.Grays) > 0 {
+			perceived = palette.Grays
+		}
+		paletteWrapper := map[string]interface{}{
+			"theoretical": map[string]interface{}{"grays": ramp},
+			"perceived":   map[string]interface{}{"grays": perceived},
+		}
+		if paletteJSON, err := json.Marshal(paletteWrapper); err == nil {
+			opts["palette"] = string(paletteJSON)
+		}
+	} else if palette != nil {
 		paletteWrapper := map[string]interface{}{
 			"theoretical": map[string]interface{}{
 				"black":  map[string]int{"r": 0, "g": 0, "b": 0},

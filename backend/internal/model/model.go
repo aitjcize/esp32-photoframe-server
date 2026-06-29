@@ -55,13 +55,16 @@ type GoogleCalendarAuth struct {
 }
 
 type Device struct {
-	ID            uint    `gorm:"primaryKey" json:"id"`
-	Name          string  `json:"name"`
-	Host          string  `gorm:"index" json:"host"` // IP or Hostname
-	Width         int     `json:"width"`
-	Height        int     `json:"height"`
-	Orientation   string  `json:"orientation"`
-	BoardName     string  `json:"board_name"`
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	Name        string `json:"name"`
+	Host        string `gorm:"index" json:"host"` // IP or Hostname
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Orientation string `json:"orientation"`
+	BoardName   string `json:"board_name"`
+	// Display color model reported by the device: "spectra6" (6-color ACeP),
+	// "gc16" (16-level grayscale / IT8951), or "" (legacy, treated as spectra6).
+	DisplayType   string  `json:"display_type" gorm:"default:''"`
 	EnableCollage bool    `json:"enable_collage"` // Per-device collage setting
 	ShowDate      bool    `json:"show_date"`
 	ShowPhotoDate bool    `json:"show_photo_date"`

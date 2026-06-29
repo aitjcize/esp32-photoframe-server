@@ -262,6 +262,9 @@ type SystemInfo struct {
 	Height     int    `json:"height"`
 	BoardName  string `json:"board_name"`
 	Version    string `json:"version"`
+	// Display color model: "spectra6" (6-color), "gc16" (16-level grayscale),
+	// or "" for legacy firmware (treated as spectra6).
+	DisplayType string `json:"display_type"`
 }
 
 func (c *Client) FetchSystemInfo() (*SystemInfo, error) {
@@ -323,6 +326,15 @@ type Palette struct {
 	Red    PaletteColor `json:"red"`
 	Blue   PaletteColor `json:"blue"`
 	Green  PaletteColor `json:"green"`
+	// Grays, when present, marks a grayscale (GC16) palette: an ordered ramp of
+	// [r,g,b] levels (0=black..N-1=white). Set instead of the named colors for
+	// IT8951 panels; the named fields are ignored when Grays is non-empty.
+	Grays [][]int `json:"grays,omitempty"`
+}
+
+// IsGrayscale reports whether this palette is a grayscale (GC16) ramp.
+func (p *Palette) IsGrayscale() bool {
+	return p != nil && len(p.Grays) > 0
 }
 
 // FetchConfig returns the full device config as a raw JSON string.

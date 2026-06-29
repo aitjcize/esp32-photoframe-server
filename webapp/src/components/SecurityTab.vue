@@ -197,7 +197,9 @@
               density="compact"
               hide-details
               style="max-width: 180px; font-size: inherit"
-              @update:model-value="(val: any) => updateTokenDevice(token.id, val)"
+              @update:model-value="
+                (val: any) => updateTokenDevice(token.id, val)
+              "
             ></v-select>
           </td>
           <td>{{ new Date(token.created_at).toLocaleString() }}</td>

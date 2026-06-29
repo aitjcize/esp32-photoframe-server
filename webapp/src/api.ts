@@ -76,6 +76,9 @@ export interface Device {
   date_format?: string;
   source?: string;
   board_name?: string;
+  // Display color model reported by the device: "gc16" (16-level grayscale),
+  // "spectra6" (6-color), or undefined for legacy firmware (treated as color).
+  display_type?: string;
   created_at: string;
   model?: any;
 }

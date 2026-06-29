@@ -62,7 +62,7 @@ func (s *DeviceService) AddDevice(host string, enableCollage, showDate, showPhot
 	// Try to fetch device info (works on LAN, fails for remote devices)
 	var name string
 	var width, height int
-	var orientation, boardName string
+	var orientation, boardName, displayType string
 
 	var deviceConfig, deviceProc, devicePalette string
 
@@ -80,6 +80,7 @@ func (s *DeviceService) AddDevice(host string, enableCollage, showDate, showPhot
 		width = sysInfo.Width
 		height = sysInfo.Height
 		boardName = sysInfo.BoardName
+		displayType = sysInfo.DisplayType
 
 		configRaw, cfgErr := pfClient.FetchConfig()
 		if cfgErr == nil {
@@ -122,6 +123,7 @@ func (s *DeviceService) AddDevice(host string, enableCollage, showDate, showPhot
 		Height:                   height,
 		Orientation:              orientation,
 		BoardName:                boardName,
+		DisplayType:              displayType,
 		EnableCollage:            enableCollage,
 		ShowDate:                 showDate,
 		ShowPhotoDate:            showPhotoDate,
@@ -218,6 +220,9 @@ func (s *DeviceService) RefreshDeviceFromHardware(id uint) (*model.Device, error
 	device.Height = sysInfo.Height
 	if sysInfo.BoardName != "" {
 		device.BoardName = sysInfo.BoardName
+	}
+	if sysInfo.DisplayType != "" {
+		device.DisplayType = sysInfo.DisplayType
 	}
 
 	configRaw, err := pfClient.FetchConfig()

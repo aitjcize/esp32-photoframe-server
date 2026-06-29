@@ -15,757 +15,739 @@
           <Gallery />
           <v-divider class="my-6"></v-divider>
         </div>
-            <v-window v-model="sourceTab" :touch="false">
-              <!-- URL Proxy -->
-              <v-window-item value="url">
-                <v-card-text>
-                  <v-alert
-                    type="info"
-                    variant="tonal"
-                    class="mb-4"
-                    density="compact"
-                  >
-                    Add external image URLs to be served by the photoframe. You
-                    can bind URLs to specific devices or leave them global.
-                  </v-alert>
+        <v-window v-model="sourceTab" :touch="false">
+          <!-- URL Proxy -->
+          <v-window-item value="url">
+            <v-card-text>
+              <v-alert
+                type="info"
+                variant="tonal"
+                class="mb-4"
+                density="compact"
+              >
+                Add external image URLs to be served by the photoframe. You can
+                bind URLs to specific devices or leave them global.
+              </v-alert>
 
-                  <div class="d-flex justify-end mb-4">
-                    <v-btn
-                      color="primary"
-                      prepend-icon="mdi-plus"
-                      class="mb-4"
-                      @click="openAddURLDialog"
-                    >
-                      Add URL Source
-                    </v-btn>
-                  </div>
+              <div class="d-flex justify-end mb-4">
+                <v-btn
+                  color="primary"
+                  prepend-icon="mdi-plus"
+                  class="mb-4"
+                  @click="openAddURLDialog"
+                >
+                  Add URL Source
+                </v-btn>
+              </div>
 
-                  <v-table density="comfortable" class="border rounded">
-                    <thead>
-                      <tr>
-                        <th>URL</th>
-                        <th>Bound Devices</th>
-                        <th class="text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="src in urlSources" :key="src.id">
-                        <td class="text-truncate" style="max-width: 300px">
-                          <a :href="src.url" target="_blank">{{ src.url }}</a>
-                        </td>
-                        <td>
-                          <div v-if="src.device_ids && src.device_ids.length">
-                            <v-chip
-                              v-for="did in src.device_ids"
-                              :key="did"
-                              size="x-small"
-                              class="mr-1"
-                            >
-                              {{ getDeviceName(did) }}
-                            </v-chip>
-                          </div>
-                          <span v-else class="text-grey text-caption"
-                            >Global</span
-                          >
-                        </td>
-                        <td class="text-right">
-                          <v-btn
-                            color="primary"
-                            variant="text"
-                            size="small"
-                            icon="mdi-pencil"
-                            class="mr-2"
-                            @click="openEditURLDialog(src)"
-                          ></v-btn>
-                          <v-btn
-                            color="error"
-                            variant="text"
-                            size="small"
-                            icon="mdi-delete"
-                            @click="deleteURLSourceWrapper(src.id)"
-                          ></v-btn>
-                        </td>
-                      </tr>
-                      <tr v-if="urlSources.length === 0">
-                        <td colspan="4" class="text-center text-grey py-4">
-                          No URL sources added.
-                        </td>
-                      </tr>
-                    </tbody>
-                  </v-table>
-                </v-card-text>
-              </v-window-item>
+              <v-table density="comfortable" class="border rounded">
+                <thead>
+                  <tr>
+                    <th>URL</th>
+                    <th>Bound Devices</th>
+                    <th class="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="src in urlSources" :key="src.id">
+                    <td class="text-truncate" style="max-width: 300px">
+                      <a :href="src.url" target="_blank">{{ src.url }}</a>
+                    </td>
+                    <td>
+                      <div v-if="src.device_ids && src.device_ids.length">
+                        <v-chip
+                          v-for="did in src.device_ids"
+                          :key="did"
+                          size="x-small"
+                          class="mr-1"
+                        >
+                          {{ getDeviceName(did) }}
+                        </v-chip>
+                      </div>
+                      <span v-else class="text-grey text-caption">Global</span>
+                    </td>
+                    <td class="text-right">
+                      <v-btn
+                        color="primary"
+                        variant="text"
+                        size="small"
+                        icon="mdi-pencil"
+                        class="mr-2"
+                        @click="openEditURLDialog(src)"
+                      ></v-btn>
+                      <v-btn
+                        color="error"
+                        variant="text"
+                        size="small"
+                        icon="mdi-delete"
+                        @click="deleteURLSourceWrapper(src.id)"
+                      ></v-btn>
+                    </td>
+                  </tr>
+                  <tr v-if="urlSources.length === 0">
+                    <td colspan="4" class="text-center text-grey py-4">
+                      No URL sources added.
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </v-card-text>
+          </v-window-item>
 
-              <!-- Add/Edit URL Dialog -->
-              <v-dialog v-model="showAddURLDialog" max-width="500px">
-                <v-card>
-                  <v-card-title>{{
-                    isEditingURL ? 'Edit URL Source' : 'Add URL Source'
-                  }}</v-card-title>
-                  <v-card-text>
-                    <v-form @submit.prevent="saveURLSource">
-                      <v-text-field
-                        v-model="newURL.url"
-                        label="Image URL"
-                        placeholder="https://example.com/image.jpg"
-                        variant="outlined"
-                        class="mb-2"
-                        :rules="[(v) => !!v || 'URL is required']"
-                      ></v-text-field>
-
-                      <v-select
-                        v-model="newURL.device_ids"
-                        :items="availableDevices"
-                        item-title="name"
-                        item-value="id"
-                        label="Bind to Devices (Optional)"
-                        placeholder="Leave empty for Global"
-                        variant="outlined"
-                        multiple
-                        chips
-                        class="mb-4"
-                        hint="If selected, only these devices will see this image."
-                        persistent-hint
-                      ></v-select>
-                    </v-form>
-                  </v-card-text>
-                  <v-card-actions>
-                    <v-spacer></v-spacer>
-                    <v-btn
-                      color="grey"
-                      variant="text"
-                      @click="showAddURLDialog = false"
-                      >Cancel</v-btn
-                    >
-                    <v-btn color="primary" @click="saveURLSource">Save</v-btn>
-                  </v-card-actions>
-                </v-card>
-              </v-dialog>
-
-              <!-- Google (Photos + Calendar) -->
-              <v-window-item value="google_photos">
-                <v-card-text>
-                  <!-- Shared Google API Credentials -->
-                  <h3 class="text-subtitle-1 font-weight-bold mb-3">
-                    Google API Credentials
-                  </h3>
-
-                  <v-alert
-                    type="info"
-                    variant="tonal"
-                    class="mb-4"
-                    density="compact"
-                  >
-                    <div class="text-body-2">
-                      These credentials are shared by Google Photos and Google
-                      Calendar. Create a project in
-                      <a
-                        href="https://console.cloud.google.com/"
-                        target="_blank"
-                        >Google Cloud Console</a
-                      >
-                      and add the redirect URI:
-                      <br />
-                      <code
-                        >http://[YOUR_SERVER_IP]:8080/api/auth/google/callback</code
-                      >
-                    </div>
-                  </v-alert>
-
+          <!-- Add/Edit URL Dialog -->
+          <v-dialog v-model="showAddURLDialog" max-width="500px">
+            <v-card>
+              <v-card-title>{{
+                isEditingURL ? 'Edit URL Source' : 'Add URL Source'
+              }}</v-card-title>
+              <v-card-text>
+                <v-form @submit.prevent="saveURLSource">
                   <v-text-field
-                    v-model="form.google_client_id"
-                    label="Client ID"
+                    v-model="newURL.url"
+                    label="Image URL"
+                    placeholder="https://example.com/image.jpg"
                     variant="outlined"
                     class="mb-2"
+                    :rules="[(v) => !!v || 'URL is required']"
                   ></v-text-field>
 
-                  <v-text-field
-                    v-model="form.google_client_secret"
-                    label="Client Secret"
-                    type="password"
+                  <v-select
+                    v-model="newURL.device_ids"
+                    :items="availableDevices"
+                    item-title="name"
+                    item-value="id"
+                    label="Bind to Devices (Optional)"
+                    placeholder="Leave empty for Global"
                     variant="outlined"
+                    multiple
+                    chips
                     class="mb-4"
-                  ></v-text-field>
+                    hint="If selected, only these devices will see this image."
+                    persistent-hint
+                  ></v-select>
+                </v-form>
+              </v-card-text>
+              <v-card-actions>
+                <v-spacer></v-spacer>
+                <v-btn
+                  color="grey"
+                  variant="text"
+                  @click="showAddURLDialog = false"
+                  >Cancel</v-btn
+                >
+                <v-btn color="primary" @click="saveURLSource">Save</v-btn>
+              </v-card-actions>
+            </v-card>
+          </v-dialog>
 
-                  <v-btn color="grey-darken-1" @click="save" class="mb-2"
-                    >Save Credentials</v-btn
+          <!-- Google (Photos + Calendar) -->
+          <v-window-item value="google_photos">
+            <v-card-text>
+              <!-- Shared Google API Credentials -->
+              <h3 class="text-subtitle-1 font-weight-bold mb-3">
+                Google API Credentials
+              </h3>
+
+              <v-alert
+                type="info"
+                variant="tonal"
+                class="mb-4"
+                density="compact"
+              >
+                <div class="text-body-2">
+                  These credentials are shared by Google Photos and Google
+                  Calendar. Create a project in
+                  <a href="https://console.cloud.google.com/" target="_blank"
+                    >Google Cloud Console</a
                   >
+                  and add the redirect URI:
+                  <br />
+                  <code
+                    >http://[YOUR_SERVER_IP]:8080/api/auth/google/callback</code
+                  >
+                </div>
+              </v-alert>
 
-                  <!-- Photos Section -->
-                  <v-divider class="my-6"></v-divider>
-                  <h3 class="text-subtitle-1 font-weight-bold mb-3">Photos</h3>
+              <v-text-field
+                v-model="form.google_client_id"
+                label="Client ID"
+                variant="outlined"
+                class="mb-2"
+              ></v-text-field>
 
-                  <div v-if="form.google_connected === 'true'">
-                    <v-alert
-                      type="success"
-                      variant="tonal"
-                      class="mb-4"
-                      density="compact"
-                      icon="mdi-check-circle"
-                    >
-                      Connected to Google Photos
-                    </v-alert>
+              <v-text-field
+                v-model="form.google_client_secret"
+                label="Client Secret"
+                type="password"
+                variant="outlined"
+                class="mb-4"
+              ></v-text-field>
 
-                    <div class="d-flex flex-wrap ga-2 mt-4">
-                      <v-btn
-                        color="warning"
-                        :loading="deletingAllPhotos"
-                        @click="deleteAllPhotosForSource('google_photos')"
-                        >Clear All Photos</v-btn
-                      >
-                      <v-btn color="error" variant="text" @click="logoutGoogle">
-                        Disconnect Google Photos
-                      </v-btn>
-                    </div>
-                  </div>
+              <v-btn color="grey-darken-1" @click="save" class="mb-2"
+                >Save Credentials</v-btn
+              >
 
-                  <div v-else>
-                    <v-btn
-                      v-if="form.google_client_id && form.google_client_secret"
-                      color="primary"
-                      @click="connectGoogle"
-                    >
-                      Authorize Google Photos
-                    </v-btn>
-                    <v-alert
-                      v-else
-                      type="warning"
-                      variant="tonal"
-                      density="compact"
-                    >
-                      Enter Google API credentials above first.
-                    </v-alert>
-                  </div>
+              <!-- Photos Section -->
+              <v-divider class="my-6"></v-divider>
+              <h3 class="text-subtitle-1 font-weight-bold mb-3">Photos</h3>
 
-                  <!-- Calendar Section -->
-                  <v-divider class="my-6"></v-divider>
-                  <h3 class="text-subtitle-1 font-weight-bold mb-3">
-                    Calendar
-                  </h3>
+              <div v-if="form.google_connected === 'true'">
+                <v-alert
+                  type="success"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                  icon="mdi-check-circle"
+                >
+                  Connected to Google Photos
+                </v-alert>
 
-                  <div v-if="form.google_calendar_connected === 'true'">
-                    <v-alert
-                      type="success"
-                      variant="tonal"
-                      class="mb-4"
-                      density="compact"
-                      icon="mdi-check-circle"
-                    >
-                      Google Calendar connected
-                    </v-alert>
+                <div class="d-flex flex-wrap ga-2 mt-4">
+                  <v-btn
+                    color="warning"
+                    :loading="deletingAllPhotos"
+                    @click="deleteAllPhotosForSource('google_photos')"
+                    >Clear All Photos</v-btn
+                  >
+                  <v-btn color="error" variant="text" @click="logoutGoogle">
+                    Disconnect Google Photos
+                  </v-btn>
+                </div>
+              </div>
 
-                    <v-btn
-                      color="error"
-                      variant="text"
-                      @click="logoutGoogleCalendar"
-                    >
-                      Disconnect Google Calendar
-                    </v-btn>
-                  </div>
+              <div v-else>
+                <v-btn
+                  v-if="form.google_client_id && form.google_client_secret"
+                  color="primary"
+                  @click="connectGoogle"
+                >
+                  Authorize Google Photos
+                </v-btn>
+                <v-alert
+                  v-else
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                >
+                  Enter Google API credentials above first.
+                </v-alert>
+              </div>
 
-                  <div v-else>
-                    <v-alert
-                      type="info"
-                      variant="tonal"
-                      class="mb-4"
-                      density="compact"
-                    >
-                      Connect a Google account for Calendar integration. This
-                      can be a different account than Google Photos.
-                    </v-alert>
+              <!-- Calendar Section -->
+              <v-divider class="my-6"></v-divider>
+              <h3 class="text-subtitle-1 font-weight-bold mb-3">Calendar</h3>
 
-                    <v-btn
-                      v-if="form.google_client_id && form.google_client_secret"
-                      color="primary"
-                      @click="connectGoogleCalendar"
-                    >
-                      Authorize Google Calendar
-                    </v-btn>
-                    <v-alert
-                      v-else
-                      type="warning"
-                      variant="tonal"
-                      density="compact"
-                    >
-                      Enter Google API credentials above first.
-                    </v-alert>
-                  </div>
-                </v-card-text>
-              </v-window-item>
+              <div v-if="form.google_calendar_connected === 'true'">
+                <v-alert
+                  type="success"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                  icon="mdi-check-circle"
+                >
+                  Google Calendar connected
+                </v-alert>
 
-              <!-- Synology -->
-              <v-window-item value="synology_photos">
-                <v-card-text>
-                  <div v-if="form.synology_sid">
-                    <v-alert
-                      type="success"
-                      variant="tonal"
-                      class="mb-4"
-                      density="compact"
-                      icon="mdi-check-circle"
-                    >
-                      Connected to Synology Photos ({{
-                        form.synology_account
-                      }}
-                      @ {{ form.synology_url }})
-                    </v-alert>
+                <v-btn
+                  color="error"
+                  variant="text"
+                  @click="logoutGoogleCalendar"
+                >
+                  Disconnect Google Calendar
+                </v-btn>
+              </div>
 
-                    <v-row class="mt-2">
-                      <v-col cols="12">
-                        <div
-                          class="d-flex align-center justify-space-between mb-1"
+              <div v-else>
+                <v-alert
+                  type="info"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                >
+                  Connect a Google account for Calendar integration. This can be
+                  a different account than Google Photos.
+                </v-alert>
+
+                <v-btn
+                  v-if="form.google_client_id && form.google_client_secret"
+                  color="primary"
+                  @click="connectGoogleCalendar"
+                >
+                  Authorize Google Calendar
+                </v-btn>
+                <v-alert
+                  v-else
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                >
+                  Enter Google API credentials above first.
+                </v-alert>
+              </div>
+            </v-card-text>
+          </v-window-item>
+
+          <!-- Synology -->
+          <v-window-item value="synology_photos">
+            <v-card-text>
+              <div v-if="form.synology_sid">
+                <v-alert
+                  type="success"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                  icon="mdi-check-circle"
+                >
+                  Connected to Synology Photos ({{ form.synology_account }} @
+                  {{ form.synology_url }})
+                </v-alert>
+
+                <v-row class="mt-2">
+                  <v-col cols="12">
+                    <div class="d-flex align-center justify-space-between mb-1">
+                      <h3 class="text-subtitle-1 font-weight-bold">
+                        Albums to sync
+                      </h3>
+                      <div class="d-flex ga-2">
+                        <v-btn
+                          size="small"
+                          variant="text"
+                          prepend-icon="mdi-refresh"
+                          :loading="synologyStore.loading"
+                          @click="loadAlbums"
+                          >Refresh albums</v-btn
                         >
-                          <h3 class="text-subtitle-1 font-weight-bold">
-                            Albums to sync
-                          </h3>
-                          <div class="d-flex ga-2">
-                            <v-btn
-                              size="small"
-                              variant="text"
-                              prepend-icon="mdi-refresh"
-                              :loading="synologyStore.loading"
-                              @click="loadAlbums"
-                              >Refresh albums</v-btn
-                            >
-                          </div>
-                        </div>
-                        <div class="text-caption text-grey mb-2">
-                          Choose which Synology Photos albums to pull photos
-                          from. Saving replaces the entire sync set.
-                        </div>
-
-                        <AlbumPicker
-                          v-model="synologySyncAlbumIds"
-                          :albums="synologyStore.albums"
-                          label-field="name"
-                          stringify
-                          empty-text='No albums found. Click "Refresh albums" to load them from Synology.'
-                        ></AlbumPicker>
-                      </v-col>
-                    </v-row>
-
-                    <v-row class="mt-1">
-                      <v-col cols="12" md="6">
-                        <v-checkbox
-                          v-model="form.synology_auto_sync_enabled"
-                          label="Auto Sync Album"
-                          color="primary"
-                          density="compact"
-                          hide-details
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-checkbox>
-                      </v-col>
-                      <v-col cols="12" md="6">
-                        <v-select
-                          v-model="form.synology_auto_sync_interval_minutes"
-                          :items="autoSyncIntervalOptions"
-                          item-title="title"
-                          item-value="value"
-                          label="Auto Sync Interval"
-                          variant="outlined"
-                          density="compact"
-                          :disabled="!form.synology_auto_sync_enabled"
-                          hint="How often to refresh photos from the selected album"
-                          persistent-hint
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-select>
-                      </v-col>
-                    </v-row>
-
-                    <div class="d-flex flex-wrap ga-2 mt-4">
-                      <v-btn
-                        color="primary"
-                        :loading="synologyStore.loading"
-                        @click="syncSynology"
-                        >Sync Now</v-btn
-                      >
-                      <v-btn color="warning" @click="clearSynology"
-                        >Clear All Photos</v-btn
-                      >
-                      <v-btn
-                        color="error"
-                        variant="text"
-                        @click="logoutSynology"
-                        >Disconnect</v-btn
-                      >
+                      </div>
                     </div>
-                  </div>
-
-                  <div v-else>
-                    <v-text-field
-                      v-model="form.synology_url"
-                      label="NAS URL"
-                      placeholder="https://192.168.1.10:5001"
-                      variant="outlined"
-                      class="mb-2"
-                    ></v-text-field>
-
-                    <v-text-field
-                      v-model="form.synology_account"
-                      label="Account"
-                      variant="outlined"
-                      class="mb-2"
-                    ></v-text-field>
-
-                    <v-text-field
-                      v-model="form.synology_password"
-                      label="Password"
-                      type="password"
-                      variant="outlined"
-                      class="mb-2"
-                    ></v-text-field>
-
-                    <v-checkbox
-                      v-model="form.synology_skip_cert"
-                      label="Skip Certificate Verification (Insecure)"
-                      color="primary"
-                      density="compact"
-                    ></v-checkbox>
-
-                    <v-text-field
-                      v-model="form.synology_otp_code"
-                      label="OTP Code (If 2FA enabled)"
-                      placeholder="6-digit code"
-                      variant="outlined"
-                      class="mb-4"
-                    ></v-text-field>
-
-                    <v-btn
-                      color="primary"
-                      :disabled="
-                        !form.synology_url ||
-                        !form.synology_account ||
-                        !form.synology_password
-                      "
-                      :loading="synologyStore.loading"
-                      @click="testSynology"
-                    >
-                      Connect
-                    </v-btn>
-                  </div>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- Immich -->
-              <v-window-item value="immich">
-                <v-card-text>
-                  <div v-if="immichConnected">
-                    <v-alert
-                      type="success"
-                      variant="tonal"
-                      class="mb-4"
-                      density="compact"
-                      icon="mdi-check-circle"
-                    >
-                      Connected to Immich ({{ form.immich_url }})
-                    </v-alert>
-
-                    <v-row class="mt-2">
-                      <v-col cols="12">
-                        <div
-                          class="d-flex align-center justify-space-between mb-1"
-                        >
-                          <h3 class="text-subtitle-1 font-weight-bold">
-                            Albums to sync
-                          </h3>
-                          <div class="d-flex ga-2">
-                            <v-btn
-                              size="small"
-                              variant="text"
-                              prepend-icon="mdi-refresh"
-                              :loading="immichStore.loading"
-                              @click="loadImmichAlbums"
-                              >Refresh albums</v-btn
-                            >
-                          </div>
-                        </div>
-                        <div class="text-caption text-grey mb-2">
-                          Choose which Immich albums and collections to pull
-                          photos from. Saving replaces the entire sync set.
-                        </div>
-
-                        <AlbumPicker
-                          v-model="syncAlbumIds"
-                          :albums="immichStore.albums"
-                          label-field="albumName"
-                          empty-text='No albums found. Click "Refresh albums" to load them from Immich.'
-                        >
-                          <template #prepend>
-                            <v-list-item>
-                              <v-checkbox
-                                v-model="syncFavorites"
-                                label="Favorites"
-                                color="primary"
-                                density="compact"
-                                hide-details
-                              ></v-checkbox>
-                            </v-list-item>
-                            <v-list-item>
-                              <v-checkbox
-                                v-model="syncAll"
-                                label="All Photos (entire library)"
-                                color="primary"
-                                density="compact"
-                                hide-details
-                              ></v-checkbox>
-                            </v-list-item>
-                            <v-list-item>
-                              <v-checkbox
-                                v-model="syncMemories"
-                                label="Memories (on this day)"
-                                color="primary"
-                                density="compact"
-                                hide-details
-                              ></v-checkbox>
-                            </v-list-item>
-                          </template>
-                        </AlbumPicker>
-                      </v-col>
-                    </v-row>
-
-                    <v-row v-if="syncMemories" class="mt-0">
-                      <v-col cols="12">
-                        <v-select
-                          v-model="form.immich_memory_mode"
-                          :items="immichMemoryModeOptions"
-                          item-title="title"
-                          item-value="value"
-                          label="Memory Years"
-                          variant="outlined"
-                          density="compact"
-                          hint="Shuffle across all past years, or only the most recent year's photos"
-                          persistent-hint
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-select>
-                      </v-col>
-                    </v-row>
-
-                    <v-row class="mt-1">
-                      <v-col cols="12" md="6">
-                        <v-checkbox
-                          v-model="form.immich_auto_sync_enabled"
-                          label="Auto Sync Album"
-                          color="primary"
-                          density="compact"
-                          hide-details
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-checkbox>
-                      </v-col>
-                      <v-col cols="12" md="6">
-                        <v-select
-                          v-model="form.immich_auto_sync_interval_minutes"
-                          :items="autoSyncIntervalOptions"
-                          item-title="title"
-                          item-value="value"
-                          label="Auto Sync Interval"
-                          variant="outlined"
-                          density="compact"
-                          :disabled="!form.immich_auto_sync_enabled"
-                          hint="How often to refresh photos from the selected album"
-                          persistent-hint
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-select>
-                      </v-col>
-                    </v-row>
-
-                    <div class="d-flex flex-wrap ga-2 mt-4">
-                      <v-btn
-                        color="primary"
-                        :loading="immichStore.loading"
-                        @click="syncImmich"
-                        >Sync Now</v-btn
-                      >
-                      <v-btn color="warning" @click="clearImmich"
-                        >Clear All Photos</v-btn
-                      >
-                      <v-btn
-                        color="error"
-                        variant="text"
-                        @click="disconnectImmich"
-                        >Disconnect</v-btn
-                      >
-                    </div>
-                  </div>
-
-                  <div v-else>
-                    <v-text-field
-                      v-model="form.immich_url"
-                      label="Immich Server URL"
-                      placeholder="http://192.168.1.10:2283"
-                      variant="outlined"
-                      class="mb-2"
-                    ></v-text-field>
-
-                    <v-text-field
-                      v-model="form.immich_api_key"
-                      label="API Key"
-                      type="password"
-                      variant="outlined"
-                      class="mb-4"
-                    ></v-text-field>
-
-                    <v-btn
-                      color="primary"
-                      :disabled="!form.immich_url || !form.immich_api_key"
-                      :loading="immichStore.loading"
-                      @click="testImmich"
-                    >
-                      Connect
-                    </v-btn>
-                  </div>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- Gallery -->
-              <v-window-item value="gallery">
-                <v-card-text>
-                  <h3 class="text-subtitle-1 font-weight-bold mb-1">
-                    Telegram Bot (Upload)
-                  </h3>
-                  <div class="text-caption text-grey mb-3">
-                    Optional. Configure a Telegram bot to upload photos into the
-                    gallery from your phone.
-                  </div>
-
-                  <div v-if="form.telegram_bot_token">
-                    <v-alert
-                      type="success"
-                      variant="tonal"
-                      class="mb-4"
-                      density="compact"
-                      icon="mdi-check-circle"
-                    >
-                      Telegram Bot Configured
-                    </v-alert>
-
-                    <v-divider class="my-4"></v-divider>
-
-                    <h3 class="text-subtitle-1 font-weight-bold mb-2">
-                      Push to Device
-                    </h3>
                     <div class="text-caption text-grey mb-2">
-                      When enabled, photos uploaded via the Telegram bot are
-                      also pushed to the selected devices immediately. They are
-                      added to the gallery either way.
+                      Choose which Synology Photos albums to pull photos from.
+                      Saving replaces the entire sync set.
                     </div>
 
+                    <AlbumPicker
+                      v-model="synologySyncAlbumIds"
+                      :albums="synologyStore.albums"
+                      label-field="name"
+                      stringify
+                      empty-text='No albums found. Click "Refresh albums" to load them from Synology.'
+                    ></AlbumPicker>
+                  </v-col>
+                </v-row>
+
+                <v-row class="mt-1">
+                  <v-col cols="12" md="6">
                     <v-checkbox
-                      v-model="form.telegram_push_enabled"
-                      label="Enable Push to Device"
+                      v-model="form.synology_auto_sync_enabled"
+                      label="Auto Sync Album"
                       color="primary"
-                      hide-details
                       density="compact"
+                      hide-details
                       @update:model-value="saveSettingsInternal()"
                     ></v-checkbox>
-
-                    <v-expand-transition>
-                      <div v-if="form.telegram_push_enabled" class="mt-2">
-                        <v-select
-                          v-model="form.telegram_target_device_id"
-                          :items="availableDevices"
-                          item-title="name"
-                          item-value="id"
-                          label="Target Devices"
-                          variant="outlined"
-                          density="compact"
-                          hint="Select the devices to display photos on"
-                          persistent-hint
-                          multiple
-                          chips
-                          closable-chips
-                          @update:model-value="saveSettingsInternal()"
-                        ></v-select>
-                      </div>
-                    </v-expand-transition>
-
-                    <div class="d-flex flex-wrap ga-2 mt-4">
-                      <v-btn
-                        color="warning"
-                        :loading="deletingAllPhotos"
-                        @click="deleteAllPhotosForSource('gallery')"
-                        >Clear All Photos</v-btn
-                      >
-                      <v-btn
-                        color="error"
-                        variant="text"
-                        @click="disconnectTelegram"
-                        >Disconnect</v-btn
-                      >
-                    </div>
-                  </div>
-
-                  <div v-else>
-                    <v-text-field
-                      v-model="form.telegram_bot_token"
-                      label="Telegram Bot Token"
-                      placeholder="Enter Bot Token"
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-select
+                      v-model="form.synology_auto_sync_interval_minutes"
+                      :items="autoSyncIntervalOptions"
+                      item-title="title"
+                      item-value="value"
+                      label="Auto Sync Interval"
                       variant="outlined"
-                      hint="Send photos to your bot to add them to the gallery."
+                      density="compact"
+                      :disabled="!form.synology_auto_sync_enabled"
+                      hint="How often to refresh photos from the selected album"
                       persistent-hint
-                    ></v-text-field>
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-select>
+                  </v-col>
+                </v-row>
 
-                    <v-btn color="primary" class="mt-4" @click="save"
-                      >Save Token</v-btn
-                    >
-                  </div>
-                </v-card-text>
-              </v-window-item>
-
-              <!-- AI Generation -->
-              <v-window-item value="ai_generation">
-                <v-card-text>
-                  <v-alert
-                    type="info"
-                    variant="tonal"
-                    class="mb-4"
-                    density="compact"
+                <div class="d-flex flex-wrap ga-2 mt-4">
+                  <v-btn
+                    color="primary"
+                    :loading="synologyStore.loading"
+                    @click="syncSynology"
+                    >Sync Now</v-btn
                   >
-                    Generate images using AI (OpenAI or Google Gemini).
-                    Configure API keys below, then set the prompt/model
-                    per-device in the Edit Device dialog.
-                  </v-alert>
+                  <v-btn color="warning" @click="clearSynology"
+                    >Clear All Photos</v-btn
+                  >
+                  <v-btn color="error" variant="text" @click="logoutSynology"
+                    >Disconnect</v-btn
+                  >
+                </div>
+              </div>
 
-                  <v-text-field
-                    v-model="form.openai_api_key"
-                    label="OpenAI API Key"
-                    type="password"
-                    variant="outlined"
-                    class="mb-1"
-                    hint="sk-..."
-                    persistent-hint
-                  ></v-text-field>
-                  <div class="text-caption text-grey ml-2 mb-4">
-                    Get your API key at
-                    <a
-                      href="https://platform.openai.com/api-keys"
-                      target="_blank"
-                      class="text-primary text-decoration-none"
-                      >platform.openai.com</a
+              <div v-else>
+                <v-text-field
+                  v-model="form.synology_url"
+                  label="NAS URL"
+                  placeholder="https://192.168.1.10:5001"
+                  variant="outlined"
+                  class="mb-2"
+                ></v-text-field>
+
+                <v-text-field
+                  v-model="form.synology_account"
+                  label="Account"
+                  variant="outlined"
+                  class="mb-2"
+                ></v-text-field>
+
+                <v-text-field
+                  v-model="form.synology_password"
+                  label="Password"
+                  type="password"
+                  variant="outlined"
+                  class="mb-2"
+                ></v-text-field>
+
+                <v-checkbox
+                  v-model="form.synology_skip_cert"
+                  label="Skip Certificate Verification (Insecure)"
+                  color="primary"
+                  density="compact"
+                ></v-checkbox>
+
+                <v-text-field
+                  v-model="form.synology_otp_code"
+                  label="OTP Code (If 2FA enabled)"
+                  placeholder="6-digit code"
+                  variant="outlined"
+                  class="mb-4"
+                ></v-text-field>
+
+                <v-btn
+                  color="primary"
+                  :disabled="
+                    !form.synology_url ||
+                    !form.synology_account ||
+                    !form.synology_password
+                  "
+                  :loading="synologyStore.loading"
+                  @click="testSynology"
+                >
+                  Connect
+                </v-btn>
+              </div>
+            </v-card-text>
+          </v-window-item>
+
+          <!-- Immich -->
+          <v-window-item value="immich">
+            <v-card-text>
+              <div v-if="immichConnected">
+                <v-alert
+                  type="success"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                  icon="mdi-check-circle"
+                >
+                  Connected to Immich ({{ form.immich_url }})
+                </v-alert>
+
+                <v-row class="mt-2">
+                  <v-col cols="12">
+                    <div class="d-flex align-center justify-space-between mb-1">
+                      <h3 class="text-subtitle-1 font-weight-bold">
+                        Albums to sync
+                      </h3>
+                      <div class="d-flex ga-2">
+                        <v-btn
+                          size="small"
+                          variant="text"
+                          prepend-icon="mdi-refresh"
+                          :loading="immichStore.loading"
+                          @click="loadImmichAlbums"
+                          >Refresh albums</v-btn
+                        >
+                      </div>
+                    </div>
+                    <div class="text-caption text-grey mb-2">
+                      Choose which Immich albums and collections to pull photos
+                      from. Saving replaces the entire sync set.
+                    </div>
+
+                    <AlbumPicker
+                      v-model="syncAlbumIds"
+                      :albums="immichStore.albums"
+                      label-field="albumName"
+                      empty-text='No albums found. Click "Refresh albums" to load them from Immich.'
                     >
-                  </div>
+                      <template #prepend>
+                        <v-list-item>
+                          <v-checkbox
+                            v-model="syncFavorites"
+                            label="Favorites"
+                            color="primary"
+                            density="compact"
+                            hide-details
+                          ></v-checkbox>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-checkbox
+                            v-model="syncAll"
+                            label="All Photos (entire library)"
+                            color="primary"
+                            density="compact"
+                            hide-details
+                          ></v-checkbox>
+                        </v-list-item>
+                        <v-list-item>
+                          <v-checkbox
+                            v-model="syncMemories"
+                            label="Memories (on this day)"
+                            color="primary"
+                            density="compact"
+                            hide-details
+                          ></v-checkbox>
+                        </v-list-item>
+                      </template>
+                    </AlbumPicker>
+                  </v-col>
+                </v-row>
 
-                  <v-text-field
-                    v-model="form.google_api_key"
-                    label="Google Gemini API Key"
-                    type="password"
-                    variant="outlined"
-                    class="mb-1"
-                    persistent-hint
-                  ></v-text-field>
-                  <div class="text-caption text-grey ml-2 mb-4">
-                    Get your API key at
-                    <a
-                      href="https://aistudio.google.com/app/apikey"
-                      target="_blank"
-                      class="text-primary text-decoration-none"
-                      >aistudio.google.com</a
-                    >
-                  </div>
+                <v-row v-if="syncMemories" class="mt-0">
+                  <v-col cols="12">
+                    <v-select
+                      v-model="form.immich_memory_mode"
+                      :items="immichMemoryModeOptions"
+                      item-title="title"
+                      item-value="value"
+                      label="Memory Years"
+                      variant="outlined"
+                      density="compact"
+                      hint="Shuffle across all past years, or only the most recent year's photos"
+                      persistent-hint
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-select>
+                  </v-col>
+                </v-row>
 
-                  <v-btn color="primary" @click="save">Save API Keys</v-btn>
-                </v-card-text>
-              </v-window-item>
-            </v-window>
+                <v-row class="mt-1">
+                  <v-col cols="12" md="6">
+                    <v-checkbox
+                      v-model="form.immich_auto_sync_enabled"
+                      label="Auto Sync Album"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-checkbox>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-select
+                      v-model="form.immich_auto_sync_interval_minutes"
+                      :items="autoSyncIntervalOptions"
+                      item-title="title"
+                      item-value="value"
+                      label="Auto Sync Interval"
+                      variant="outlined"
+                      density="compact"
+                      :disabled="!form.immich_auto_sync_enabled"
+                      hint="How often to refresh photos from the selected album"
+                      persistent-hint
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-select>
+                  </v-col>
+                </v-row>
+
+                <div class="d-flex flex-wrap ga-2 mt-4">
+                  <v-btn
+                    color="primary"
+                    :loading="immichStore.loading"
+                    @click="syncImmich"
+                    >Sync Now</v-btn
+                  >
+                  <v-btn color="warning" @click="clearImmich"
+                    >Clear All Photos</v-btn
+                  >
+                  <v-btn color="error" variant="text" @click="disconnectImmich"
+                    >Disconnect</v-btn
+                  >
+                </div>
+              </div>
+
+              <div v-else>
+                <v-text-field
+                  v-model="form.immich_url"
+                  label="Immich Server URL"
+                  placeholder="http://192.168.1.10:2283"
+                  variant="outlined"
+                  class="mb-2"
+                ></v-text-field>
+
+                <v-text-field
+                  v-model="form.immich_api_key"
+                  label="API Key"
+                  type="password"
+                  variant="outlined"
+                  class="mb-4"
+                ></v-text-field>
+
+                <v-btn
+                  color="primary"
+                  :disabled="!form.immich_url || !form.immich_api_key"
+                  :loading="immichStore.loading"
+                  @click="testImmich"
+                >
+                  Connect
+                </v-btn>
+              </div>
+            </v-card-text>
+          </v-window-item>
+
+          <!-- Gallery -->
+          <v-window-item value="gallery">
+            <v-card-text>
+              <h3 class="text-subtitle-1 font-weight-bold mb-1">
+                Telegram Bot (Upload)
+              </h3>
+              <div class="text-caption text-grey mb-3">
+                Optional. Configure a Telegram bot to upload photos into the
+                gallery from your phone.
+              </div>
+
+              <div v-if="form.telegram_bot_token">
+                <v-alert
+                  type="success"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                  icon="mdi-check-circle"
+                >
+                  Telegram Bot Configured
+                </v-alert>
+
+                <v-divider class="my-4"></v-divider>
+
+                <h3 class="text-subtitle-1 font-weight-bold mb-2">
+                  Push to Device
+                </h3>
+                <div class="text-caption text-grey mb-2">
+                  When enabled, photos uploaded via the Telegram bot are also
+                  pushed to the selected devices immediately. They are added to
+                  the gallery either way.
+                </div>
+
+                <v-checkbox
+                  v-model="form.telegram_push_enabled"
+                  label="Enable Push to Device"
+                  color="primary"
+                  hide-details
+                  density="compact"
+                  @update:model-value="saveSettingsInternal()"
+                ></v-checkbox>
+
+                <v-expand-transition>
+                  <div v-if="form.telegram_push_enabled" class="mt-2">
+                    <v-select
+                      v-model="form.telegram_target_device_id"
+                      :items="availableDevices"
+                      item-title="name"
+                      item-value="id"
+                      label="Target Devices"
+                      variant="outlined"
+                      density="compact"
+                      hint="Select the devices to display photos on"
+                      persistent-hint
+                      multiple
+                      chips
+                      closable-chips
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-select>
+                  </div>
+                </v-expand-transition>
+
+                <div class="d-flex flex-wrap ga-2 mt-4">
+                  <v-btn
+                    color="warning"
+                    :loading="deletingAllPhotos"
+                    @click="deleteAllPhotosForSource('gallery')"
+                    >Clear All Photos</v-btn
+                  >
+                  <v-btn
+                    color="error"
+                    variant="text"
+                    @click="disconnectTelegram"
+                    >Disconnect</v-btn
+                  >
+                </div>
+              </div>
+
+              <div v-else>
+                <v-text-field
+                  v-model="form.telegram_bot_token"
+                  label="Telegram Bot Token"
+                  placeholder="Enter Bot Token"
+                  variant="outlined"
+                  hint="Send photos to your bot to add them to the gallery."
+                  persistent-hint
+                ></v-text-field>
+
+                <v-btn color="primary" class="mt-4" @click="save"
+                  >Save Token</v-btn
+                >
+              </div>
+            </v-card-text>
+          </v-window-item>
+
+          <!-- AI Generation -->
+          <v-window-item value="ai_generation">
+            <v-card-text>
+              <v-alert
+                type="info"
+                variant="tonal"
+                class="mb-4"
+                density="compact"
+              >
+                Generate images using AI (OpenAI or Google Gemini). Configure
+                API keys below, then set the prompt/model per-device in the Edit
+                Device dialog.
+              </v-alert>
+
+              <v-text-field
+                v-model="form.openai_api_key"
+                label="OpenAI API Key"
+                type="password"
+                variant="outlined"
+                class="mb-1"
+                hint="sk-..."
+                persistent-hint
+              ></v-text-field>
+              <div class="text-caption text-grey ml-2 mb-4">
+                Get your API key at
+                <a
+                  href="https://platform.openai.com/api-keys"
+                  target="_blank"
+                  class="text-primary text-decoration-none"
+                  >platform.openai.com</a
+                >
+              </div>
+
+              <v-text-field
+                v-model="form.google_api_key"
+                label="Google Gemini API Key"
+                type="password"
+                variant="outlined"
+                class="mb-1"
+                persistent-hint
+              ></v-text-field>
+              <div class="text-caption text-grey ml-2 mb-4">
+                Get your API key at
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  class="text-primary text-decoration-none"
+                  >aistudio.google.com</a
+                >
+              </div>
+
+              <v-btn color="primary" @click="save">Save API Keys</v-btn>
+            </v-card-text>
+          </v-window-item>
+        </v-window>
       </v-card-text>
     </v-card>
 
@@ -793,7 +775,6 @@
         </v-tabs>
 
         <v-window v-model="activeMainTab" :touch="false">
-
           <!-- System Tab (server + security) -->
           <v-window-item value="security">
             <v-card-text>
@@ -969,7 +950,7 @@
                     <v-tab value="homeAssistant">Home Assistant</v-tab>
                     <v-tab value="processing">Processing</v-tab>
                     <v-tab value="ai">AI Generation</v-tab>
-                    <v-tab value="palette">Palette</v-tab>
+                    <v-tab v-if="!isGrayscale" value="palette">Palette</v-tab>
                   </v-tabs>
                   <v-card-text
                     :style="
@@ -1541,7 +1522,7 @@
                               </template>
                             </v-slider>
                           </v-col>
-                          <v-col cols="12" md="4">
+                          <v-col v-if="!isGrayscale" cols="12" md="4">
                             <v-slider
                               v-model="deviceProcessing.saturation"
                               :min="0.5"
@@ -2066,6 +2047,18 @@ const loadCalendars = async () => {
 const showEditDeviceDialog = ref(false);
 const editingDevice = reactive<Partial<Device>>({});
 const deviceDialogTab = ref('general');
+
+// Grayscale devices ("gc16", and any future "gc8"/"gc4") hide the color-only
+// controls — the 6-color palette calibration and saturation don't apply.
+const isGrayscale = computed(() =>
+  (editingDevice.display_type ?? '').startsWith('gc')
+);
+// Don't strand the user on the (now-hidden) Palette tab for a grayscale device.
+watch(isGrayscale, (gray) => {
+  if (gray && deviceDialogTab.value === 'palette') {
+    deviceDialogTab.value = 'general';
+  }
+});
 const savingDeviceConfig = ref(false);
 const syncingFromDevice = ref(false);
 
@@ -3153,9 +3146,7 @@ onMounted(async () => {
   }
 
   // Run independent fetches in parallel
-  const parallelFetches: Promise<void>[] = [
-    loadDevices(),
-  ];
+  const parallelFetches: Promise<void>[] = [loadDevices()];
 
   // Fetch Synology photo count + albums if connected
   if (form.synology_sid) {
@@ -3584,7 +3575,6 @@ const getImageUrl = (source?: string) => {
     derivedServerBase.value;
   return `${origin}/image${source ? '/' + source : ''}`;
 };
-
 </script>
 
 <style scoped>
