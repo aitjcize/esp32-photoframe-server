@@ -66,9 +66,32 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		if palette != nil && len(palette.Grays) > 0 {
 			perceived = palette.Grays
 		}
+		// Emit black/white aliases derived from the ramp ends alongside the
+		// grays. The CLI's background + dynamic-range-compression code reads
+		// palette.{theoretical,perceived}.black/white; without these aliases an
+		// older epaper-image-convert (< 0.1.16) crashes on a bare-grays palette
+		// ("Cannot read properties of undefined (reading 'r')"), surfacing as an
+		// HTTP 500 when a grayscale frame is served/pushed. Newer CLIs derive the
+		// same aliases themselves, so this is a backward-compatible, self-
+		// contained palette.
+		grayLevel := func(ramp [][]int, i int) map[string]int {
+			lvl := ramp[i]
+			if len(lvl) < 3 {
+				return map[string]int{"r": 0, "g": 0, "b": 0}
+			}
+			return map[string]int{"r": lvl[0], "g": lvl[1], "b": lvl[2]}
+		}
 		paletteWrapper := map[string]interface{}{
-			"theoretical": map[string]interface{}{"grays": ramp},
-			"perceived":   map[string]interface{}{"grays": perceived},
+			"theoretical": map[string]interface{}{
+				"grays": ramp,
+				"black": grayLevel(ramp, 0),
+				"white": grayLevel(ramp, len(ramp)-1),
+			},
+			"perceived": map[string]interface{}{
+				"grays": perceived,
+				"black": grayLevel(perceived, 0),
+				"white": grayLevel(perceived, len(perceived)-1),
+			},
 		}
 		if paletteJSON, err := json.Marshal(paletteWrapper); err == nil {
 			opts["palette"] = string(paletteJSON)
