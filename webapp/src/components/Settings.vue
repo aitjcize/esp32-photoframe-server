@@ -2147,6 +2147,11 @@ const detectProcessingPreset = () => {
       if (!(k in preset)) return true; // Skip keys not in this preset
       const pv = (preset as any)[k];
       const dv = (deviceProcessing as any)[k];
+      // Tolerant number compare: the device persists floats as 32-bit, so e.g.
+      // 1.4 round-trips as 1.39999998 and exact matching would miss the preset.
+      if (typeof pv === 'number' && typeof dv === 'number') {
+        return Math.abs(pv - dv) < 1e-3;
+      }
       return pv === dv;
     });
     if (matches) {
