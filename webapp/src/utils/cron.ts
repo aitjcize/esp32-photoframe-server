@@ -199,6 +199,45 @@ export function compileCards(cards: ScheduleCard[]): string[] {
   return cards.flatMap(compileCard);
 }
 
+// ----------------------------------------------------------------------------
+// Backward compatibility with firmware that predates rotate_cron and still uses
+// a single rotate_interval (seconds).
+// ----------------------------------------------------------------------------
+
+// Convert a legacy rotation interval (seconds) into a single 3-field cron rule.
+// Mirrors the firmware's cron_from_legacy_interval mapping.
+export function intervalToCron(seconds: number): string {
+  if (seconds >= 3600 && seconds % 3600 === 0) {
+    const hours = seconds / 3600;
+    if (hours <= 1) return '0 * *';
+    if (hours >= 24) return '0 0 *';
+    return `0 */${hours} *`;
+  }
+  if (seconds >= 60 && 3600 % seconds === 0) {
+    return `*/${seconds / 60} * *`;
+  }
+  return '0 * *';
+}
+
+// Best-effort inverse: if the schedule is a single every-day interval rule,
+// return the equivalent seconds so old firmware (which only understands
+// rotate_interval) can still be driven. Returns null for anything that can't be
+// represented as a fixed interval.
+export function cronToInterval(rules: string[]): number | null {
+  if (!rules || rules.length !== 1) return null;
+  const f = rules[0].trim().split(/\s+/);
+  if (f.length !== 3) return null;
+  const [min, hour, dow] = f;
+  if (dow !== '*') return null;
+  let m = min.match(/^\*\/(\d+)$/);
+  if (m && hour === '*') return parseInt(m[1], 10) * 60;
+  m = hour.match(/^\*\/(\d+)$/);
+  if (min === '0' && m) return parseInt(m[1], 10) * 3600;
+  if (min === '0' && hour === '*') return 3600;
+  if (min === '0' && hour === '0') return 86400;
+  return null;
+}
+
 function cronDowToDays(field: string): DaysSpec {
   if (field === '*') return 'everyday';
   if (field === '1-5') return 'weekdays';
