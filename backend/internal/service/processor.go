@@ -54,47 +54,16 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 	}
 
 	if grayscale {
-		// GC16: a 16-level gray ramp (level i -> i*17, since 255/15 == 17).
-		// theoretical is the panel's actual output levels; perceived defaults to
-		// the same ramp but honors a device-calibrated ramp from X-Color-Palette.
-		ramp := make([][]int, 16)
-		for i := range ramp {
-			v := i * 17
-			ramp[i] = []int{v, v, v}
-		}
-		perceived := ramp
-		if palette != nil && len(palette.Grays) > 0 {
-			perceived = palette.Grays
-		}
-		// Emit black/white aliases derived from the ramp ends alongside the
-		// grays. The CLI's background + dynamic-range-compression code reads
-		// palette.{theoretical,perceived}.black/white; without these aliases an
-		// older epaper-image-convert (< 0.1.16) crashes on a bare-grays palette
-		// ("Cannot read properties of undefined (reading 'r')"), surfacing as an
-		// HTTP 500 when a grayscale frame is served/pushed. Newer CLIs derive the
-		// same aliases themselves, so this is a backward-compatible, self-
-		// contained palette.
-		grayLevel := func(ramp [][]int, i int) map[string]int {
-			lvl := ramp[i]
-			if len(lvl) < 3 {
-				return map[string]int{"r": 0, "g": 0, "b": 0}
-			}
-			return map[string]int{"r": lvl[0], "g": lvl[1], "b": lvl[2]}
-		}
-		paletteWrapper := map[string]interface{}{
-			"theoretical": map[string]interface{}{
-				"grays": ramp,
-				"black": grayLevel(ramp, 0),
-				"white": grayLevel(ramp, len(ramp)-1),
-			},
-			"perceived": map[string]interface{}{
-				"grays": perceived,
-				"black": grayLevel(perceived, 0),
-				"white": grayLevel(perceived, len(perceived)-1),
-			},
-		}
-		if paletteJSON, err := json.Marshal(paletteWrapper); err == nil {
-			opts["palette"] = string(paletteJSON)
+		// GC16: the whole gray palette (theoretical output ramp + the calibrated
+		// perceived ramp) lives in epaper-image-convert -- we never hardcode a
+		// gray ramp here. If the device reported its measured luminance endpoints
+		// (Y of full black/white), pass them so the CLI derives the panel's
+		// perceived ramp; otherwise fall back to the built-in grayscale16 preset.
+		if palette != nil && palette.BlackY != nil && palette.WhiteY != nil {
+			opts["gray-black-y"] = fmt.Sprintf("%v", *palette.BlackY)
+			opts["gray-white-y"] = fmt.Sprintf("%v", *palette.WhiteY)
+		} else {
+			opts["palette-preset"] = "grayscale16"
 		}
 	} else if palette != nil {
 		paletteWrapper := map[string]interface{}{

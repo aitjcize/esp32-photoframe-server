@@ -330,11 +330,19 @@ type Palette struct {
 	// [r,g,b] levels (0=black..N-1=white). Set instead of the named colors for
 	// IT8951 panels; the named fields are ignored when Grays is non-empty.
 	Grays [][]int `json:"grays,omitempty"`
+	// BlackY / WhiteY, when present, are the panel's measured RELATIVE LUMINANCE
+	// (Y, 0..1) of full black / full white -- the calibration for a grayscale
+	// (GC16) panel. The 16-level ramp is derived from these two endpoints
+	// downstream (epaper-image-convert --gray-black-y/--gray-white-y), so a
+	// calibrated grayscale palette is just two numbers.
+	BlackY *float64 `json:"black_y,omitempty"`
+	WhiteY *float64 `json:"white_y,omitempty"`
 }
 
-// IsGrayscale reports whether this palette is a grayscale (GC16) ramp.
+// IsGrayscale reports whether this palette is a grayscale (GC16) palette --
+// either an explicit gray ramp or the two luminance endpoints.
 func (p *Palette) IsGrayscale() bool {
-	return p != nil && len(p.Grays) > 0
+	return p != nil && (len(p.Grays) > 0 || p.BlackY != nil || p.WhiteY != nil)
 }
 
 // FetchConfig returns the full device config as a raw JSON string.

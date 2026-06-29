@@ -86,33 +86,49 @@ func TestGrayscale_AutoRotate_ColorPalette(t *testing.T) {
 	}
 }
 
-// The emitted grayscale palette must carry black/white aliases in BOTH
-// theoretical and perceived sub-palettes. Older epaper-image-convert versions
-// (< 0.1.16) read palette.perceived.black.r directly and crash (HTTP 500) on a
-// bare-grays palette; the aliases keep the palette self-contained.
-func TestGrayscale_PaletteHasBlackWhiteAliases(t *testing.T) {
+// The backend never hardcodes a gray ramp: a grayscale device with no
+// calibration uses the CLI's built-in grayscale16 preset, and a device that
+// reported its measured luminance endpoints passes those through for the CLI
+// to derive the perceived ramp.
+func TestGrayscale_OptsUsePresetOrEndpoints(t *testing.T) {
 	proc := NewProcessorService()
+
+	// No device palette -> built-in preset, no hardcoded palette JSON.
 	opts := proc.MapProcessingSettings(nil, nil, true)
-	raw, ok := opts["palette"]
-	if !ok {
-		t.Fatal("expected a palette opt for a grayscale device")
+	if got := opts["palette-preset"]; got != "grayscale16" {
+		t.Errorf("no-palette grayscale: palette-preset = %q, want grayscale16", got)
 	}
-	var pal struct {
-		Theoretical map[string]json.RawMessage `json:"theoretical"`
-		Perceived   map[string]json.RawMessage `json:"perceived"`
+	if _, ok := opts["palette"]; ok {
+		t.Error("no-palette grayscale: should not emit a hardcoded palette JSON")
 	}
-	if err := json.Unmarshal([]byte(raw), &pal); err != nil {
-		t.Fatalf("palette JSON: %v", err)
+
+	// Device-reported luminance endpoints -> passed to the CLI for derivation.
+	black, white := 0.02, 0.90
+	pal := &photoframe.Palette{BlackY: &black, WhiteY: &white}
+	opts = proc.MapProcessingSettings(nil, pal, true)
+	if opts["gray-black-y"] != "0.02" || opts["gray-white-y"] != "0.9" {
+		t.Errorf("endpoints: gray-black-y=%q gray-white-y=%q, want 0.02/0.9",
+			opts["gray-black-y"], opts["gray-white-y"])
 	}
-	for name, sub := range map[string]map[string]json.RawMessage{
-		"theoretical": pal.Theoretical,
-		"perceived":   pal.Perceived,
-	} {
-		for _, key := range []string{"grays", "black", "white"} {
-			if _, ok := sub[key]; !ok {
-				t.Errorf("%s sub-palette missing %q", name, key)
-			}
-		}
+	if _, ok := opts["palette-preset"]; ok {
+		t.Error("endpoints: should pass gray-*-y, not palette-preset")
+	}
+}
+
+// /image (auto-rotate) path for a grayscale device that reported its measured
+// luminance endpoints -- the CLI must accept --gray-black-y/--gray-white-y.
+func TestGrayscale_AutoRotate_CalibratedEndpoints(t *testing.T) {
+	haveCLI(t)
+	proc := NewProcessorService()
+	black, white := 0.03, 0.85
+	pal := &photoframe.Palette{BlackY: &black, WhiteY: &white}
+	opts := map[string]string{"dimension": "64x48", "format": "png"}
+	for k, v := range proc.MapProcessingSettings(nil, pal, true) {
+		opts[k] = v
+	}
+	t.Logf("opts: %+v", opts)
+	if _, _, err := proc.ProcessImage(grayImg(), opts); err != nil {
+		t.Fatalf("ProcessImage with calibrated endpoints failed: %v", err)
 	}
 }
 
