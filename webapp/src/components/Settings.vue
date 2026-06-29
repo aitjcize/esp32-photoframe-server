@@ -844,6 +844,13 @@
                           device.board_name ||
                           `${device.width}x${device.height}`
                         }}
+                        <v-chip
+                          v-if="device.display_type?.startsWith('gc')"
+                          size="x-small"
+                          class="ml-2"
+                        >
+                          Grayscale
+                        </v-chip>
                       </td>
                       <td>
                         {{ device.host }}
@@ -895,6 +902,13 @@
                           device.board_name ||
                           `${device.width}x${device.height}`
                         }}
+                        <v-chip
+                          v-if="device.display_type?.startsWith('gc')"
+                          size="x-small"
+                          class="ml-2"
+                        >
+                          Grayscale
+                        </v-chip>
                       </v-list-item-subtitle>
                       <v-list-item-subtitle class="text-truncate">
                         {{ device.host }}
