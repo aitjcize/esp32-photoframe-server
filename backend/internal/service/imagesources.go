@@ -79,7 +79,12 @@ func (s *dlaSource) Fetch(req *imagesource.Request) (*imagesource.Response, erro
 	if err != nil {
 		return nil, err
 	}
-	return &imagesource.Response{Image: img, SkipPostProcessing: true}, nil
+	// The DLA palette is a handful of saturated colors that match the Spectra-6
+	// inks natively, so color panels can ship it un-dithered. A grayscale (GC16)
+	// panel cannot — those colors must flow through the dither-to-gray pipeline,
+	// so don't skip post-processing for grayscale devices.
+	skip := !(req.Device != nil && req.Device.IsGrayscale())
+	return &imagesource.Response{Image: img, SkipPostProcessing: skip}, nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────

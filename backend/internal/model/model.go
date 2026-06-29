@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -88,6 +89,11 @@ type Device struct {
 	DeviceColorPalette       string    `json:"device_color_palette" gorm:"default:'{}'"`
 	ConfigLastUpdated        int64     `json:"config_last_updated" gorm:"default:0"`
 	CreatedAt                time.Time `json:"created_at"`
+}
+
+// IsGrayscale reports whether this device drives a grayscale (GC16) panel.
+func (d *Device) IsGrayscale() bool {
+	return strings.HasPrefix(d.DisplayType, "gc") || d.BoardName == "seeedstudio_reterminal_e1003"
 }
 
 const (

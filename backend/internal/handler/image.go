@@ -407,9 +407,8 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 
 	// GC16 grayscale mode: prefer the device-reported display type, falling back
 	// to the board name for firmware that predates the display_type field.
-	grayscale := deviceFound &&
-		(device.DisplayType == "gc16" ||
-			device.BoardName == "seeedstudio_reterminal_e1003")
+	// Only treat as grayscale when the device is known.
+	grayscale := deviceFound && device.IsGrayscale()
 
 	headerOpts := h.processor.MapProcessingSettings(settings, palette, grayscale)
 	for k, v := range headerOpts {

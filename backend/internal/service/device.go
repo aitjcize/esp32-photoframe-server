@@ -7,6 +7,7 @@ import (
 	"image"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
@@ -434,7 +435,52 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		opts["orientation"] = orientation
 	}
 
-	// Merge extra options (device params)
+	// Merge processing settings + palette so the CLI quantizes to the right
+	// color model. Without this a grayscale (GC16) panel would fall back to
+	// Spectra-6 color quantization. Mirrors what the /image handler does.
+	grayscale := device.IsGrayscale()
+
+	// Parse the device's stored color palette (JSON string column); nil if
+	// absent or empty ("{}"). For grayscale panels this supplies a calibrated
+	// gray ramp via Palette.Grays.
+	var palette *photoframe.Palette
+	if raw := strings.TrimSpace(device.DeviceColorPalette); raw != "" && raw != "{}" {
+		var p photoframe.Palette
+		if err := json.Unmarshal([]byte(raw), &p); err == nil {
+			palette = &p
+		} else {
+			log.Printf("Failed to parse stored palette for %s: %v", device.Name, err)
+		}
+	}
+
+	// Parse the device's stored processing settings; nil if absent or empty.
+	// MapProcessingSettings returns an empty map for nil settings (and would
+	// then emit no palette), so for grayscale panels we fall back to a
+	// zero-valued settings struct to ensure the gray palette is still emitted.
+	var settings *photoframe.ProcessingSettings
+	if raw := strings.TrimSpace(device.DeviceProcessingSettings); raw != "" && raw != "{}" {
+		var ps photoframe.ProcessingSettings
+		if err := json.Unmarshal([]byte(raw), &ps); err == nil {
+			settings = &ps
+		} else {
+			log.Printf("Failed to parse stored processing settings for %s: %v", device.Name, err)
+		}
+	}
+	if settings == nil && grayscale {
+		settings = &photoframe.ProcessingSettings{}
+	}
+
+	// Merge the mapped CLI options (palette, tone-mapping, etc.) without
+	// clobbering dimension/orientation/format already set above.
+	mapped := s.processor.MapProcessingSettings(settings, palette, grayscale)
+	for k, v := range mapped {
+		if k == "dimension" || k == "orientation" || k == "format" {
+			continue
+		}
+		opts[k] = v
+	}
+
+	// Merge extra options (device params) last so explicit overrides win.
 	for k, v := range processingOpts {
 		opts[k] = v
 	}
