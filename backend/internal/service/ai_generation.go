@@ -49,11 +49,18 @@ func (s *AIGenerationService) Generate(device *model.Device) (image.Image, error
 		isPortrait = false
 	}
 
+	// For grayscale (GC16) panels, nudge the model toward tonal imagery so the
+	// result holds up after dithering to gray instead of muddying full color.
+	prompt := device.AIPrompt
+	if device.IsGrayscale() {
+		prompt += " Black and white, grayscale, high tonal contrast."
+	}
+
 	switch provider {
 	case "openai":
-		return s.generateOpenAI(device.AIPrompt, modelName, isPortrait)
+		return s.generateOpenAI(prompt, modelName, isPortrait)
 	case "google":
-		return s.generateGemini(device.AIPrompt, modelName, isPortrait, device.Width, device.Height)
+		return s.generateGemini(prompt, modelName, isPortrait, device.Width, device.Height)
 	default:
 		return nil, fmt.Errorf("unsupported AI provider: %s", provider)
 	}
