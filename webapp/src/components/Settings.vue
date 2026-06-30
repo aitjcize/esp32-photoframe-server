@@ -965,6 +965,9 @@
                     <v-tab value="processing">Processing</v-tab>
                     <v-tab value="ai">AI Generation</v-tab>
                     <v-tab v-if="!isGrayscale" value="palette">Palette</v-tab>
+                    <v-tab v-if="isGrayscale" value="grayscale"
+                      >Grayscale</v-tab
+                    >
                   </v-tabs>
                   <v-card-text
                     :style="
@@ -1834,6 +1837,77 @@
                           >Reset to Defaults</v-btn
                         >
                       </v-tabs-window-item>
+
+                      <!-- Grayscale Calibration Tab (mirrors device webapp GrayscaleCalibration) -->
+                      <v-tabs-window-item value="grayscale">
+                        <v-alert
+                          type="info"
+                          variant="tonal"
+                          density="compact"
+                          class="mt-2 mb-4"
+                        >
+                          Calibrate the measured luminance of your grayscale
+                          (GC16) panel. These two values are the relative
+                          luminance (Y, 0&ndash;1) of full black and full white
+                          as displayed by your specific panel. They drive the
+                          grayscale dithering and dynamic-range compression.
+                        </v-alert>
+
+                        <p class="text-body-2 mb-4">
+                          Keeping <strong>black luminance at 0</strong> renders
+                          shadows as pure black for a punchier, higher-contrast
+                          result. Raising it toward your panel's real black
+                          makes the on-screen preview match what the panel
+                          actually shows (WYSIWYG). You can measure these by
+                          displaying a full-black image, then a full-white
+                          image, and metering the panel's luminance.
+                        </p>
+
+                        <v-row>
+                          <v-col cols="12" md="6">
+                            <v-text-field
+                              v-model.number="grayscaleCal.black_y"
+                              label="Black luminance (Y)"
+                              type="number"
+                              :min="0"
+                              :max="1"
+                              :step="0.01"
+                              variant="outlined"
+                              density="compact"
+                              hint="Measured relative luminance of full black (0–1). 0 keeps shadows pure black."
+                              persistent-hint
+                            />
+                          </v-col>
+                          <v-col cols="12" md="6">
+                            <v-text-field
+                              v-model.number="grayscaleCal.white_y"
+                              label="White luminance (Y)"
+                              type="number"
+                              :min="0"
+                              :max="1"
+                              :step="0.01"
+                              variant="outlined"
+                              density="compact"
+                              hint="Measured relative luminance of full white (0–1). Default 0.90."
+                              persistent-hint
+                            />
+                          </v-col>
+                        </v-row>
+
+                        <v-btn
+                          variant="text"
+                          color="error"
+                          size="small"
+                          class="mt-2"
+                          @click="
+                            Object.assign(grayscaleCal, {
+                              black_y: 0,
+                              white_y: 0.9,
+                            })
+                          "
+                          >Reset to Defaults</v-btn
+                        >
+                      </v-tabs-window-item>
                     </v-tabs-window>
                   </v-card-text>
                   <v-card-actions>
@@ -2067,9 +2141,12 @@ const deviceDialogTab = ref('general');
 const isGrayscale = computed(() =>
   (editingDevice.display_type ?? '').startsWith('gc')
 );
-// Don't strand the user on the (now-hidden) Palette tab for a grayscale device.
+// Don't strand the user on a tab that's hidden for the current device type:
+// the Palette tab is color-only; the Grayscale tab is grayscale-only.
 watch(isGrayscale, (gray) => {
   if (gray && deviceDialogTab.value === 'palette') {
+    deviceDialogTab.value = 'general';
+  } else if (!gray && deviceDialogTab.value === 'grayscale') {
     deviceDialogTab.value = 'general';
   }
 });
@@ -2203,6 +2280,14 @@ const devicePalette = reactive<
   red: { r: 135, g: 19, b: 0 },
   blue: { r: 5, g: 64, b: 158 },
   green: { r: 39, g: 102, b: 60 },
+});
+
+// Grayscale (GC16) calibration — the panel-measured relative luminance (Y, 0..1)
+// of full black / full white. Synced to the device through the same per-device
+// palette path as the 6-color palette (color_palette: { black_y, white_y }).
+const grayscaleCal = reactive<{ black_y: number; white_y: number }>({
+  black_y: 0,
+  white_y: 0.9,
 });
 
 // Auto-update mDNS hostname when device name changes
@@ -2387,6 +2472,12 @@ const loadDeviceConfig = async (deviceId: number) => {
         };
       }
     }
+
+    // Grayscale calibration shares the color_palette payload: a calibrated GC16
+    // panel stores just { black_y, white_y }. Fall back to GC16 defaults so the
+    // inputs always bind to a number.
+    grayscaleCal.black_y = typeof pal.black_y === 'number' ? pal.black_y : 0;
+    grayscaleCal.white_y = typeof pal.white_y === 'number' ? pal.white_y : 0.9;
   } catch {
     // No config saved yet, use defaults
   }
@@ -2782,7 +2873,12 @@ const saveDevice = async () => {
           google_api_key: deviceConfig.google_api_key,
         },
         processing_settings: { ...deviceProcessing },
-        color_palette: { ...devicePalette },
+        // Grayscale (GC16) panels are calibrated by two luminance endpoints;
+        // color panels by the 6 named colors. Both ride the same color_palette
+        // field, which the server stores and the device pulls via X-Config-Payload.
+        color_palette: isGrayscale.value
+          ? { black_y: grayscaleCal.black_y, white_y: grayscaleCal.white_y }
+          : { ...devicePalette },
       });
 
       // Persist per-device Immich album bindings (best-effort).
