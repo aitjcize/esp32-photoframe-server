@@ -1888,7 +1888,7 @@
                               :step="0.01"
                               variant="outlined"
                               density="compact"
-                              hint="Measured relative luminance of full white (0–1). Default 0.90."
+                              hint="Measured relative luminance of full white (0–1). Default 0.65."
                               persistent-hint
                             />
                           </v-col>
@@ -1902,7 +1902,7 @@
                               :step="0.05"
                               variant="outlined"
                               density="compact"
-                              hint="Mid-level shaping; 1.0 = neutral, >1 darkens mid-tones. Default 1.0."
+                              hint="Mid-level shaping; 1.0 = neutral, >1 darkens mid-tones. Default 1.42."
                               persistent-hint
                             />
                           </v-col>
@@ -1915,9 +1915,9 @@
                           class="mt-2"
                           @click="
                             Object.assign(grayscaleCal, {
-                              black_y: 0,
-                              white_y: 0.9,
-                              gamma: 1,
+                              black_y: 0.009,
+                              white_y: 0.65,
+                              gamma: 1.42,
                             })
                           "
                           >Reset to Defaults</v-btn
@@ -2305,9 +2305,9 @@ const grayscaleCal = reactive<{
   white_y: number;
   gamma: number;
 }>({
-  black_y: 0,
-  white_y: 0.9,
-  gamma: 1,
+  black_y: 0.009,
+  white_y: 0.65,
+  gamma: 1.42,
 });
 
 // Auto-update mDNS hostname when device name changes
@@ -2499,12 +2499,14 @@ const loadDeviceConfig = async (deviceId: number) => {
     // as a float32, so a saved 0.90 round-trips as 0.899999976...
     const round2 = (v: number) => Math.round(v * 100) / 100;
     grayscaleCal.black_y = round2(
-      typeof pal.black_y === 'number' ? pal.black_y : 0
+      typeof pal.black_y === 'number' ? pal.black_y : 0.009
     );
     grayscaleCal.white_y = round2(
-      typeof pal.white_y === 'number' ? pal.white_y : 0.9
+      typeof pal.white_y === 'number' ? pal.white_y : 0.65
     );
-    grayscaleCal.gamma = round2(typeof pal.gamma === 'number' ? pal.gamma : 1);
+    grayscaleCal.gamma = round2(
+      typeof pal.gamma === 'number' ? pal.gamma : 1.42
+    );
   } catch {
     // No config saved yet, use defaults
   }
