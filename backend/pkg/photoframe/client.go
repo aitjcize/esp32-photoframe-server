@@ -337,6 +337,9 @@ type Palette struct {
 	// calibrated grayscale palette is just two numbers.
 	BlackY *float64 `json:"black_y,omitempty"`
 	WhiteY *float64 `json:"white_y,omitempty"`
+	// Gamma, when present, shapes the GC16 mid-level ramp (1.0 = perceptually
+	// linear, >1 darkens mids); passed downstream as --gray-gamma.
+	Gamma *float64 `json:"gamma,omitempty"`
 }
 
 // IsGrayscale reports whether this palette is a grayscale (GC16) palette --

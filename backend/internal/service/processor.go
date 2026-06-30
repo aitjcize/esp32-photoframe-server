@@ -62,6 +62,9 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		if palette != nil && palette.BlackY != nil && palette.WhiteY != nil {
 			opts["gray-black-y"] = fmt.Sprintf("%v", *palette.BlackY)
 			opts["gray-white-y"] = fmt.Sprintf("%v", *palette.WhiteY)
+			if palette.Gamma != nil {
+				opts["gray-gamma"] = fmt.Sprintf("%v", *palette.Gamma)
+			}
 		} else {
 			opts["palette-preset"] = "grayscale16"
 		}
