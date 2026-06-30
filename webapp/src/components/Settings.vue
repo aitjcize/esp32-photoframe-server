@@ -1871,7 +1871,7 @@
                               type="number"
                               :min="0"
                               :max="1"
-                              :step="0.01"
+                              :step="0.001"
                               variant="outlined"
                               density="compact"
                               hint="Measured relative luminance of full black (0–1). 0 keeps shadows pure black."
@@ -2495,16 +2495,16 @@ const loadDeviceConfig = async (deviceId: number) => {
 
     // Grayscale calibration shares the color_palette payload: a calibrated GC16
     // panel stores just { black_y, white_y }. Fall back to GC16 defaults so the
-    // inputs always bind to a number. Round to 2 digits -- the firmware stores Y
+    // inputs always bind to a number. Round to 3 digits -- the firmware stores Y
     // as a float32, so a saved 0.90 round-trips as 0.899999976...
-    const round2 = (v: number) => Math.round(v * 100) / 100;
-    grayscaleCal.black_y = round2(
+    const round3 = (v: number) => Math.round(v * 1000) / 1000;
+    grayscaleCal.black_y = round3(
       typeof pal.black_y === 'number' ? pal.black_y : 0.009
     );
-    grayscaleCal.white_y = round2(
+    grayscaleCal.white_y = round3(
       typeof pal.white_y === 'number' ? pal.white_y : 0.65
     );
-    grayscaleCal.gamma = round2(
+    grayscaleCal.gamma = round3(
       typeof pal.gamma === 'number' ? pal.gamma : 1.42
     );
   } catch {
