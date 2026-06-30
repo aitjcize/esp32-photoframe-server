@@ -1892,6 +1892,20 @@
                               persistent-hint
                             />
                           </v-col>
+                          <v-col cols="12" md="6">
+                            <v-text-field
+                              v-model.number="grayscaleCal.gamma"
+                              label="Mid-tone gamma"
+                              type="number"
+                              :min="0.2"
+                              :max="4"
+                              :step="0.05"
+                              variant="outlined"
+                              density="compact"
+                              hint="Mid-level shaping; 1.0 = neutral, >1 darkens mid-tones. Default 1.0."
+                              persistent-hint
+                            />
+                          </v-col>
                         </v-row>
 
                         <v-btn
@@ -1903,6 +1917,7 @@
                             Object.assign(grayscaleCal, {
                               black_y: 0,
                               white_y: 0.9,
+                              gamma: 1,
                             })
                           "
                           >Reset to Defaults</v-btn
@@ -2285,9 +2300,14 @@ const devicePalette = reactive<
 // Grayscale (GC16) calibration — the panel-measured relative luminance (Y, 0..1)
 // of full black / full white. Synced to the device through the same per-device
 // palette path as the 6-color palette (color_palette: { black_y, white_y }).
-const grayscaleCal = reactive<{ black_y: number; white_y: number }>({
+const grayscaleCal = reactive<{
+  black_y: number;
+  white_y: number;
+  gamma: number;
+}>({
   black_y: 0,
   white_y: 0.9,
+  gamma: 1,
 });
 
 // Auto-update mDNS hostname when device name changes
@@ -2484,6 +2504,7 @@ const loadDeviceConfig = async (deviceId: number) => {
     grayscaleCal.white_y = round2(
       typeof pal.white_y === 'number' ? pal.white_y : 0.9
     );
+    grayscaleCal.gamma = round2(typeof pal.gamma === 'number' ? pal.gamma : 1);
   } catch {
     // No config saved yet, use defaults
   }
@@ -2883,7 +2904,11 @@ const saveDevice = async () => {
         // color panels by the 6 named colors. Both ride the same color_palette
         // field, which the server stores and the device pulls via X-Config-Payload.
         color_palette: isGrayscale.value
-          ? { black_y: grayscaleCal.black_y, white_y: grayscaleCal.white_y }
+          ? {
+              black_y: grayscaleCal.black_y,
+              white_y: grayscaleCal.white_y,
+              gamma: grayscaleCal.gamma,
+            }
           : { ...devicePalette },
       });
 
