@@ -51,8 +51,8 @@ func TestSupportsEPDGZ(t *testing.T) {
 		// v prefix
 		{"v2.6.2", true},
 		{"v2.6.1", false},
-		// dev versions are always old
-		{"dev-abc123", false},
+		// dev builds run the latest code -> treated as supporting epdgz
+		{"dev-abc123", true},
 		// empty string
 		{"", false},
 	}

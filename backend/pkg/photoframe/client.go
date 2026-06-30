@@ -21,8 +21,14 @@ import (
 // MinEPDGZVersion is the minimum firmware version that supports epdgz format.
 const MinEPDGZVersion = "2.6.1"
 
-// SupportsEPDGZ returns true if the given firmware version supports the epdgz format.
+// SupportsEPDGZ returns true if the given firmware version supports the epdgz
+// format. Dev builds (dev-<hash>) run the latest code, so they're treated as
+// supporting it -- otherwise compareVersions ranks every dev build below the
+// threshold and they'd be stuck on the PNG fallback.
 func SupportsEPDGZ(version string) bool {
+	if strings.HasPrefix(strings.TrimPrefix(version, "v"), "dev-") {
+		return true
+	}
 	return compareVersions(version, MinEPDGZVersion) > 0
 }
 
