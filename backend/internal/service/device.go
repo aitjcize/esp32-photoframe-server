@@ -257,33 +257,16 @@ func (s *DeviceService) RefreshDeviceFromHardware(id uint) (*model.Device, error
 }
 
 func (s *DeviceService) DeleteDevice(id uint) error {
-	// SQLite has no FK cascades enabled, so remove the device's child rows
-	// explicitly (in one transaction) to avoid orphans that a reused device id
-	// could later inherit.
+	// device_histories, device_album_mappings, device_url_mappings and
+	// generative_states are removed automatically via ON DELETE CASCADE
+	// (migration 000032, enforced by _foreign_keys=on) — Device has no
+	// soft-delete, so this is a real DELETE and the cascade fires. Only api_keys
+	// needs explicit handling: its device_id has no FK and tokens are unbound,
+	// not deleted, so a token survives the device it pointed at.
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Child tables to clear (HasTable-guarded below, since not every model
-		// has a migration-created table in all DBs).
-		children := []interface{}{
-			&model.DeviceHistory{},
-			&model.DeviceAlbumMapping{},
-			&model.DeviceURLMapping{},
-			&model.GenerativeState{},
-		}
-		for _, m := range children {
-			// Some of these models have no migration-created table; skip those.
-			if !tx.Migrator().HasTable(m) {
-				continue
-			}
-			if err := tx.Where("device_id = ?", id).Delete(m).Error; err != nil {
-				return err
-			}
-		}
-		// Unbind (don't delete) any API tokens pointing at this device.
-		if tx.Migrator().HasTable(&model.APIKey{}) {
-			if err := tx.Model(&model.APIKey{}).
-				Where("device_id = ?", id).Update("device_id", nil).Error; err != nil {
-				return err
-			}
+		if err := tx.Model(&model.APIKey{}).
+			Where("device_id = ?", id).Update("device_id", nil).Error; err != nil {
+			return err
 		}
 		return tx.Delete(&model.Device{}, id).Error
 	})

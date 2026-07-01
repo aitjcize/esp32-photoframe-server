@@ -375,9 +375,8 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 	if err := h.db.Unscoped().Delete(&item).Error; err != nil {
 		return respondError(c, http.StatusInternalServerError, "failed to delete from db")
 	}
-
-	// Drop album memberships for this image (consistent with the bulk delete).
-	h.db.Where("image_id = ?", item.ID).Delete(&model.ImageAlbumMembership{})
+	// Album memberships drop via ON DELETE CASCADE (this is an Unscoped hard
+	// delete, so the cascade fires).
 
 	// For local sources (gallery / google), drop the file and thumbnail.
 	// Synology / Immich keep the original on the source, so nothing on disk.
@@ -419,15 +418,7 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 		return respondError(c, http.StatusInternalServerError, "failed to delete from db")
 	}
 
-	// Drop album memberships for the deleted images so album counts reflect
-	// the removal (otherwise orphaned memberships linger).
-	if len(items) > 0 {
-		ids := make([]uint, len(items))
-		for i, it := range items {
-			ids[i] = it.ID
-		}
-		h.db.Where("image_id IN ?", ids).Delete(&model.ImageAlbumMembership{})
-	}
+	// Album memberships drop via ON DELETE CASCADE (Unscoped hard delete above).
 
 	// Disable sync for this source's albums so an auto-sync doesn't immediately
 	// re-import what was just deleted (no-op for sources without albums).
@@ -534,9 +525,7 @@ func (h *GalleryHandler) ListURLSources(c echo.Context) error {
 
 func (h *GalleryHandler) DeleteURLSource(c echo.Context) error {
 	id := c.Param("id")
-	// Delete mappings
-	h.db.Where("url_source_id = ?", id).Delete(&model.DeviceURLMapping{})
-	// Delete source
+	// device_url_mappings for this source drop via ON DELETE CASCADE.
 	if err := h.db.Delete(&model.URLSource{}, id).Error; err != nil {
 		return respondError(c, http.StatusInternalServerError, "failed to delete url source")
 	}

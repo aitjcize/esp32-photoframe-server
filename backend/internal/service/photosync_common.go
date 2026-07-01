@@ -15,17 +15,10 @@ import (
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 )
 
-// clearSourcePhotos drops album memberships for the source's albums and then
-// hard-deletes all of the source's image rows.
+// clearSourcePhotos hard-deletes all of the source's image rows. Their album
+// memberships drop via ON DELETE CASCADE (this is an Unscoped hard delete, so
+// the cascade fires).
 func clearSourcePhotos(db *gorm.DB, source string) error {
-	var albumIDs []uint
-	db.Model(&model.Album{}).Where("source = ?", source).Pluck("id", &albumIDs)
-	if len(albumIDs) > 0 {
-		if err := db.Where("album_id IN ?", albumIDs).
-			Delete(&model.ImageAlbumMembership{}).Error; err != nil {
-			log.Printf("[%s] clear memberships for albums %v: %v", source, albumIDs, err)
-		}
-	}
 	if err := db.Unscoped().Where("source = ?", source).
 		Delete(&model.Image{}).Error; err != nil {
 		return err

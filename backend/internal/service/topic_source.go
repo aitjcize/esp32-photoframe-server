@@ -124,9 +124,9 @@ func (t *topicSource) SetSyncTopics(topics []string) error {
 			return e
 		}
 		for _, a := range stale {
-			if e := tx.Where("album_id = ?", a.ID).Delete(&model.ImageAlbumMembership{}).Error; e != nil {
-				return e
-			}
+			// Album has no soft-delete, so this is a real DELETE and the album's
+			// image_album_memberships drop via ON DELETE CASCADE; the now-orphaned
+			// images are swept by gcOrphanImagesForSource below.
 			if e := tx.Delete(&model.Album{}, a.ID).Error; e != nil {
 				return e
 			}
