@@ -12,12 +12,12 @@ import (
 // maps its API response to this; it is the ONLY per-source difference the shared
 // album-sync engine sees.
 type RemoteAsset struct {
-	ExternalID string // stable source id (immich UUID, synology id, unsplash/pexels/artic id)
+	ExternalID string // stable source id (immich UUID, synology id, unsplash/pexels id)
 	// FilePath is how this source's downloader later fetches the bytes: a local
 	// path for disk sources (immich/synology fetch by id instead), or the image
-	// URL for URL-based sources (unsplash/pexels/artic).
+	// URL for URL-based sources (unsplash/pexels).
 	FilePath     string
-	Caption      string // optional (e.g. ARTIC title / artist)
+	Caption      string // optional (e.g. photographer credit)
 	Width        int
 	Height       int
 	Orientation  string // "landscape"|"portrait"|"auto"; if "" the engine derives it from w/h

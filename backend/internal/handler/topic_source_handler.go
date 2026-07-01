@@ -7,7 +7,7 @@ import (
 )
 
 // TopicSourceBackend is the surface the topic-source handler needs. All three
-// topic services (ARTIC, Unsplash, Pexels) satisfy it.
+// topic services (Unsplash, Pexels) satisfy it.
 type TopicSourceBackend interface {
 	SetSyncTopics(topics []string) error
 	TestConnection() error

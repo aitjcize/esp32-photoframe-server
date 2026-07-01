@@ -7,7 +7,6 @@
         <v-tab value="immich">Immich</v-tab>
         <v-tab value="synology_photos">Synology</v-tab>
         <v-tab value="google_photos">Google</v-tab>
-        <v-tab value="artic">ARTIC</v-tab>
         <v-tab value="unsplash">Unsplash</v-tab>
         <v-tab value="pexels">Pexels</v-tab>
         <v-tab value="url">URL Proxy</v-tab>
@@ -598,43 +597,6 @@
                   Connect
                 </v-btn>
               </div>
-            </v-card-text>
-          </v-window-item>
-
-          <!-- ARTIC (Art Institute of Chicago) -->
-          <v-window-item value="artic">
-            <v-card-text>
-              <v-alert
-                type="info"
-                variant="tonal"
-                class="mb-4"
-                density="compact"
-              >
-                The Art Institute of Chicago provides public-domain artworks. No
-                API key is required. Add search topics below (e.g.
-                "impressionism", "monet", "japanese prints") — each topic
-                becomes a synced album.
-              </v-alert>
-
-              <TopicManager
-                title="Search topics"
-                :store="articStore"
-                hint="Each topic becomes an album of matching artworks."
-                :auto-sync-enabled="form.artic_auto_sync_enabled"
-                :auto-sync-interval="form.artic_auto_sync_interval_minutes"
-                :auto-sync-options="autoSyncIntervalOptions"
-                @update:auto-sync-enabled="
-                  form.artic_auto_sync_enabled = $event;
-                  saveSettingsInternal();
-                "
-                @update:auto-sync-interval="
-                  form.artic_auto_sync_interval_minutes = $event;
-                  saveSettingsInternal();
-                "
-                @save="(topics) => saveTopics('artic', topics)"
-                @sync="syncTopicSource('artic')"
-                @clear="clearTopicSource('artic')"
-              ></TopicManager>
             </v-card-text>
           </v-window-item>
 
@@ -1369,24 +1331,6 @@
                                 :max-height="220"
                                 :disabled="!deviceConfig.auto_rotate"
                                 empty-text="No synced Synology albums. Add some in Data Sources → Synology first."
-                              ></AlbumPicker>
-                            </div>
-
-                            <div
-                              v-if="useThisServer && selectedSource === 'artic'"
-                              class="mb-2 ml-8"
-                            >
-                              <div class="text-caption text-grey mb-1">
-                                Topics for this frame — leave all unchecked to
-                                use every synced ARTIC photo.
-                              </div>
-                              <AlbumPicker
-                                v-model="deviceArticAlbumIds"
-                                :albums="deviceArticAlbumOptions"
-                                label-field="name"
-                                :max-height="220"
-                                :disabled="!deviceConfig.auto_rotate"
-                                empty-text="No synced ARTIC topics. Add some in Data Sources → ARTIC first."
                               ></AlbumPicker>
                             </div>
 
@@ -2218,7 +2162,6 @@ import { useSettingsStore } from '../stores/settings';
 import { useSynologyStore } from '../stores/synology';
 import { useImmichStore } from '../stores/immich';
 import {
-  useArticStore,
   useUnsplashStore,
   usePexelsStore,
 } from '../stores/createSourceStore';
@@ -2252,16 +2195,14 @@ const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
 const synologyStore = useSynologyStore();
 const immichStore = useImmichStore();
-const articStore = useArticStore();
 const unsplashStore = useUnsplashStore();
 const pexelsStore = usePexelsStore();
 const immichConnected = ref(false);
 const unsplashConnected = ref(false);
 const pexelsConnected = ref(false);
 
-// Topic-source store lookup by source key (artic/unsplash/pexels).
+// Topic-source store lookup by source key (unsplash/pexels).
 const topicStores: Record<string, any> = {
-  artic: articStore,
   unsplash: unsplashStore,
   pexels: pexelsStore,
 };
@@ -2291,8 +2232,7 @@ const synologySyncDirty = ref(false);
 const deviceImmichAlbumIds = ref<number[]>([]);
 // Per-device Synology album bindings (Part C)
 const deviceSynologyAlbumIds = ref<number[]>([]);
-// Per-device topic-source (artic/unsplash/pexels) album bindings.
-const deviceArticAlbumIds = ref<number[]>([]);
+// Per-device topic-source (unsplash/pexels) album bindings.
 const deviceUnsplashAlbumIds = ref<number[]>([]);
 const devicePexelsAlbumIds = ref<number[]>([]);
 const galleryStore = useGalleryStore();
@@ -2305,7 +2245,6 @@ const sourceHasGallery = computed(() =>
     'immich',
     'synology_photos',
     'google_photos',
-    'artic',
     'unsplash',
     'pexels',
   ].includes(sourceTab.value)
@@ -2320,7 +2259,6 @@ const sourceOptions = [
   { title: 'Immich', value: 'immich' },
   { title: 'Google Photos', value: 'google_photos' },
   { title: 'Synology Photos', value: 'synology_photos' },
-  { title: 'ARTIC (Art Institute of Chicago)', value: 'artic' },
   { title: 'Unsplash', value: 'unsplash' },
   { title: 'Pexels', value: 'pexels' },
   { title: 'URL Proxy', value: 'url_proxy' },
@@ -3027,7 +2965,6 @@ const editDevice = async (device: Device) => {
   showEditDeviceDialog.value = true;
   deviceImmichAlbumIds.value = [];
   deviceSynologyAlbumIds.value = [];
-  deviceArticAlbumIds.value = [];
   deviceUnsplashAlbumIds.value = [];
   devicePexelsAlbumIds.value = [];
   // Load device remote config
@@ -3055,8 +2992,7 @@ const editDevice = async (device: Device) => {
     }
   }
   // Load topic-source album options + this device's bindings (best-effort).
-  const topicBindingRefs: Record<string, typeof deviceArticAlbumIds> = {
-    artic: deviceArticAlbumIds,
+  const topicBindingRefs: Record<string, typeof deviceUnsplashAlbumIds> = {
     unsplash: deviceUnsplashAlbumIds,
     pexels: devicePexelsAlbumIds,
   };
@@ -3249,7 +3185,6 @@ const saveDevice = async () => {
 
       // Persist per-device topic-source album bindings (best-effort).
       const topicBindings: Record<string, number[]> = {
-        artic: deviceArticAlbumIds.value,
         unsplash: deviceUnsplashAlbumIds.value,
         pexels: devicePexelsAlbumIds.value,
       };
@@ -3321,6 +3256,8 @@ const SOURCE_TABS = [
   'immich',
   'synology_photos',
   'google_photos',
+  'unsplash',
+  'pexels',
   'url',
   'ai_generation',
 ];
@@ -3370,11 +3307,9 @@ const form = reactive({
   telegram_target_device_id: [] as number[],
   openai_api_key: '',
   google_api_key: '',
-  // Topic sources (ARTIC needs no key).
+  // Topic sources.
   unsplash_api_key: '',
   pexels_api_key: '',
-  artic_auto_sync_enabled: false,
-  artic_auto_sync_interval_minutes: 60,
   unsplash_auto_sync_enabled: false,
   unsplash_auto_sync_interval_minutes: 60,
   pexels_auto_sync_enabled: false,
@@ -3406,7 +3341,6 @@ const topicAlbumOptions = (store: any) =>
   (store.syncedAlbums || [])
     .filter((a: any) => a.sync_enabled)
     .map((a: any) => ({ id: a.id, name: a.name }));
-const deviceArticAlbumOptions = computed(() => topicAlbumOptions(articStore));
 const deviceUnsplashAlbumOptions = computed(() =>
   topicAlbumOptions(unsplashStore)
 );
@@ -3629,10 +3563,6 @@ onMounted(async () => {
     google_api_key: store.settings.google_api_key || '',
     unsplash_api_key: store.settings.unsplash_api_key || '',
     pexels_api_key: store.settings.pexels_api_key || '',
-    artic_auto_sync_enabled: store.settings.artic_auto_sync_enabled === 'true',
-    artic_auto_sync_interval_minutes: parseInt(
-      store.settings.artic_auto_sync_interval || '60'
-    ),
     unsplash_auto_sync_enabled:
       store.settings.unsplash_auto_sync_enabled === 'true',
     unsplash_auto_sync_interval_minutes: parseInt(
@@ -3777,8 +3707,6 @@ const saveSettingsInternal = async () => {
     google_api_key: form.google_api_key,
     unsplash_api_key: form.unsplash_api_key,
     pexels_api_key: form.pexels_api_key,
-    artic_auto_sync_enabled: String(form.artic_auto_sync_enabled),
-    artic_auto_sync_interval: String(form.artic_auto_sync_interval_minutes),
     unsplash_auto_sync_enabled: String(form.unsplash_auto_sync_enabled),
     unsplash_auto_sync_interval: String(
       form.unsplash_auto_sync_interval_minutes
@@ -4146,7 +4074,7 @@ const syncImmich = async () => {
 
 const clearImmich = () => deleteAllPhotosForSource('immich');
 
-// --- Topic sources (ARTIC / Unsplash / Pexels) ---
+// --- Topic sources (Unsplash / Pexels) ---
 // Replace the synced topic set, then offer to sync (topics have no photos
 // until imported).
 const saveTopics = async (source: string, topics: string[]) => {

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from '../api';
 
-// Shared Pinia store factory for "search-topic" image sources (ARTIC, Unsplash,
+// Shared Pinia store factory for "search-topic" image sources (Unsplash,
 // Pexels). Each user-entered topic becomes a synced album (external_id = the
 // topic text) — structurally identical to Immich/Synology synced albums, so the
 // generic /albums?source= + AlbumPicker machinery applies unchanged.
@@ -87,6 +87,5 @@ export const createSourceStore = (source: string) =>
     },
   });
 
-export const useArticStore = createSourceStore('artic');
 export const useUnsplashStore = createSourceStore('unsplash');
 export const usePexelsStore = createSourceStore('pexels');

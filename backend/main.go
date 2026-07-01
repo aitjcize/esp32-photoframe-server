@@ -168,8 +168,6 @@ func main() {
 	immichService := service.NewImmichService(database, settingsService)
 	immichService.StartAutoSync()
 	// Initialize search-topic sources (each user topic becomes a synced album).
-	articService := service.NewArticService(database, settingsService)
-	articService.StartAutoSync()
 	unsplashService := service.NewUnsplashService(database, settingsService)
 	unsplashService.StartAutoSync()
 	pexelsService := service.NewPexelsService(database, settingsService)
@@ -188,7 +186,6 @@ func main() {
 	sourceRegistry.Register(service.NewImmichSource(database, immichService))
 	sourceRegistry.Register(service.NewGooglePhotosSource(database, dataDir))
 	sourceRegistry.Register(service.NewSynologyPhotosSource(database, synologyService))
-	sourceRegistry.Register(service.NewTopicSourcePlugin(database, model.SourceArtic))
 	sourceRegistry.Register(service.NewTopicSourcePlugin(database, model.SourceUnsplash))
 	sourceRegistry.Register(service.NewTopicSourcePlugin(database, model.SourcePexels))
 	sourceRegistry.Register(service.NewURLProxySource(database))
@@ -240,8 +237,6 @@ func main() {
 	// across sources.
 	synologySync := handler.NewPhotoSyncHandler(synologyService)
 	immichSync := handler.NewPhotoSyncHandler(immichService)
-	articSync := handler.NewPhotoSyncHandler(articService)
-	articTopics := handler.NewTopicSourceHandler(articService)
 	unsplashSync := handler.NewPhotoSyncHandler(unsplashService)
 	unsplashTopics := handler.NewTopicSourceHandler(unsplashService)
 	pexelsSync := handler.NewPhotoSyncHandler(pexelsService)
@@ -378,14 +373,8 @@ func main() {
 	protectedApi.POST("/immich/sync-albums", imh.SetSyncAlbums)
 	protectedApi.GET("/immich/count", immichSync.Count)
 
-	// Search-topic sources (ARTIC / Unsplash / Pexels). Topics are listed via
+	// Search-topic sources (Unsplash / Pexels). Topics are listed via
 	// the generic GET /albums?source=<src>; sync/count/clear reuse PhotoSyncHandler.
-	protectedApi.POST("/artic/sync", articSync.Sync)
-	protectedApi.GET("/artic/sync-status", articSync.SyncStatus)
-	protectedApi.POST("/artic/clear", articSync.Clear)
-	protectedApi.GET("/artic/count", articSync.Count)
-	protectedApi.POST("/artic/sync-topics", articTopics.SetSyncTopics)
-	protectedApi.POST("/artic/test", articTopics.TestConnection)
 	protectedApi.POST("/unsplash/sync", unsplashSync.Sync)
 	protectedApi.GET("/unsplash/sync-status", unsplashSync.SyncStatus)
 	protectedApi.POST("/unsplash/clear", unsplashSync.Clear)

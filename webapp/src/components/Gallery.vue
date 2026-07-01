@@ -294,10 +294,6 @@
             Open the <b>Immich</b> tab under Data Sources below and click
             <b>Sync Now</b> to import photos.
           </span>
-          <span v-else-if="galleryStore.source === 'artic'">
-            Open the <b>ARTIC</b> tab under Data Sources below, add some topics
-            and click <b>Sync Now</b> to import artworks.
-          </span>
           <span v-else-if="galleryStore.source === 'unsplash'">
             Open the <b>Unsplash</b> tab under Data Sources below, add some
             topics and click <b>Sync Now</b> to import photos.
@@ -389,7 +385,7 @@ const galleryStore = useGalleryStore();
 const albumChips = ref<any[]>([]);
 
 // Topic-based sources whose synced topics behave exactly like albums.
-const TOPIC_SOURCES = ['artic', 'unsplash', 'pexels'];
+const TOPIC_SOURCES = ['unsplash', 'pexels'];
 
 const showAlbumChips = computed(
   () =>
