@@ -41,7 +41,7 @@ func NewImmichService(db *gorm.DB, settings *SettingsService) *ImmichService {
 		},
 		IsConfigured: svc.isAutoSyncConfigured,
 		GetConfig:    svc.getAutoSyncConfig,
-		RunSync:      svc.clearAndResyncInternal,
+		RunSync:      svc.resyncInternal,
 	})
 	return svc
 }
@@ -368,9 +368,11 @@ func (s *ImmichService) ClearPhotos() error {
 	return clearSourcePhotos(s.db, model.SourceImmich)
 }
 
-// ClearAndResync deletes all Immich photos and re-imports from the configured album
+// ClearAndResync runs an incremental resync from the configured albums. Despite
+// the name (kept for the PhotoSyncBackend interface), it does NOT clear first —
+// see resyncInternal.
 func (s *ImmichService) ClearAndResync() error {
-	// Run the clear+resync in the background so the manual Sync request returns
+	// Run the resync in the background so the manual Sync request returns
 	// promptly; the client polls sync-status to show progress.
 	s.autoSync.SyncNowAsync()
 	return nil
@@ -381,10 +383,13 @@ func (s *ImmichService) IsSyncing() bool {
 	return s.autoSync.IsRunning()
 }
 
-func (s *ImmichService) clearAndResyncInternal() error {
-	if err := s.ClearPhotos(); err != nil {
-		return err
-	}
+// resyncInternal runs an incremental sync (upsert + prune) via ImportPhotos. It
+// deliberately does NOT clear first: the auto-sync scheduler fires this on every
+// startup (lastSuccessAt is in-memory and resets to zero), and a blanket delete
+// before a re-import that then fails would leave the gallery empty. Removed
+// assets are pruned by the shared album-sync engine; the explicit Clear button
+// (ClearPhotos) remains the only destructive path.
+func (s *ImmichService) resyncInternal() error {
 	return s.ImportPhotos()
 }
 

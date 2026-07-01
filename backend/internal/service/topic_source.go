@@ -66,7 +66,7 @@ func newTopicSource(db *gorm.DB, settings *SettingsService, source, apiKeyName s
 		},
 		IsConfigured: t.isAutoSyncConfigured,
 		GetConfig:    t.getAutoSyncConfig,
-		RunSync:      t.clearAndResyncInternal,
+		RunSync:      t.resyncInternal,
 	})
 	return t
 }
@@ -189,7 +189,9 @@ func (t *topicSource) ClearPhotos() error {
 	return clearSourcePhotos(t.db, t.source)
 }
 
-// ClearAndResync clears then re-imports in the background, returning promptly.
+// ClearAndResync runs an incremental resync in the background, returning
+// promptly. Despite the name (kept for the PhotoSyncBackend interface), it does
+// NOT clear first — see resyncInternal.
 func (t *topicSource) ClearAndResync() error {
 	t.autoSync.SyncNowAsync()
 	return nil
@@ -202,7 +204,13 @@ func (t *topicSource) IsSyncing() bool {
 	return t.syncing || t.autoSync.IsRunning()
 }
 
-func (t *topicSource) clearAndResyncInternal() error {
+// resyncInternal runs an incremental sync: it upserts current results and lets
+// the shared album-sync engine prune assets that disappeared upstream. It does
+// NOT clear first — a blanket delete before a re-import that can fail (Unsplash
+// rate limits, transient network, a key not yet available at startup) would
+// wipe the gallery and leave it empty. This is the auto-sync/manual-sync path;
+// the explicit Clear button (ClearPhotos) is the only destructive one.
+func (t *topicSource) resyncInternal() error {
 	t.mu.Lock()
 	t.syncing = true
 	t.mu.Unlock()
@@ -212,9 +220,6 @@ func (t *topicSource) clearAndResyncInternal() error {
 		t.mu.Unlock()
 	}()
 
-	if err := t.ClearPhotos(); err != nil {
-		return err
-	}
 	return t.ImportPhotos()
 }
 
