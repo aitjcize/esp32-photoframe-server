@@ -69,10 +69,7 @@
       </v-col>
     </v-row>
 
-    <div class="d-flex flex-wrap ga-2 mt-4">
-      <v-btn color="primary" :loading="store.loading" @click="onSave"
-        >Save Topics</v-btn
-      >
+    <div class="d-flex flex-wrap align-center ga-2 mt-4">
       <v-btn
         color="primary"
         variant="tonal"
@@ -81,6 +78,8 @@
         >Sync Now</v-btn
       >
       <v-btn color="warning" @click="emit('clear')">Clear All Photos</v-btn>
+      <v-spacer />
+      <slot name="actions" />
     </div>
   </div>
 </template>
@@ -140,15 +139,11 @@ const addTopic = () => {
     topics.value.push(t);
   }
   newTopic.value = '';
+  emit('save', [...topics.value]);
 };
 
 const removeTopic = (t: string) => {
   topics.value = topics.value.filter((x) => x !== t);
-};
-
-const onSave = () => {
-  // Fold a partially-typed topic in so it isn't silently lost.
-  addTopic();
   emit('save', [...topics.value]);
 };
 </script>

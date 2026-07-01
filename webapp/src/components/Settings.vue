@@ -643,16 +643,16 @@
                   @save="(topics) => saveTopics('unsplash', topics)"
                   @sync="syncTopicSource('unsplash')"
                   @clear="clearTopicSource('unsplash')"
-                ></TopicManager>
-
-                <div class="d-flex flex-wrap ga-2 mt-4">
-                  <v-btn
-                    color="error"
-                    variant="text"
-                    @click="disconnectUnsplash"
-                    >Disconnect</v-btn
-                  >
-                </div>
+                >
+                  <template #actions>
+                    <v-btn
+                      color="error"
+                      variant="text"
+                      @click="disconnectUnsplash"
+                      >Disconnect</v-btn
+                    >
+                  </template>
+                </TopicManager>
               </div>
 
               <div v-else>
@@ -720,13 +720,16 @@
                   @save="(topics) => saveTopics('pexels', topics)"
                   @sync="syncTopicSource('pexels')"
                   @clear="clearTopicSource('pexels')"
-                ></TopicManager>
-
-                <div class="d-flex flex-wrap ga-2 mt-4">
-                  <v-btn color="error" variant="text" @click="disconnectPexels"
-                    >Disconnect</v-btn
-                  >
-                </div>
+                >
+                  <template #actions>
+                    <v-btn
+                      color="error"
+                      variant="text"
+                      @click="disconnectPexels"
+                      >Disconnect</v-btn
+                    >
+                  </template>
+                </TopicManager>
               </div>
 
               <div v-else>
@@ -2227,6 +2230,12 @@ let immichSyncSaveTimer: number | null = null;
 let synologySyncSaveTimer: number | null = null;
 const immichSyncDirty = ref(false);
 const synologySyncDirty = ref(false);
+// Topic sources (Unsplash/Pexels): topics auto-save on add/remove but do not
+// import until the user syncs or is prompted on leaving the source.
+const topicSyncDirty = reactive<Record<string, boolean>>({
+  unsplash: false,
+  pexels: false,
+});
 
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
@@ -3431,14 +3440,29 @@ const maybePromptSync = async (source: 'immich' | 'synology_photos') => {
   if (source === 'immich') await syncImmich();
   else await syncSynology();
 };
+// When the user leaves a topic source (Unsplash/Pexels) after changing topics,
+// offer to sync now to import photos for them.
+const maybePromptTopicSync = async (source: string) => {
+  if (!topicSyncDirty[source]) return;
+  topicSyncDirty[source] = false; // ask once
+  const ok = await confirmDialog.value.open(
+    'You changed topics. Sync now to import photos for them?'
+  );
+  if (!ok) return;
+  await syncTopicSource(source);
+};
 watch(sourceTab, (_newVal, oldVal) => {
   if (oldVal === 'immich') maybePromptSync('immich');
   if (oldVal === 'synology_photos') maybePromptSync('synology_photos');
+  if (oldVal === 'unsplash' || oldVal === 'pexels')
+    maybePromptTopicSync(oldVal);
 });
 watch(activeMainTab, (_newVal, oldVal) => {
   if (oldVal === 'datasources') {
     maybePromptSync('immich');
     maybePromptSync('synology_photos');
+    maybePromptTopicSync('unsplash');
+    maybePromptTopicSync('pexels');
   }
 });
 
@@ -4079,16 +4103,9 @@ const clearImmich = () => deleteAllPhotosForSource('immich');
 // until imported).
 const saveTopics = async (source: string, topics: string[]) => {
   const st = topicStores[source];
-  await saveSettingsInternal();
   try {
     await st.setSyncTopics(topics);
-    showMessage('Topics saved.');
-    if (topics.length) {
-      const ok = await confirmDialog.value.open(
-        'Topics saved. Sync now to import photos for the new topics?'
-      );
-      if (ok) await syncTopicSource(source);
-    }
+    topicSyncDirty[source] = true;
   } catch (e: any) {
     showMessage(
       'Failed to save topics: ' + (e.response?.data?.error || e.message),
@@ -4099,6 +4116,7 @@ const saveTopics = async (source: string, topics: string[]) => {
 
 const syncTopicSource = async (source: string) => {
   const st = topicStores[source];
+  topicSyncDirty[source] = false;
   await saveSettingsInternal();
   try {
     await st.sync();
