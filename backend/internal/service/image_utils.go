@@ -13,14 +13,19 @@ func isRotatedOrientation(orientation string) bool {
 	return strings.Contains(orientation, "90") || strings.Contains(orientation, "270")
 }
 
-// determineOrientation returns "portrait" or "landscape" based on image dimensions
-// and optional EXIF orientation. If exifOrientation indicates a 90°/270° rotation,
-// width and height are swapped before comparison.
+// determineOrientation returns "portrait", "landscape", or "auto" based on image
+// dimensions and optional EXIF orientation. If exifOrientation indicates a
+// 90°/270° rotation, width and height are swapped before comparison. When the
+// dimensions are unknown (either is <= 0) it returns "auto" rather than guessing
+// -- a source that omits resolution must not be silently labeled landscape.
 func determineOrientation(width, height int, exifOrientation string) string {
+	if width <= 0 || height <= 0 {
+		return "auto"
+	}
 	if isRotatedOrientation(exifOrientation) {
 		width, height = height, width
 	}
-	if height > width && width > 0 {
+	if height > width {
 		return "portrait"
 	}
 	return "landscape"

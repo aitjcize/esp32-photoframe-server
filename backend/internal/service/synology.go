@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"image"
 	"log"
 	"net/http"
 	"net/url"
@@ -314,6 +316,12 @@ func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (new
 		offset += limit
 	}
 
+	// Phase 1.5: Synology omits resolution for some items (reported as 0x0), which
+	// determineOrientation would misclassify as landscape. Recover the real
+	// orientation by decoding a thumbnail -- done outside the write transaction so
+	// we never hold the SQLite lock across network I/O.
+	s.backfillMissingResolutions(photos, albumID)
+
 	// Phase 2: all DB writes for the album in one transaction.
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		// Batch-load existing rows by synology_photo_id (one query).
@@ -344,6 +352,20 @@ func (s *SynologyService) importAlbumAssets(album model.Album, albumID int) (new
 				if existImg.ThumbnailKey == "" && p.Additional.Thumbnail.M != "" {
 					if e := tx.Model(&model.Image{}).Where("id = ?", existImg.ID).
 						Update("thumbnail_key", p.Additional.Thumbnail.M).Error; e != nil {
+						return e
+					}
+				}
+				// Backfill dimensions/orientation on rows that lacked them (Synology
+				// reported 0x0; the pre-pass decoded the real size), so previously
+				// mislabeled photos self-correct on the next sync.
+				pw, ph := p.Additional.Resolution.Width, p.Additional.Resolution.Height
+				if (existImg.Width <= 0 || existImg.Height <= 0) && pw > 0 && ph > 0 {
+					if e := tx.Model(&model.Image{}).Where("id = ?", existImg.ID).
+						Updates(map[string]interface{}{
+							"width":       pw,
+							"height":      ph,
+							"orientation": determineOrientation(pw, ph, ""),
+						}).Error; e != nil {
 						return e
 					}
 				}
@@ -448,6 +470,78 @@ func (s *SynologyService) ensureGlobalAlbumSeed() {
 	}
 	if err := s.db.Create(&album).Error; err != nil {
 		log.Printf("Synology: failed to seed global album row: %v", err)
+	}
+}
+
+// resolvePhotoDimensions decodes a thumbnail to recover an image's dimensions
+// when Synology's list response omits the resolution. A thumbnail preserves the
+// aspect ratio, so this yields the correct orientation (the returned size is the
+// thumbnail's, which is all determineOrientation needs). DecodeConfig reads only
+// the header, so it stays cheap.
+func (s *SynologyService) resolvePhotoDimensions(id int, thumbKey string, albumID int) (int, int, error) {
+	if thumbKey == "" {
+		return 0, 0, errors.New("no thumbnail key")
+	}
+	data, err := s.client.GetPhoto(id, thumbKey, "large", albumID, s.client.SynoToken)
+	if s.isAuthExpired(err) {
+		if reErr := s.relogin(); reErr != nil {
+			return 0, 0, reErr
+		}
+		data, err = s.client.GetPhoto(id, thumbKey, "large", albumID, s.client.SynoToken)
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return 0, 0, err
+	}
+	return cfg.Width, cfg.Height, nil
+}
+
+// backfillMissingResolutions fills width/height for photos Synology returned
+// without a resolution (0x0) by decoding a thumbnail, mutating photos in place.
+// Runs outside any DB transaction (network I/O). Photos a previous sync already
+// resolved are skipped, so it's a one-time cost per photo.
+func (s *SynologyService) backfillMissingResolutions(photos []synology.Item, albumID int) {
+	var needIDs []int
+	for _, p := range photos {
+		if p.Additional.Resolution.Width <= 0 || p.Additional.Resolution.Height <= 0 {
+			needIDs = append(needIDs, p.ID)
+		}
+	}
+	if len(needIDs) == 0 {
+		return
+	}
+	// Skip ones a previous sync already resolved (real dims stored).
+	var resolvedIDs []int
+	s.db.Model(&model.Image{}).
+		Where("source = ? AND synology_photo_id IN ? AND width > 0 AND height > 0",
+			model.SourceSynologyPhotos, needIDs).
+		Pluck("synology_photo_id", &resolvedIDs)
+	resolved := make(map[int]bool, len(resolvedIDs))
+	for _, id := range resolvedIDs {
+		resolved[id] = true
+	}
+	for i := range photos {
+		p := &photos[i]
+		if p.Additional.Resolution.Width > 0 && p.Additional.Resolution.Height > 0 {
+			continue
+		}
+		if resolved[p.ID] {
+			continue
+		}
+		thumbKey := p.Additional.Thumbnail.M
+		if thumbKey == "" {
+			thumbKey = p.Additional.Thumbnail.XL
+		}
+		w, h, err := s.resolvePhotoDimensions(p.ID, thumbKey, albumID)
+		if err != nil || w <= 0 || h <= 0 {
+			log.Printf("synology: could not decode dimensions for photo %d: %v", p.ID, err)
+			continue
+		}
+		p.Additional.Resolution.Width = w
+		p.Additional.Resolution.Height = h
 	}
 }
 
