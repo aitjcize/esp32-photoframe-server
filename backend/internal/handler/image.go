@@ -91,23 +91,21 @@ func (h *ImageHandler) identifyDevice(c echo.Context) (model.Device, bool) {
 }
 
 func (h *ImageHandler) ServeImage(c echo.Context) error {
-	// Get source from route parameter
-	source := c.Param("source")
-
 	// 1. Identify the device from its token (the single source of truth).
 	device, deviceFound := h.identifyDevice(c)
 
-	// Resolve the image source. An identified device with a configured source
-	// ALWAYS gets that source — the URL path param cannot override it — so a
-	// stale or wrong firmware URL can never cause the wrong source/album to be
-	// served. The path param is honored only for unconfigured (legacy / not
-	// yet migrated) or unidentified requests. Bare /image with neither is 400.
-	if deviceFound && device.Source != "" {
+	// The image source is ALWAYS the device's server-side assignment. The
+	// /image/<source> path param is deliberately IGNORED so a device can never
+	// be served a source that isn't assigned to it. (Legacy /image/<source>
+	// URLs still route here for older firmware — the param is simply ignored.)
+	// A device with no source set gets a 400 until it's configured server-side.
+	source := ""
+	if deviceFound {
 		source = device.Source
-	} else if source == "" {
+	}
+	if source == "" {
 		return respondError(c, http.StatusBadRequest,
-			"no image source for this device — set the device's Image Source in the server, or request /image/<source>")
-
+			"no image source configured for this device — set the device's Image Source in the server")
 	}
 
 	// Native resolution of the device panel
