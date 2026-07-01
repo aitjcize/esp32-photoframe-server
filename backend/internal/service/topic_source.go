@@ -9,8 +9,10 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -266,13 +268,38 @@ func (p *topicSourcePlugin) Fetch(req *imagesource.Request) (*imagesource.Respon
 		return PickRandomDBPhotoForAlbums(p.db, p.source, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
-		resp, err := http.Get(item.FilePath)
+		resp, err := FetchSourceImage(item.FilePath)
 		if err != nil {
 			return nil, err
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("fetch %s: status %d", item.FilePath, resp.StatusCode)
+		}
 		img, _, err := image.Decode(resp.Body)
 		return img, err
 	}
 	return RunDBPhotoFlow(req, p.db, pick, load)
+}
+
+// topicHTTPClient fetches remote source images with a timeout so a slow host
+// can't wedge a serve.
+var topicHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// FetchSourceImage GETs a topic-source image URL with browser-like headers. Some
+// image hosts (notably ARTIC's IIIF, behind Cloudflare) return 403 to plain
+// programmatic requests; a browser User-Agent + Accept + a same-origin Referer
+// gets through. The caller must close the response body.
+func FetchSourceImage(rawURL string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "+
+		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+	if u, e := url.Parse(rawURL); e == nil && u.Host != "" {
+		req.Header.Set("Referer", u.Scheme+"://"+u.Host+"/")
+	}
+	return topicHTTPClient.Do(req)
 }

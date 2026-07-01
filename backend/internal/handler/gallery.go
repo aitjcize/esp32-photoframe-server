@@ -301,7 +301,8 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 // downloadToTemp fetches url into a temp file and returns its path; the caller
 // is responsible for removing it.
 func (h *GalleryHandler) downloadToTemp(url string) (string, error) {
-	resp, err := http.Get(url)
+	// Browser-like headers so hosts behind Cloudflare (e.g. ARTIC) don't 403.
+	resp, err := service.FetchSourceImage(url)
 	if err != nil {
 		return "", err
 	}
