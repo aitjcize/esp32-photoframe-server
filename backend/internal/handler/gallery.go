@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
@@ -221,9 +222,11 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		// Synology thumbnail is fetched via service
 		// We request 'small' (typically ~256px) or 'medium'
 		// Synology sizes: small, medium, large, original
-		thumbBytes, err := h.synology.GetPhoto(item.SynologyPhotoID, item.ThumbnailKey, "small")
+		// New rows carry the synology id in ExternalID (SynologyPhotoID=0).
+		synoID, _ := strconv.Atoi(item.ExternalID)
+		thumbBytes, err := h.synology.GetPhoto(synoID, item.ThumbnailKey, "small")
 		if err != nil {
-			fmt.Printf("Failed to fetch synology thumbnail (ID=%d): %v\n", item.SynologyPhotoID, err)
+			fmt.Printf("Failed to fetch synology thumbnail (ID=%s): %v\n", item.ExternalID, err)
 			return respondError(c, http.StatusInternalServerError, "failed to fetch synology thumbnail")
 		}
 		c.Response().Header().Set("Content-Type", "image/jpeg")
@@ -234,15 +237,38 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 
 	// Case 1b: Immich (Proxy)
 	if item.Source == model.SourceImmich {
-		thumbBytes, err := h.immich.GetPhoto(item.ImmichAssetID, "thumbnail")
+		thumbBytes, err := h.immich.GetPhoto(item.ExternalID, "thumbnail")
 		if err != nil {
-			fmt.Printf("Failed to fetch immich thumbnail (asset=%s): %v\n", item.ImmichAssetID, err)
+			fmt.Printf("Failed to fetch immich thumbnail (asset=%s): %v\n", item.ExternalID, err)
 			return respondError(c, http.StatusInternalServerError, "failed to fetch immich thumbnail")
 		}
 		c.Response().Header().Set("Content-Type", "image/jpeg")
 		c.Response().Header().Set("Cache-Control", "public, max-age=86400")
 		_, err = c.Response().Write(thumbBytes)
 		return err
+	}
+
+	// Case 1c: Search-topic sources (artic/unsplash/pexels) store a remote image
+	// URL in FilePath. Cache a generated thumbnail so the gallery doesn't refetch
+	// the full image on every load.
+	if strings.HasPrefix(item.FilePath, "http://") || strings.HasPrefix(item.FilePath, "https://") {
+		thumbPath := filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID))
+		if _, err := os.Stat(thumbPath); err == nil {
+			c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+			return c.File(thumbPath)
+		}
+		tmpPath, err := h.downloadToTemp(item.FilePath)
+		if err != nil {
+			fmt.Printf("Failed to fetch remote image for thumbnail (ID=%d): %v\n", item.ID, err)
+			return respondError(c, http.StatusBadGateway, "failed to fetch source image")
+		}
+		defer os.Remove(tmpPath)
+		if err := h.generateThumbnail(tmpPath, thumbPath); err != nil {
+			fmt.Printf("Thumbnail generation failed for %d: %v\n", item.ID, err)
+			return respondError(c, http.StatusInternalServerError, "failed to generate thumbnail")
+		}
+		c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+		return c.File(thumbPath)
 	}
 
 	// Case 2: Local File (Google/Local)
@@ -270,6 +296,29 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 
 	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
 	return c.File(thumbPath)
+}
+
+// downloadToTemp fetches url into a temp file and returns its path; the caller
+// is responsible for removing it.
+func (h *GalleryHandler) downloadToTemp(url string) (string, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status %d", resp.StatusCode)
+	}
+	f, err := os.CreateTemp("", "topicthumb-*.img")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 func (h *GalleryHandler) generateThumbnail(srcPath, destPath string) error {
