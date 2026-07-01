@@ -21,6 +21,10 @@ const (
 	SourceImmich         = "immich"
 	SourceFractal        = "fractal"
 	SourceDLA            = "dla"
+	// Search-topic sources: each user topic becomes a synced album.
+	SourceUnsplash = "unsplash"
+	SourcePexels   = "pexels"
+	SourceArtic    = "artic" // Art Institute of Chicago (public domain)
 )
 
 type Image struct {
