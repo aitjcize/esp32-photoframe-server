@@ -15,6 +15,9 @@ export const useGalleryStore = defineStore('gallery', {
       | 'google_photos'
       | 'synology_photos'
       | 'immich'
+      | 'artic'
+      | 'unsplash'
+      | 'pexels'
       | 'gallery'
       | 'url_proxy',
     album: null as number | null,
@@ -31,6 +34,9 @@ export const useGalleryStore = defineStore('gallery', {
         | 'google_photos'
         | 'synology_photos'
         | 'immich'
+        | 'artic'
+        | 'unsplash'
+        | 'pexels'
         | 'gallery'
         | 'url_proxy'
     ) {

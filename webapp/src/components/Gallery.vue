@@ -294,6 +294,18 @@
             Open the <b>Immich</b> tab under Data Sources below and click
             <b>Sync Now</b> to import photos.
           </span>
+          <span v-else-if="galleryStore.source === 'artic'">
+            Open the <b>ARTIC</b> tab under Data Sources below, add some topics
+            and click <b>Sync Now</b> to import artworks.
+          </span>
+          <span v-else-if="galleryStore.source === 'unsplash'">
+            Open the <b>Unsplash</b> tab under Data Sources below, add some
+            topics and click <b>Sync Now</b> to import photos.
+          </span>
+          <span v-else-if="galleryStore.source === 'pexels'">
+            Open the <b>Pexels</b> tab under Data Sources below, add some topics
+            and click <b>Sync Now</b> to import photos.
+          </span>
         </p>
         <v-btn
           v-if="galleryStore.source === 'google_photos'"
@@ -376,10 +388,14 @@ const galleryStore = useGalleryStore();
 // Album chips (only shown for Immich / Synology sources).
 const albumChips = ref<any[]>([]);
 
+// Topic-based sources whose synced topics behave exactly like albums.
+const TOPIC_SOURCES = ['artic', 'unsplash', 'pexels'];
+
 const showAlbumChips = computed(
   () =>
     galleryStore.source === 'immich' ||
-    galleryStore.source === 'synology_photos'
+    galleryStore.source === 'synology_photos' ||
+    TOPIC_SOURCES.includes(galleryStore.source)
 );
 
 const fetchAlbumChips = async () => {
@@ -423,6 +439,9 @@ let prevSyncing = false;
 const syncStatusEndpoint = (): string | null => {
   if (galleryStore.source === 'immich') return '/immich/sync-status';
   if (galleryStore.source === 'synology_photos') return '/synology/sync-status';
+  if (TOPIC_SOURCES.includes(galleryStore.source)) {
+    return `/${galleryStore.source}/sync-status`;
+  }
   return null;
 };
 
