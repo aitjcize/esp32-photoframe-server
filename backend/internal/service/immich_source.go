@@ -33,7 +33,7 @@ func (s *immichSource) Fetch(req *imagesource.Request) (*imagesource.Response, e
 		return PickRandomDBPhotoForAlbums(s.db, model.SourceImmich, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
-		data, err := s.immich.DownloadPhoto(item.ImmichAssetID)
+		data, err := s.immich.DownloadPhoto(item.ExternalID)
 		if err != nil {
 			return nil, err
 		}

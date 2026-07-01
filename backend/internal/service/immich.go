@@ -217,9 +217,68 @@ func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories
 	return nil
 }
 
-// ImportPhotos syncs every sync-enabled Immich album into the local DB:
-// upserting one images row per asset (deduped by immich_asset_id) plus an
-// image_album_memberships row per (asset, album). Stale memberships and
+// Source implements AlbumSource: the model.Source* constant this owns.
+func (s *ImmichService) Source() string { return model.SourceImmich }
+
+// ListRemoteAlbums implements AlbumSource: the current real albums, used for a
+// best-effort name refresh during sync.
+func (s *ImmichService) ListRemoteAlbums() ([]RemoteAlbum, error) {
+	client, err := s.getClient()
+	if err != nil {
+		return nil, err
+	}
+	list, err := client.ListAlbums()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RemoteAlbum, 0, len(list))
+	for _, a := range list {
+		out = append(out, RemoteAlbum{ExternalID: a.ID, Name: a.AlbumName})
+	}
+	return out, nil
+}
+
+// FetchAlbumAssets implements AlbumSource: the servable IMAGE assets for one
+// album (real or virtual), mapped to source-agnostic RemoteAssets. RAW assets
+// are skipped (no preview/thumbnail API).
+func (s *ImmichService) FetchAlbumAssets(album model.Album) ([]RemoteAsset, error) {
+	client, err := s.getClient()
+	if err != nil {
+		return nil, err
+	}
+	assets, err := s.fetchAssetsForAlbum(client, album)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RemoteAsset, 0, len(assets))
+	for _, a := range assets {
+		if a.Type != "IMAGE" {
+			continue
+		}
+		switch strings.ToLower(filepath.Ext(a.OriginalFileName)) {
+		case ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2":
+			continue
+		}
+		w, h := a.ExifInfo.ExifImageWidth, a.ExifInfo.ExifImageHeight
+		photoDate := parseImmichDate(a.ExifInfo.DateTimeOriginal)
+		if photoDate == nil {
+			photoDate = parseImmichDate(a.LocalDateTime)
+		}
+		out = append(out, RemoteAsset{
+			ExternalID:   a.ID,
+			FilePath:     a.OriginalFileName,
+			Width:        w,
+			Height:       h,
+			Orientation:  determineOrientation(w, h, a.ExifInfo.Orientation),
+			PhotoTakenAt: photoDate,
+		})
+	}
+	return out, nil
+}
+
+// ImportPhotos syncs every sync-enabled Immich album into the local DB via the
+// shared album-sync engine: one images row per asset (deduped by external_id)
+// plus an image_album_memberships row per (asset, album). Stale memberships and
 // orphaned image rows are pruned so the local pool tracks Immich.
 func (s *ImmichService) ImportPhotos() error {
 	client, err := s.getClient()
@@ -231,165 +290,8 @@ func (s *ImmichService) ImportPhotos() error {
 	// existing setups keep syncing after the multi-album migration.
 	s.ensureGlobalAlbumSeed(client)
 
-	var albums []model.Album
-	if err := s.db.Where("source = ? AND sync_enabled = ?", model.SourceImmich, true).
-		Find(&albums).Error; err != nil {
-		return err
-	}
-	if len(albums) == 0 {
-		log.Println("Immich ImportPhotos: no albums enabled for sync")
-		return nil
-	}
-
-	// Best-effort name refresh for real albums.
-	nameByExternalID := map[string]string{}
-	if list, e := client.ListAlbums(); e == nil {
-		for _, a := range list {
-			nameByExternalID[a.ID] = a.AlbumName
-		}
-	}
-
-	totalNew := 0
-	for _, album := range albums {
-		assets, err := s.fetchAssetsForAlbum(client, album)
-		if err != nil {
-			log.Printf("Immich: failed to fetch assets for album %q (%s): %v",
-				album.Name, album.ExternalID, err)
-			continue
-		}
-		newCount, _, err := s.importAlbumAssets(album, assets)
-		if err != nil {
-			log.Printf("Immich: import album %q (%s) failed: %v", album.Name, album.ExternalID, err)
-			continue // leave the album's prior state + count untouched
-		}
-		totalNew += newCount
-
-		updates := map[string]interface{}{"updated_at": time.Now()}
-		if album.Kind == model.AlbumKindReal {
-			if n := nameByExternalID[album.ExternalID]; n != "" {
-				updates["name"] = n
-			}
-		}
-		if err := s.db.Model(&model.Album{}).Where("id = ?", album.ID).Updates(updates).Error; err != nil {
-			log.Printf("[immich] update album %d (%q) name/updated_at: %v", album.ID, album.Name, err)
-		}
-	}
-
-	s.gcOrphanImages()
-	log.Printf("Immich ImportPhotos complete: %d new photos across %d album(s)", totalNew, len(albums))
-	return nil
-}
-
-// importAlbumAssets upserts image rows and (asset, album) membership rows for
-// one album, then prunes memberships for assets no longer in the album.
-// Returns the count of newly-created image rows and the album's member count.
-func (s *ImmichService) importAlbumAssets(album model.Album, assets []immich.Asset) (newCount, memberCount int, err error) {
-	// Keep only servable IMAGE assets (skip RAW — no preview/thumbnail API).
-	valid := make([]immich.Asset, 0, len(assets))
-	for _, a := range assets {
-		if a.Type != "IMAGE" {
-			continue
-		}
-		switch strings.ToLower(filepath.Ext(a.OriginalFileName)) {
-		case ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2":
-			continue
-		}
-		valid = append(valid, a)
-	}
-
-	// Whole album import is one transaction: a mid-import failure rolls back so
-	// the album's pool/memberships aren't left half-updated.
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		// Batch-load existing image ids by asset id (one query, not per-asset).
-		idByAsset := make(map[string]uint, len(valid))
-		if len(valid) > 0 {
-			assetIDs := make([]string, len(valid))
-			for i, a := range valid {
-				assetIDs[i] = a.ID
-			}
-			var existing []model.Image
-			if e := tx.Where("source = ? AND immich_asset_id IN ?", model.SourceImmich, assetIDs).
-				Find(&existing).Error; e != nil {
-				return e
-			}
-			for _, im := range existing {
-				idByAsset[im.ImmichAssetID] = im.ID
-			}
-		}
-
-		// Insert assets we don't have yet.
-		for _, a := range valid {
-			if _, ok := idByAsset[a.ID]; ok {
-				continue
-			}
-			w, h := a.ExifInfo.ExifImageWidth, a.ExifInfo.ExifImageHeight
-			img := model.Image{
-				ImmichAssetID: a.ID,
-				Source:        model.SourceImmich,
-				FilePath:      a.OriginalFileName,
-				Width:         w,
-				Height:        h,
-				Orientation:   determineOrientation(w, h, a.ExifInfo.Orientation),
-				CreatedAt:     time.Now(),
-				Status:        "pending",
-			}
-			photoDate := parseImmichDate(a.ExifInfo.DateTimeOriginal)
-			if photoDate == nil {
-				photoDate = parseImmichDate(a.LocalDateTime)
-			}
-			img.PhotoTakenAt = photoDate
-			if e := tx.Create(&img).Error; e != nil {
-				return e
-			}
-			idByAsset[a.ID] = img.ID
-			newCount++
-		}
-
-		// Existing memberships for this album (one query) → only create missing.
-		var memIDs []uint
-		tx.Model(&model.ImageAlbumMembership{}).Where("album_id = ?", album.ID).Pluck("image_id", &memIDs)
-		hasMem := make(map[uint]bool, len(memIDs))
-		for _, id := range memIDs {
-			hasMem[id] = true
-		}
-
-		seen := make([]uint, 0, len(valid))
-		var newMems []model.ImageAlbumMembership
-		for _, a := range valid {
-			imgID := idByAsset[a.ID]
-			if imgID == 0 {
-				continue
-			}
-			seen = append(seen, imgID)
-			memberCount++
-			if !hasMem[imgID] {
-				hasMem[imgID] = true
-				newMems = append(newMems, model.ImageAlbumMembership{ImageID: imgID, AlbumID: album.ID})
-			}
-		}
-		if len(newMems) > 0 {
-			if e := tx.CreateInBatches(&newMems, 200).Error; e != nil {
-				return e
-			}
-		}
-
-		// Prune memberships for assets no longer in the album.
-		prune := tx.Where("album_id = ?", album.ID)
-		if len(seen) > 0 {
-			prune = prune.Where("image_id NOT IN ?", seen)
-		}
-		return prune.Delete(&model.ImageAlbumMembership{}).Error
-	})
-	if err != nil {
-		return 0, 0, err
-	}
-	return newCount, memberCount, nil
-}
-
-// gcOrphanImages removes Immich image rows no longer a member of any album
-// (their album was disabled, or they were removed upstream).
-func (s *ImmichService) gcOrphanImages() {
-	gcOrphanImagesForSource(s.db, model.SourceImmich)
+	_, err = SyncAlbumSource(s.db, s)
+	return err
 }
 
 // fetchAssetsForAlbum returns the assets for one album — a real Immich album
