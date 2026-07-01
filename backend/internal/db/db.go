@@ -26,6 +26,20 @@ func Init(dbPath string) (*gorm.DB, error) {
 		return nil, err
 	}
 
+	// Serialize all access through a single connection. SQLite allows only one
+	// writer, and with an unbounded pool the concurrent startup syncs (all four
+	// sources import at once) open multiple connections whose write transactions
+	// collide. That collision is the WAL writer-upgrade case, which returns
+	// SQLITE_BUSY ("database is locked") immediately WITHOUT honoring
+	// busy_timeout — so the DSN pragma alone doesn't prevent it. One connection
+	// turns writer/writer contention into in-process queueing; reads here are
+	// sub-millisecond so serializing them is cheap.
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(1)
+
 	log.Println("Database connection established")
 
 	return db, nil
