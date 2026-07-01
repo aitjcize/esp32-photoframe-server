@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.9.0
+
+### Added
+- **GC16 grayscale panel support.** Full processing + Floyd-Steinberg dithering pipeline for 16-level grayscale e-paper (IT8951 / reTerminal E1003), with per-device black/white-luminance and gamma calibration.
+- **Unsplash & Pexels sources.** Turn any topic (e.g. `black and white`, `landscape`) into a synced album of free stock photography — ideal for a themed or grayscale art frame. Add your free API key, add topics, and each topic becomes an album you can assign to a frame.
+
+### Changed
+- **Devices only ever serve their assigned source.** A device is served solely the source configured for it on the server; the `/image/<source>` path can no longer point a device at a source it isn't assigned to (a device with no source set returns an error until it's configured under Settings → Devices).
+
+### Fixed
+- **Synology orientation.** Photos Synology returns without dimensions are no longer mislabeled as landscape — the server decodes a thumbnail to recover the true orientation, so portrait photos stop landing in landscape collage slots.
+- Gallery thumbnails for Immich/Synology and the new URL-based sources.
+
 ## v1.8.2
 
 ### Changed
