@@ -1,19 +1,29 @@
 # ESP32 PhotoFrame Server
 
-A image server for the [ESP32 PhotoFrame](https://github.com/aitjcize/esp32-photoframe) project. This server acts as a bridge between the E-paper display and various photo sources (Google Photos, Synology Photos, Telegram), handling image processing, resizing, dithering, and overlay generation.
+A image server for the [ESP32 PhotoFrame](https://github.com/aitjcize/esp32-photoframe) project. This server acts as a bridge between the E-paper display and various photo sources (Google Photos, Immich, Synology Photos, Unsplash, Pexels, and more), handling image processing, resizing, dithering, and overlay generation.
 
 ## Features
 
-- **Multiple Data Sources**:
-    - **Google Photos**: Uses the Picker API to securely select albums and photos.
-    - **Synology Photos**: Connect directly to your Synology NAS (supports DSM 7 Personal and Shared spaces).
-    - **Telegram Bot**: Send photos directly to your frame via a Telegram bot.
-    - **URL Proxy**: Display images from any URL.
-    - **AI Generation**: Generate unique images using OpenAI (GPT Image, DALL-E) or Google Gemini.
+### Supported Sources
+
+Mix and match photo sources per device:
+
+| Source | Description |
+| --- | --- |
+| Gallery | Photos you upload from the dashboard, or send in via a [Telegram bot](https://core.telegram.org/bots). |
+| [Google Photos](https://photos.google.com/) | Pick albums & photos securely via the Picker API. |
+| [Immich](https://immich.app/) | Self-hosted photo server — sync selected albums or the All / Favorites / Memories views. |
+| [Synology Photos](https://www.synology.com/en-us/dsm/feature/photos) | Your Synology NAS (DSM 7 Personal & Shared spaces). |
+| [Unsplash](https://unsplash.com/) · [Pexels](https://www.pexels.com/) | Free stock-photo search — add topics (e.g. `black and white`, `landscape`) and each becomes a synced album. |
+| URL Proxy | Display images from any image URL. |
+| AI Generation | Generate images with [OpenAI](https://platform.openai.com/) (GPT Image, DALL·E) or [Google Gemini](https://ai.google.dev/). |
+
+### Other Features
+
 - **Smart Image Processing**:
-    - Automatic cropping to device aspect ratio (800x480 or 480x800).
+    - Automatic cropping to each device's aspect ratio and resolution.
     - **Smart Collage**: Automatically combines two landscape photos in portrait mode (or vice versa) to maximize screen usage.
-    - **Dithering**: Applies Floyd-Steinberg dithering optimized for Spectra 6 color e-paper.
+    - **Dithering**: Floyd-Steinberg dithering for both Spectra 6 color and GC16 grayscale e-paper panels, with per-device palette/gamma calibration.
 - **Overlays**:
     - Customizable Date/Time display.
     - Real-time Weather status (Temperature + Condition) based on location.
@@ -79,11 +89,10 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
    - On first launch, you'll be prompted to create an admin account
    - Enter a username and password
 
-2. **Generate Device Token**:
-   - Go to **Settings** → **Account**
-   - Click **Generate New Token**
-   - Give it a name (e.g., "Living Room Frame")
-   - Copy the token - you'll need this for your ESP32 device
+2. **Configure a Source & Frame**:
+   - Set up a photo source under **Settings** → **Data Sources** (see [Supported Sources](#supported-sources) below).
+   - Configure your frame under **Settings** → **Devices**.
+   - Device access tokens are issued and managed automatically — you no longer generate or copy them by hand.
 
 ### Google Photos Setup
 
@@ -137,14 +146,20 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
 5. Select the **Photo Space** (Personal or Shared) and optionally a specific **Album**.
 6. Click **Sync Now** to import metadata.
 
-### Telegram Setup
+### Immich Setup
 
-1. Create a new bot via [@BotFather](https://t.me/botfather) on Telegram.
-2. Get the **Bot Token**.
-3. Go to **Settings** → **Data Sources** in the dashboard.
-4. Select **Source: Telegram Bot**.
-5. Enter your Bot Token and save.
-6. Send a photo to your bot on Telegram. The frame will update to show this photo immediately.
+1. Go to **Settings** → **Data Sources** and open the **Immich** tab.
+2. Enter your **Server URL** (e.g., `https://immich.example.com`) and an **API Key** (in Immich: **Account Settings** → **API Keys**).
+3. Click **Connect** to validate, then choose the albums to sync — or the **All Photos**, **Favorites**, or **Memories** views.
+4. Click **Sync Now** to import.
+
+### Telegram Bot (Gallery)
+
+A Telegram bot is an optional way to add photos to the **Gallery** source — send a photo to the bot and it's uploaded to your gallery.
+
+1. Create a new bot via [@BotFather](https://t.me/botfather) and copy its **Bot Token**.
+2. Go to **Settings** → **Data Sources** → **Gallery** and enter the **Telegram Bot Token**, then save.
+3. Send a photo to your bot. It's added to the Gallery, and frames using the Gallery source will show it.
 
 ### URL Proxy Setup
 
@@ -176,29 +191,31 @@ Generate unique AI artwork for your photo frame using OpenAI or Google Gemini.
    - **OpenAI**: GPT Image 1, DALL-E 3, DALL-E 2
    - **Google Gemini**: Gemini 2.5 Flash Image, Gemini 3 Pro Image
 
+### Stock Photo Search (Unsplash & Pexels)
+
+Turn any topic into a rotating album of free stock photography — great for a themed or black-and-white art frame.
+
+1. **Get a free API key**:
+   - **Unsplash**: create an app at [unsplash.com/developers](https://unsplash.com/developers) and copy the **Access Key** (the Secret Key is not needed).
+   - **Pexels**: request a key at [pexels.com/api](https://www.pexels.com/api/).
+2. Go to **Settings** → **Data Sources**, open the **Unsplash** or **Pexels** tab, paste the key, and click **Connect**.
+3. Add one or more **topics** (e.g., `black and white`, `mountains`, `minimalist`). Each topic becomes a synced album and saves automatically.
+4. Click **Sync Now** to import, then assign the source (and specific topics) to a device under **Settings** → **Devices**.
+
 ## Photo Frame Configuration
 
-Once you've configured a photo source, the correct URL will be displayed in the settings:
+Frames are configured from the dashboard — the server issues the access token and pushes settings to the device automatically:
 
-```
-http(s)://<hostname/IP address>:9607/image/<source>
-```
-
-1. Copy the URL from the settings page.
-2. Copy your device token from **Settings** → **Account**.
-3. Log into the photo frame web app.
-4. Go to the Auto-Rotate tab and paste the URL and Token in the appropriate boxes.
-5. Click the 'Save Settings' button.
+1. Open **Settings** → **Devices** and select your frame.
+2. In the **Auto Rotate** tab, enable **"Use this server"** and pick a **Source** (and, for album/topic sources, which albums or topics to rotate through).
+3. Save. The server generates the device's token and pushes the image URL and settings to the frame — no manual token or URL copying required.
 
 ## API Endpoints (For ESP32)
 
 ### Image Endpoints
 
-- **`GET /image/google_photos`**: Returns a random image from **Google Photos**.
-- **`GET /image/synology_photos`**: Returns a random image from **Synology Photos**.
-- **`GET /image/telegram`**: Returns the last photo sent via **Telegram Bot**.
-- **`GET /image/url_proxy`**: Returns a random image from configured URLs.
-- **`GET /image/ai_generation`**: Returns a newly generated AI image based on device prompt.
+- **`GET /image`**: The endpoint frames use. The device is identified by its bearer token and served its **server-assigned source** (cropped and dithered for its panel). Configure the source under **Settings → Devices**; a device with no source assigned gets an error.
+- **`GET /image/<source>`**: A legacy URL form still routed for older firmware — the `<source>` is **ignored**. A device is only ever served the source assigned to it in the server, never one it isn't assigned.
 
 ### Authentication
 
