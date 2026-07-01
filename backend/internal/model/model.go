@@ -24,15 +24,19 @@ const (
 )
 
 type Image struct {
-	ID              uint           `gorm:"primaryKey" json:"id"`
-	FilePath        string         `json:"file_path"`
-	Caption         string         `json:"caption"`
-	Width           int            `json:"width"`
-	Height          int            `json:"height"`
-	Orientation     string         `json:"orientation"` // "landscape", "portrait"
-	UserID          int64          `json:"user_id"`
-	Status          string         `json:"status"`                                                                                                                      // pending, shown
-	Source          string         `gorm:"index:idx_images_source;index:idx_images_source_synology,priority:1;index:idx_images_source_immich,priority:1" json:"source"` // "local", "google_photos", "synology_photos"
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	FilePath    string `json:"file_path"`
+	Caption     string `json:"caption"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Orientation string `json:"orientation"` // "landscape", "portrait"
+	UserID      int64  `json:"user_id"`
+	Status      string `json:"status"`                                                                                                                                                                  // pending, shown
+	Source      string `gorm:"index:idx_images_source;index:idx_images_source_synology,priority:1;index:idx_images_source_immich,priority:1;index:idx_images_source_external,priority:1" json:"source"` // "local", "google_photos", "synology_photos"
+	// ExternalID is the source's stable id for this asset (immich UUID, synology
+	// photo id as text, unsplash/pexels/artic id). Indexed with Source for dedup;
+	// the generic replacement for the per-source id columns below.
+	ExternalID      string         `gorm:"index:idx_images_source_external,priority:2" json:"external_id"`
 	SynologyPhotoID int            `gorm:"index:idx_images_source_synology,priority:2" json:"synology_id"`
 	ThumbnailKey    string         `json:"thumbnail_key"`                                                    // Cache key for Synology
 	ImmichAssetID   string         `gorm:"index:idx_images_source_immich,priority:2" json:"immich_asset_id"` // UUID for Immich assets
