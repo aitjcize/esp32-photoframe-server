@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.9.1
+
+### Fixed
+- **Synced photos no longer vanish after a server restart.** On startup every source auto-synced at once, and their concurrent SQLite writes collided on the single-writer lock (`database is locked`). A source whose import lost that race imported nothing — and because sync cleared the gallery *before* re-importing, it was left empty. Most visible on Unsplash, whose single topic album meant one lost race wiped everything. Two fixes: database access is now serialized so the lock contention can't happen, and sync is non-destructive so a failed import can never wipe existing photos.
+- Image dedup for Immich/Synology/Unsplash/Pexels is now enforced by a unique `(source, external_id)` constraint, not just application logic.
+
 ## v1.9.0
 
 ### Added
