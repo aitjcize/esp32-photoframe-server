@@ -20,7 +20,11 @@ func Init(dbPath string) (*gorm.DB, error) {
 	// 30s is the conventional SQLite "be patient" budget — long enough to
 	// outlast a multi-thousand-photo Synology / Immich sync that's writing
 	// one row at a time, short enough that a real deadlock still surfaces.
-	dsn := dbPath + "?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL"
+	// _foreign_keys=on enforces the ON DELETE CASCADE / SET NULL constraints on
+	// the junction/child tables (see migration 000032). SQLite defaults this OFF
+	// per-connection; with SetMaxOpenConns(1) below it's set once on the single
+	// connection and every query inherits it.
+	dsn := dbPath + "?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_foreign_keys=on"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
