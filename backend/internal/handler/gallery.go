@@ -248,7 +248,7 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		return err
 	}
 
-	// Case 1c: Search-topic sources (artic/unsplash/pexels) store a remote image
+	// Case 1c: Search-topic sources (unsplash/pexels) store a remote image
 	// URL in FilePath. Cache a generated thumbnail so the gallery doesn't refetch
 	// the full image on every load.
 	if strings.HasPrefix(item.FilePath, "http://") || strings.HasPrefix(item.FilePath, "https://") {
@@ -301,8 +301,7 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 // downloadToTemp fetches url into a temp file and returns its path; the caller
 // is responsible for removing it.
 func (h *GalleryHandler) downloadToTemp(url string) (string, error) {
-	// Browser-like headers so hosts behind Cloudflare (e.g. ARTIC) don't 403.
-	resp, err := service.FetchSourceImage(url)
+	resp, err := http.Get(url)
 	if err != nil {
 		return "", err
 	}

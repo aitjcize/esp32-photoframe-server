@@ -1,7 +1,7 @@
 package service
 
-// topicSource is the shared base for "search-topic" image sources (ARTIC,
-// Unsplash, Pexels). Each user-entered topic is stored as a synced album
+// topicSource is the shared base for "search-topic" image sources (Unsplash
+// and Pexels). Each user-entered topic is stored as a synced album
 // (kind=real); a sync runs the source's search API for each topic and upserts
 // the results as images via the shared album-sync engine. The three sources
 // differ only in their search closure and whether they need an API key, so
@@ -9,10 +9,8 @@ package service
 
 import (
 	"errors"
-	"fmt"
 	"image"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +34,7 @@ type topicSource struct {
 	// results to source-agnostic RemoteAssets.
 	search func(query string, limit int) ([]RemoteAsset, error)
 	// apiKeyName is the settings key holding the source's API key. Empty when
-	// requiresKey is false (ARTIC needs no key).
+	// requiresKey is false.
 	apiKeyName  string
 	requiresKey bool
 
@@ -165,7 +163,7 @@ func (t *topicSource) SetSyncTopics(topics []string) error {
 }
 
 // TestConnection validates the source's API key by running a trivial search.
-// Key-less sources (ARTIC) are always considered connected.
+// Key-less sources are always considered connected.
 func (t *topicSource) TestConnection() error {
 	if !t.requiresKey {
 		return nil
@@ -228,7 +226,7 @@ func (t *topicSource) StartAutoSync() {
 }
 
 // isAutoSyncConfigured reports whether the source is ready to auto-sync: for
-// key-requiring sources the API key must be present (ARTIC is always ready).
+// key-requiring sources the API key must be present; key-less ones are ready.
 func (t *topicSource) isAutoSyncConfigured() bool {
 	if t.requiresKey {
 		key, _ := t.settings.Get(t.apiKeyName)
@@ -268,38 +266,13 @@ func (p *topicSourcePlugin) Fetch(req *imagesource.Request) (*imagesource.Respon
 		return PickRandomDBPhotoForAlbums(p.db, p.source, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
-		resp, err := FetchSourceImage(item.FilePath)
+		resp, err := http.Get(item.FilePath)
 		if err != nil {
 			return nil, err
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("fetch %s: status %d", item.FilePath, resp.StatusCode)
-		}
 		img, _, err := image.Decode(resp.Body)
 		return img, err
 	}
 	return RunDBPhotoFlow(req, p.db, pick, load)
-}
-
-// topicHTTPClient fetches remote source images with a timeout so a slow host
-// can't wedge a serve.
-var topicHTTPClient = &http.Client{Timeout: 30 * time.Second}
-
-// FetchSourceImage GETs a topic-source image URL with browser-like headers. Some
-// image hosts (notably ARTIC's IIIF, behind Cloudflare) return 403 to plain
-// programmatic requests; a browser User-Agent + Accept + a same-origin Referer
-// gets through. The caller must close the response body.
-func FetchSourceImage(rawURL string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "+
-		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-	if u, e := url.Parse(rawURL); e == nil && u.Host != "" {
-		req.Header.Set("Referer", u.Scheme+"://"+u.Host+"/")
-	}
-	return topicHTTPClient.Do(req)
 }
