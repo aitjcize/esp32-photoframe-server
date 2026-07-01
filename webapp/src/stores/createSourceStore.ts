@@ -31,7 +31,9 @@ export const createSourceStore = (source: string) =>
 
       async fetchSyncedAlbums() {
         try {
-          const res = await api.get(`/albums?source=${source}`);
+          // synced=true so a topic that was removed (and any legacy disabled
+          // album) never reappears in the topic list.
+          const res = await api.get(`/albums?source=${source}&synced=true`);
           this.syncedAlbums = res.data || [];
           return this.syncedAlbums;
         } catch (e) {

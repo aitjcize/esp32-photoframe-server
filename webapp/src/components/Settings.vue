@@ -652,35 +652,67 @@
                 becomes a synced album.
               </v-alert>
 
-              <v-text-field
-                v-model="form.unsplash_api_key"
-                label="Unsplash API Key"
-                type="password"
-                variant="outlined"
-                density="compact"
-                class="mb-4"
-                @update:model-value="saveSettingsInternal()"
-              ></v-text-field>
+              <div v-if="unsplashConnected">
+                <v-alert
+                  type="success"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                  icon="mdi-check-circle"
+                >
+                  Connected to Unsplash
+                </v-alert>
 
-              <TopicManager
-                title="Search topics"
-                :store="unsplashStore"
-                hint="Each topic becomes an album of matching photos."
-                :auto-sync-enabled="form.unsplash_auto_sync_enabled"
-                :auto-sync-interval="form.unsplash_auto_sync_interval_minutes"
-                :auto-sync-options="autoSyncIntervalOptions"
-                @update:auto-sync-enabled="
-                  form.unsplash_auto_sync_enabled = $event;
-                  saveSettingsInternal();
-                "
-                @update:auto-sync-interval="
-                  form.unsplash_auto_sync_interval_minutes = $event;
-                  saveSettingsInternal();
-                "
-                @save="(topics) => saveTopics('unsplash', topics)"
-                @sync="syncTopicSource('unsplash')"
-                @clear="clearTopicSource('unsplash')"
-              ></TopicManager>
+                <TopicManager
+                  title="Search topics"
+                  :store="unsplashStore"
+                  hint="Each topic becomes an album of matching photos."
+                  :auto-sync-enabled="form.unsplash_auto_sync_enabled"
+                  :auto-sync-interval="form.unsplash_auto_sync_interval_minutes"
+                  :auto-sync-options="autoSyncIntervalOptions"
+                  @update:auto-sync-enabled="
+                    form.unsplash_auto_sync_enabled = $event;
+                    saveSettingsInternal();
+                  "
+                  @update:auto-sync-interval="
+                    form.unsplash_auto_sync_interval_minutes = $event;
+                    saveSettingsInternal();
+                  "
+                  @save="(topics) => saveTopics('unsplash', topics)"
+                  @sync="syncTopicSource('unsplash')"
+                  @clear="clearTopicSource('unsplash')"
+                ></TopicManager>
+
+                <div class="d-flex flex-wrap ga-2 mt-4">
+                  <v-btn
+                    color="error"
+                    variant="text"
+                    @click="disconnectUnsplash"
+                    >Disconnect</v-btn
+                  >
+                </div>
+              </div>
+
+              <div v-else>
+                <v-text-field
+                  v-model="form.unsplash_api_key"
+                  label="Unsplash Access Key"
+                  hint="Your app's Access Key — the Secret Key is not needed"
+                  persistent-hint
+                  type="password"
+                  variant="outlined"
+                  density="compact"
+                  class="mb-4"
+                ></v-text-field>
+
+                <v-btn
+                  color="primary"
+                  :disabled="!form.unsplash_api_key"
+                  @click="connectUnsplash"
+                >
+                  Connect
+                </v-btn>
+              </div>
             </v-card-text>
           </v-window-item>
 
@@ -697,35 +729,62 @@
                 then add search topics — each topic becomes a synced album.
               </v-alert>
 
-              <v-text-field
-                v-model="form.pexels_api_key"
-                label="Pexels API Key"
-                type="password"
-                variant="outlined"
-                density="compact"
-                class="mb-4"
-                @update:model-value="saveSettingsInternal()"
-              ></v-text-field>
+              <div v-if="pexelsConnected">
+                <v-alert
+                  type="success"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                  icon="mdi-check-circle"
+                >
+                  Connected to Pexels
+                </v-alert>
 
-              <TopicManager
-                title="Search topics"
-                :store="pexelsStore"
-                hint="Each topic becomes an album of matching photos."
-                :auto-sync-enabled="form.pexels_auto_sync_enabled"
-                :auto-sync-interval="form.pexels_auto_sync_interval_minutes"
-                :auto-sync-options="autoSyncIntervalOptions"
-                @update:auto-sync-enabled="
-                  form.pexels_auto_sync_enabled = $event;
-                  saveSettingsInternal();
-                "
-                @update:auto-sync-interval="
-                  form.pexels_auto_sync_interval_minutes = $event;
-                  saveSettingsInternal();
-                "
-                @save="(topics) => saveTopics('pexels', topics)"
-                @sync="syncTopicSource('pexels')"
-                @clear="clearTopicSource('pexels')"
-              ></TopicManager>
+                <TopicManager
+                  title="Search topics"
+                  :store="pexelsStore"
+                  hint="Each topic becomes an album of matching photos."
+                  :auto-sync-enabled="form.pexels_auto_sync_enabled"
+                  :auto-sync-interval="form.pexels_auto_sync_interval_minutes"
+                  :auto-sync-options="autoSyncIntervalOptions"
+                  @update:auto-sync-enabled="
+                    form.pexels_auto_sync_enabled = $event;
+                    saveSettingsInternal();
+                  "
+                  @update:auto-sync-interval="
+                    form.pexels_auto_sync_interval_minutes = $event;
+                    saveSettingsInternal();
+                  "
+                  @save="(topics) => saveTopics('pexels', topics)"
+                  @sync="syncTopicSource('pexels')"
+                  @clear="clearTopicSource('pexels')"
+                ></TopicManager>
+
+                <div class="d-flex flex-wrap ga-2 mt-4">
+                  <v-btn color="error" variant="text" @click="disconnectPexels"
+                    >Disconnect</v-btn
+                  >
+                </div>
+              </div>
+
+              <div v-else>
+                <v-text-field
+                  v-model="form.pexels_api_key"
+                  label="Pexels API Key"
+                  type="password"
+                  variant="outlined"
+                  density="compact"
+                  class="mb-4"
+                ></v-text-field>
+
+                <v-btn
+                  color="primary"
+                  :disabled="!form.pexels_api_key"
+                  @click="connectPexels"
+                >
+                  Connect
+                </v-btn>
+              </div>
             </v-card-text>
           </v-window-item>
 
@@ -2197,6 +2256,8 @@ const articStore = useArticStore();
 const unsplashStore = useUnsplashStore();
 const pexelsStore = usePexelsStore();
 const immichConnected = ref(false);
+const unsplashConnected = ref(false);
+const pexelsConnected = ref(false);
 
 // Topic-source store lookup by source key (artic/unsplash/pexels).
 const topicStores: Record<string, any> = {
@@ -3639,6 +3700,10 @@ onMounted(async () => {
     );
   }
 
+  // Topic-source connection state (key present => connected).
+  unsplashConnected.value = !!store.settings.unsplash_api_key;
+  pexelsConnected.value = !!store.settings.pexels_api_key;
+
   // Topic sources: load counts + synced topics (best-effort, non-blocking).
   for (const source of Object.keys(topicStores)) {
     parallelFetches.push(
@@ -3954,6 +4019,62 @@ const disconnectImmich = async () => {
   immichStore.count = 0;
   immichStore.albums = [];
   showMessage('Disconnected from Immich.');
+};
+
+const connectUnsplash = async () => {
+  // The test endpoint validates the currently-saved key, so persist first.
+  await saveSettingsInternal();
+  try {
+    await api.post('/unsplash/test');
+    unsplashConnected.value = true;
+    showMessage('Connection Successful!');
+  } catch (e: any) {
+    showMessage(
+      'Connection Failed: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+
+const disconnectUnsplash = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Are you sure you want to disconnect Unsplash?'
+    ))
+  )
+    return;
+  form.unsplash_api_key = '';
+  await saveSettingsInternal();
+  unsplashConnected.value = false;
+  showMessage('Disconnected from Unsplash.');
+};
+
+const connectPexels = async () => {
+  // The test endpoint validates the currently-saved key, so persist first.
+  await saveSettingsInternal();
+  try {
+    await api.post('/pexels/test');
+    pexelsConnected.value = true;
+    showMessage('Connection Successful!');
+  } catch (e: any) {
+    showMessage(
+      'Connection Failed: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+
+const disconnectPexels = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Are you sure you want to disconnect Pexels?'
+    ))
+  )
+    return;
+  form.pexels_api_key = '';
+  await saveSettingsInternal();
+  pexelsConnected.value = false;
+  showMessage('Disconnected from Pexels.');
 };
 
 const loadImmichAlbums = async () => {

@@ -8,6 +8,7 @@ package service
 // almost everything lives here.
 
 import (
+	"errors"
 	"image"
 	"net/http"
 	"strings"
@@ -94,18 +95,86 @@ func (t *topicSource) ImportPhotos() error {
 	return err
 }
 
-// SetSyncTopics defines the set of topics to sync. Each non-empty (trimmed)
-// topic becomes a sync-enabled album; all other topic albums are disabled.
+// SetSyncTopics makes the synced topic set EXACTLY the given topics: it creates
+// new topic albums, keeps existing ones enabled, and DELETES removed ones (with
+// their memberships), then GCs any now-orphaned images. Unlike remote-album
+// sources (Immich/Synology), a removed topic is gone for good rather than merely
+// disabled -- there is nothing remote to re-enable, and a disabled row would
+// otherwise reappear in the topic list.
 func (t *topicSource) SetSyncTopics(topics []string) error {
-	albums := make([]RemoteAlbum, 0, len(topics))
+	seen := map[string]bool{}
+	want := make([]string, 0, len(topics))
 	for _, topic := range topics {
 		trimmed := strings.TrimSpace(topic)
-		if trimmed == "" {
+		if trimmed == "" || seen[trimmed] {
 			continue
 		}
-		albums = append(albums, RemoteAlbum{ExternalID: trimmed, Name: trimmed})
+		seen[trimmed] = true
+		want = append(want, trimmed)
 	}
-	return SetSyncAlbums(t.db, t.source, albums)
+
+	err := t.db.Transaction(func(tx *gorm.DB) error {
+		// Delete topic albums no longer wanted, plus their memberships.
+		q := tx.Where("source = ?", t.source)
+		if len(want) > 0 {
+			q = q.Where("external_id NOT IN ?", want)
+		}
+		var stale []model.Album
+		if e := q.Find(&stale).Error; e != nil {
+			return e
+		}
+		for _, a := range stale {
+			if e := tx.Where("album_id = ?", a.ID).Delete(&model.ImageAlbumMembership{}).Error; e != nil {
+				return e
+			}
+			if e := tx.Delete(&model.Album{}, a.ID).Error; e != nil {
+				return e
+			}
+		}
+		// Upsert wanted topics as sync-enabled real albums.
+		for _, topic := range want {
+			var existing model.Album
+			e := tx.Where("source = ? AND external_id = ?", t.source, topic).First(&existing).Error
+			switch {
+			case e == gorm.ErrRecordNotFound:
+				if ce := tx.Create(&model.Album{
+					Source: t.source, ExternalID: topic, Name: topic,
+					Kind: model.AlbumKindReal, SyncEnabled: true,
+				}).Error; ce != nil {
+					return ce
+				}
+			case e == nil:
+				if ue := tx.Model(&model.Album{}).Where("id = ?", existing.ID).
+					Update("sync_enabled", true).Error; ue != nil {
+					return ue
+				}
+			default:
+				return e
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// Drop images orphaned by the deleted topic albums.
+	gcOrphanImagesForSource(t.db, t.source)
+	return nil
+}
+
+// TestConnection validates the source's API key by running a trivial search.
+// Key-less sources (ARTIC) are always considered connected.
+func (t *topicSource) TestConnection() error {
+	if !t.requiresKey {
+		return nil
+	}
+	if key, _ := t.settings.Get(t.apiKeyName); strings.TrimSpace(key) == "" {
+		return errors.New("api key not configured")
+	}
+	if _, err := t.search("landscape", 1); err != nil {
+		return err
+	}
+	return nil
 }
 
 // --- PhotoSyncBackend surface (mirrors ImmichService) ---
