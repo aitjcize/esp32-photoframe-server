@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.9.2
+
+### Fixed
+- **Referential integrity is now enforced by the database.** The junction/child tables (album memberships, device↔album/URL mappings, generative state, device history) had no foreign keys, so deleting a photo, album, device, or URL source relied on hand-written cleanup in every code path — and a missed path left orphaned rows behind (a real one was found in production). These now carry `ON DELETE CASCADE` (and `SET NULL` for device-history image references, so the served-history log survives a photo deletion), and the migration purges any pre-existing orphans.
+- Startup now runs `VACUUM` once after a migration that rebuilds tables, reclaiming freed space.
+
 ## v1.9.1
 
 ### Fixed
