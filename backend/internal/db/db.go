@@ -67,11 +67,27 @@ func Migrate(db *gorm.DB, dbPath string) error {
 		return err
 	}
 
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return err
+	upErr := m.Up()
+	if upErr != nil && upErr != migrate.ErrNoChange {
+		return upErr
 	}
 
 	log.Println("Database migrations applied successfully")
+
+	// If a migration actually ran, VACUUM to reclaim pages freed by table
+	// rebuilds and orphan purges (e.g. 000032 rebuilds five tables and deletes
+	// dangling rows). VACUUM can't run inside a transaction, so it can't live in
+	// a migration file (golang-migrate wraps each one in a tx); running it here,
+	// after Up() commits, keeps it out of any transaction. Gated on ErrNoChange
+	// so it's a one-time cost per upgrade rather than on every boot. Non-fatal:
+	// a failed VACUUM shouldn't stop the server from starting.
+	if upErr != migrate.ErrNoChange {
+		if err := db.Exec("VACUUM").Error; err != nil {
+			log.Printf("VACUUM after migration failed (non-fatal): %v", err)
+		} else {
+			log.Println("VACUUM complete: reclaimed free pages")
+		}
+	}
 
 	return nil
 }
