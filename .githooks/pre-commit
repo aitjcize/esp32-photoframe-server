@@ -1,0 +1,13 @@
+#!/bin/sh
+# Pre-commit hook: run the same formatting check as `make format-check`
+# (gofmt + prettier) so violations are caught locally instead of in review.
+# Run `make format` to auto-fix, then re-stage and commit.
+#
+# Enable with: make install-hooks   (sets core.hooksPath to .githooks)
+
+if ! make format-check; then
+    echo
+    echo "✖ Formatting check failed. Run 'make format', re-stage, and commit again."
+    echo "  (To bypass for a single commit: git commit --no-verify)"
+    exit 1
+fi
