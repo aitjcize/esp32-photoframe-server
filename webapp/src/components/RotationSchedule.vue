@@ -251,7 +251,7 @@ function rawValid(card: ScheduleCard): boolean {
                 density="compact"
                 variant="outlined"
                 divided
-                class="mb-3 flex-wrap"
+                class="mb-3 me-4 flex-wrap"
                 @update:model-value="(v: string) => v && setDaysMode(card, v)"
               >
                 <v-btn
