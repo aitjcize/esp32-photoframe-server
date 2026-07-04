@@ -172,7 +172,9 @@ function hourRange(fromHour: number, toHour: number): string {
 }
 
 export function compileCard(card: ScheduleCard): string[] {
-  if (card.raw) return [card.raw.trim()];
+  // Advanced mode owns the card whenever raw is non-null — an emptied field
+  // must compile to an (invalid) empty rule, not the hidden builder state.
+  if (card.raw !== null) return [card.raw.trim()];
   const dow = daysToCron(card.days);
 
   if (card.mode === 'interval') {
@@ -180,19 +182,24 @@ export function compileCard(card: ScheduleCard): string[] {
       const min = card.every > 1 ? `*/${card.every}` : '*';
       return [`${min} ${hourRange(card.fromHour, card.toHour)} ${dow}`];
     }
+    // Always emit an explicit "a-b/n" range with a step: a bare "8/2" means
+    // "8 through 23 step 2" to cron, not the single hour 8.
     const hr =
       card.fromHour <= 0 && card.toHour >= 23
         ? card.every > 1
           ? `*/${card.every}`
           : '*'
-        : `${hourRange(card.fromHour, card.toHour)}/${card.every}`;
+        : `${card.fromHour}-${card.toHour}/${card.every}`;
     return [`0 ${hr} ${dow}`];
   }
 
   const byMinute = new Map<number, number[]>();
   for (const t of card.times) {
     const [h, m] = t.split(':').map(Number);
-    if (Number.isNaN(h) || Number.isNaN(m)) continue;
+    // Guard against cleared/half-typed time inputs ("" or "12" leave m
+    // undefined, and Number.isNaN(undefined) is false).
+    if (!Number.isInteger(h) || !Number.isInteger(m)) continue;
+    if (h < 0 || h > 23 || m < 0 || m > 59) continue;
     if (!byMinute.has(m)) byMinute.set(m, []);
     byMinute.get(m)!.push(h);
   }
