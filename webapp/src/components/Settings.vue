@@ -2180,7 +2180,7 @@ import AlbumPicker from './AlbumPicker.vue';
 import TopicManager from './TopicManager.vue';
 import SecurityTab from './SecurityTab.vue';
 import RotationSchedule from './RotationSchedule.vue';
-import { intervalToCron, cronToInterval } from '../utils/cron';
+import { intervalToCron, cronToInterval, isValidCron } from '../utils/cron';
 
 const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
@@ -3134,6 +3134,21 @@ const saveDevice = async () => {
       //   ignores rotate_cron. Send interval-only so we don't store a phantom
       //   cron the device isn't running; refuse a schedule that can't be
       //   reduced to an interval instead of losing the edit.
+      // The device rejects the whole config request on any invalid rule or a
+      // set over the 7-rule budget — refuse to save one it won't accept.
+      const cronRules: string[] = deviceConfig.rotate_cron || [];
+      if (
+        cronRules.length < 1 ||
+        cronRules.length > 7 ||
+        !cronRules.every((r: string) => isValidCron(r))
+      ) {
+        showMessage(
+          'The rotation schedule is invalid (a rule is malformed or there are ' +
+            'more than 7 rules). Fix it before saving.',
+          true
+        );
+        return;
+      }
       const legacyInterval = cronToInterval(deviceConfig.rotate_cron);
       if (!deviceSupportsCron.value && legacyInterval === null) {
         showMessage(
