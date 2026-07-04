@@ -1240,7 +1240,9 @@
                         <div class="ml-10">
                           <RotationSchedule
                             v-model="deviceConfig.rotate_cron"
-                            :sleep="sleepPreviewWindow"
+                            :sleep="
+                              deviceSupportsCron ? null : sleepPreviewWindow
+                            "
                             :disabled="!deviceConfig.auto_rotate"
                             :supports-cron="deviceSupportsCron"
                           />
@@ -1389,43 +1391,46 @@
                           </div>
                         </div>
 
-                        <v-divider class="my-3" />
-
-                        <!-- Sleep Schedule (device config) -->
-                        <v-switch
-                          v-model="deviceConfig.sleep_schedule_enabled"
-                          label="Enable Sleep Schedule"
-                          color="primary"
-                          hide-details
-                          class="mb-2"
-                        />
-                        <div
-                          v-if="deviceConfig.sleep_schedule_enabled"
-                          class="ml-10"
-                        >
-                          <v-row dense>
-                            <v-col cols="12" sm="6">
-                              <v-text-field
-                                v-model="deviceConfig.sleep_start_time"
-                                label="From"
-                                type="time"
-                                variant="outlined"
-                                density="compact"
-                                hide-details
-                              />
-                            </v-col>
-                            <v-col cols="12" sm="6">
-                              <v-text-field
-                                v-model="deviceConfig.sleep_end_time"
-                                label="To"
-                                type="time"
-                                variant="outlined"
-                                density="compact"
-                                hide-details
-                              />
-                            </v-col>
-                          </v-row>
-                        </div>
+                        <!-- Sleep Schedule: legacy quiet-hours, only for
+                             pre-cron firmware. Newer firmware expresses the
+                             active window in the cron rules instead. -->
+                        <template v-if="!deviceSupportsCron">
+                          <v-divider class="my-3" />
+                          <v-switch
+                            v-model="deviceConfig.sleep_schedule_enabled"
+                            label="Enable Sleep Schedule"
+                            color="primary"
+                            hide-details
+                            class="mb-2"
+                          />
+                          <div
+                            v-if="deviceConfig.sleep_schedule_enabled"
+                            class="ml-10"
+                          >
+                            <v-row dense>
+                              <v-col cols="12" sm="6">
+                                <v-text-field
+                                  v-model="deviceConfig.sleep_start_time"
+                                  label="From"
+                                  type="time"
+                                  variant="outlined"
+                                  density="compact"
+                                  hide-details
+                                />
+                              </v-col>
+                              <v-col cols="12" sm="6">
+                                <v-text-field
+                                  v-model="deviceConfig.sleep_end_time"
+                                  label="To"
+                                  type="time"
+                                  variant="outlined"
+                                  density="compact"
+                                  hide-details
+                                />
+                              </v-col>
+                            </v-row>
+                          </div>
+                        </template>
 
                         <v-divider class="my-4" />
 
@@ -3167,6 +3172,16 @@ const saveDevice = async () => {
           }
         : { rotate_interval: legacyInterval };
 
+      // Quiet hours only exist on pre-cron firmware; cron firmware bounds the
+      // active hours in the rules instead, so don't send these to it.
+      const sleepFields = deviceSupportsCron.value
+        ? {}
+        : {
+            sleep_schedule_enabled: deviceConfig.sleep_schedule_enabled,
+            sleep_schedule_start: startH * 60 + startM,
+            sleep_schedule_end: endH * 60 + endM,
+          };
+
       const result = await updateDeviceConfig(editingDevice.id, {
         config: {
           device_name: editingDevice.name,
@@ -3175,9 +3190,7 @@ const saveDevice = async () => {
           rotation_mode: deviceConfig.rotation_mode,
           image_url: imageUrl,
           save_downloaded_images: deviceConfig.save_downloaded_images,
-          sleep_schedule_enabled: deviceConfig.sleep_schedule_enabled,
-          sleep_schedule_start: startH * 60 + startM,
-          sleep_schedule_end: endH * 60 + endM,
+          ...sleepFields,
           display_orientation: deviceConfig.display_orientation,
           display_rotation_deg: deviceConfig.display_rotation_deg,
           timezone: timezone,
