@@ -214,7 +214,9 @@ export function intervalToCron(seconds: number): string {
     return `0 */${hours} *`;
   }
   if (seconds >= 60 && 3600 % seconds === 0) {
-    return `*/${seconds / 60} * *`;
+    // Integer division, mirroring the firmware's cron_from_legacy_interval:
+    // seconds/60 can be fractional (e.g. 90s -> 1.5), which is invalid cron.
+    return `*/${Math.floor(seconds / 60)} * *`;
   }
   return '0 * *';
 }
