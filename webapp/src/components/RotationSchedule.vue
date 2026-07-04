@@ -8,6 +8,7 @@ import {
   describeCard,
   nextRuns,
   isValidCron,
+  cronToInterval,
   DAY_LABELS,
   type ScheduleCard,
   type QuietHours,
@@ -18,12 +19,41 @@ const props = withDefaults(
     modelValue: string[];
     sleep?: QuietHours | null;
     disabled?: boolean;
+    // False for pre-cron firmware, which only understands a single every-day
+    // interval. Switches this editor to a simplified interval-only form.
+    supportsCron?: boolean;
   }>(),
-  { sleep: null, disabled: false }
+  { sleep: null, disabled: false, supportsCron: true }
 );
 const emit = defineEmits<{ 'update:modelValue': [string[]] }>();
 
-const cards = ref<ScheduleCard[]>(cardsFromCron(props.modelValue));
+// A single every-day interval card derived from a number of seconds.
+function intervalCard(seconds: number): ScheduleCard {
+  const c = newCard();
+  c.mode = 'interval';
+  c.days = 'everyday';
+  c.fromHour = 0;
+  c.toHour = 23;
+  if (seconds >= 3600 && seconds % 3600 === 0) {
+    c.unit = 'hours';
+    c.every = seconds / 3600;
+  } else {
+    c.unit = 'minutes';
+    c.every = seconds < 60 ? 1 : Math.floor(seconds / 60);
+  }
+  return c;
+}
+
+function buildCards(val: string[]): ScheduleCard[] {
+  // Pre-cron firmware: collapse to a single interval so the user can't build a
+  // schedule the device can't run.
+  if (!props.supportsCron) {
+    return [intervalCard(cronToInterval(val) ?? 3600)];
+  }
+  return cardsFromCron(val);
+}
+
+const cards = ref<ScheduleCard[]>(buildCards(props.modelValue));
 
 watch(
   cards,
@@ -38,7 +68,7 @@ watch(
     if (
       JSON.stringify(compileCards(cards.value)) !== JSON.stringify(val || [])
     ) {
-      cards.value = cardsFromCron(val || []);
+      cards.value = buildCards(val || []);
     }
   }
 );
@@ -76,13 +106,14 @@ const hourItems = Array.from({ length: 24 }, (_, h) => ({
   title: `${String(h).padStart(2, '0')}:00`,
 }));
 
-function everyItems(unit: string) {
-  return (unit === 'hours' ? [1, 2, 3, 4, 6, 8, 12] : [5, 10, 15, 20, 30]).map(
-    (v) => ({
-      value: v,
-      title: `${v}`,
-    })
-  );
+function everyItems(unit: string, current?: number) {
+  const base = unit === 'hours' ? [1, 2, 3, 4, 6, 8, 12] : [5, 10, 15, 20, 30];
+  // A device-derived interval may not be one of the presets; keep it selectable.
+  const vals =
+    current != null && !base.includes(current)
+      ? [...base, current].sort((a, b) => a - b)
+      : base;
+  return vals.map((v) => ({ value: v, title: `${v}` }));
 }
 
 function daysModel(card: ScheduleCard): string {
@@ -132,6 +163,17 @@ function rawValid(card: ScheduleCard): boolean {
 
 <template>
   <div>
+    <v-alert
+      v-if="!supportsCron"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="mb-4"
+    >
+      This device's firmware only supports a simple repeating interval. Update
+      the firmware for day-of-week and specific-time schedules.
+    </v-alert>
+
     <div v-for="(card, idx) in cards" :key="idx" class="mb-4">
       <v-card variant="tonal" :disabled="disabled">
         <v-card-text>
@@ -163,122 +205,153 @@ function rawValid(card: ScheduleCard): boolean {
           </template>
 
           <template v-else>
-            <v-btn-toggle
-              :model-value="daysModel(card)"
-              color="primary"
-              density="compact"
-              variant="outlined"
-              divided
-              class="mb-3 flex-wrap"
-              @update:model-value="(v: string) => v && setDaysMode(card, v)"
-            >
-              <v-btn
-                v-for="o in daysOptions"
-                :key="o.value"
-                :value="o.value"
-                size="small"
+            <template v-if="supportsCron">
+              <v-btn-toggle
+                :model-value="daysModel(card)"
+                color="primary"
+                density="compact"
+                variant="outlined"
+                divided
+                class="mb-3 flex-wrap"
+                @update:model-value="(v: string) => v && setDaysMode(card, v)"
               >
-                {{ o.title }}
-              </v-btn>
-            </v-btn-toggle>
-
-            <div v-if="Array.isArray(card.days)" class="mb-3">
-              <v-chip
-                v-for="d in dayChips"
-                :key="d.value"
-                :color="card.days.includes(d.value) ? 'primary' : undefined"
-                :variant="card.days.includes(d.value) ? 'flat' : 'outlined'"
-                size="small"
-                class="mr-1 mb-1"
-                @click="toggleDay(card, d.value)"
-              >
-                {{ d.label }}
-              </v-chip>
-            </div>
-
-            <v-btn-toggle
-              v-model="card.mode"
-              color="primary"
-              density="compact"
-              variant="outlined"
-              divided
-              mandatory
-              class="mb-3"
-            >
-              <v-btn value="interval" size="small">Throughout the day</v-btn>
-              <v-btn value="times" size="small">At specific times</v-btn>
-            </v-btn-toggle>
-
-            <v-row v-if="card.mode === 'interval'" dense align="center">
-              <v-col cols="6" sm="2">
-                <v-select
-                  v-model="card.every"
-                  :items="everyItems(card.unit)"
-                  label="Every"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-              <v-col cols="6" sm="3">
-                <v-select
-                  v-model="card.unit"
-                  :items="[
-                    { value: 'minutes', title: 'minutes' },
-                    { value: 'hours', title: 'hours' },
-                  ]"
-                  label="Unit"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-              <v-col cols="6" sm="3">
-                <v-select
-                  v-model="card.fromHour"
-                  :items="hourItems"
-                  label="From"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-              <v-col cols="6" sm="3">
-                <v-select
-                  v-model="card.toHour"
-                  :items="hourItems"
-                  label="To"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-            </v-row>
-
-            <div v-else>
-              <div class="d-flex flex-wrap align-center ga-2">
-                <v-text-field
-                  v-for="(_t, ti) in card.times"
-                  :key="ti"
-                  v-model="card.times[ti]"
-                  type="time"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                  style="max-width: 130px"
-                  append-inner-icon="mdi-close"
-                  @click:append-inner="removeTime(card, ti)"
-                />
                 <v-btn
-                  variant="text"
+                  v-for="o in daysOptions"
+                  :key="o.value"
+                  :value="o.value"
                   size="small"
-                  prepend-icon="mdi-plus"
-                  @click="addTime(card)"
                 >
-                  Add time
+                  {{ o.title }}
                 </v-btn>
+              </v-btn-toggle>
+
+              <div v-if="Array.isArray(card.days)" class="mb-3">
+                <v-chip
+                  v-for="d in dayChips"
+                  :key="d.value"
+                  :color="card.days.includes(d.value) ? 'primary' : undefined"
+                  :variant="card.days.includes(d.value) ? 'flat' : 'outlined'"
+                  size="small"
+                  class="mr-1 mb-1"
+                  @click="toggleDay(card, d.value)"
+                >
+                  {{ d.label }}
+                </v-chip>
               </div>
-            </div>
+
+              <v-btn-toggle
+                v-model="card.mode"
+                color="primary"
+                density="compact"
+                variant="outlined"
+                divided
+                mandatory
+                class="mb-3"
+              >
+                <v-btn value="interval" size="small">Throughout the day</v-btn>
+                <v-btn value="times" size="small">At specific times</v-btn>
+              </v-btn-toggle>
+
+              <v-row v-if="card.mode === 'interval'" dense align="center">
+                <v-col cols="6" sm="2">
+                  <v-select
+                    v-model="card.every"
+                    :items="everyItems(card.unit, card.every)"
+                    label="Every"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-select
+                    v-model="card.unit"
+                    :items="[
+                      { value: 'minutes', title: 'minutes' },
+                      { value: 'hours', title: 'hours' },
+                    ]"
+                    label="Unit"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-select
+                    v-model="card.fromHour"
+                    :items="hourItems"
+                    label="From"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-select
+                    v-model="card.toHour"
+                    :items="hourItems"
+                    label="To"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+              </v-row>
+
+              <div v-else>
+                <div class="d-flex flex-wrap align-center ga-2">
+                  <v-text-field
+                    v-for="(_t, ti) in card.times"
+                    :key="ti"
+                    v-model="card.times[ti]"
+                    type="time"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    style="max-width: 130px"
+                    append-inner-icon="mdi-close"
+                    @click:append-inner="removeTime(card, ti)"
+                  />
+                  <v-btn
+                    variant="text"
+                    size="small"
+                    prepend-icon="mdi-plus"
+                    @click="addTime(card)"
+                  >
+                    Add time
+                  </v-btn>
+                </div>
+              </div>
+            </template>
+
+            <!-- Pre-cron firmware: interval only, no window/days/times -->
+            <template v-else>
+              <v-row dense align="center">
+                <v-col cols="6" sm="3">
+                  <v-select
+                    v-model="card.every"
+                    :items="everyItems(card.unit, card.every)"
+                    label="Every"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-select
+                    v-model="card.unit"
+                    :items="[
+                      { value: 'minutes', title: 'minutes' },
+                      { value: 'hours', title: 'hours' },
+                    ]"
+                    label="Unit"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                  />
+                </v-col>
+              </v-row>
+            </template>
           </template>
 
           <div class="text-caption text-medium-emphasis mt-3">
@@ -286,6 +359,7 @@ function rawValid(card: ScheduleCard): boolean {
           </div>
 
           <v-btn
+            v-if="supportsCron"
             variant="text"
             size="x-small"
             class="mt-1 px-0"
@@ -298,6 +372,7 @@ function rawValid(card: ScheduleCard): boolean {
     </div>
 
     <v-btn
+      v-if="supportsCron"
       variant="outlined"
       size="small"
       prepend-icon="mdi-plus"
@@ -308,7 +383,7 @@ function rawValid(card: ScheduleCard): boolean {
     </v-btn>
 
     <v-alert
-      v-if="overBudget"
+      v-if="supportsCron && overBudget"
       type="warning"
       variant="tonal"
       density="compact"

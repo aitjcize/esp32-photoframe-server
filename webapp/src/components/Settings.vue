@@ -1242,6 +1242,7 @@
                             v-model="deviceConfig.rotate_cron"
                             :sleep="sleepPreviewWindow"
                             :disabled="!deviceConfig.auto_rotate"
+                            :supports-cron="deviceSupportsCron"
                           />
                           <v-select
                             v-model="deviceConfig.rotation_mode"
@@ -2152,10 +2153,7 @@ import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
 import { useSynologyStore } from '../stores/synology';
 import { useImmichStore } from '../stores/immich';
-import {
-  useUnsplashStore,
-  usePexelsStore,
-} from '../stores/createSourceStore';
+import { useUnsplashStore, usePexelsStore } from '../stores/createSourceStore';
 import { useGalleryStore } from '../stores/gallery';
 import { useSnackbar } from '../composables/useSnackbar';
 import {
@@ -2404,6 +2402,11 @@ const deviceConfig = reactive<Record<string, any>>({
   google_api_key: '',
 });
 
+// Whether the device firmware understands rotate_cron. Old firmware reports
+// only rotate_interval and silently ignores a cron schedule. Best-effort:
+// derived from the loaded config, which is the server's stored copy.
+const deviceSupportsCron = ref(true);
+
 // Device processing settings (synced remotely)
 const deviceProcessing = reactive({
   exposure: 1.0,
@@ -2625,6 +2628,8 @@ const loadDeviceConfig = async (deviceId: number) => {
       image_url: cfg.image_url ?? '',
       save_downloaded_images: cfg.save_downloaded_images ?? true,
     });
+    // Old firmware reports rotate_interval and no rotate_cron.
+    deviceSupportsCron.value = Array.isArray(cfg.rotate_cron);
 
     // Prefer the device's persisted `source` field. Fall back to parsing the
     // image_url for back-compat with devices configured before `source` existed.
@@ -3121,17 +3126,37 @@ const saveDevice = async () => {
         imageUrl = getImageUrl();
       }
 
-      // Also send a derived rotate_interval (when the schedule is a simple
-      // every-day interval) so older firmware that predates rotate_cron still
-      // applies it; newer firmware ignores it in favour of rotate_cron.
+      // Reconcile the schedule with firmware capability.
+      // - New firmware: send rotate_cron, plus a derived rotate_interval when
+      //   the schedule is a simple every-day interval (harmless; ignored in
+      //   favour of rotate_cron).
+      // - Old firmware: it only understands rotate_interval and silently
+      //   ignores rotate_cron. Send interval-only so we don't store a phantom
+      //   cron the device isn't running; refuse a schedule that can't be
+      //   reduced to an interval instead of losing the edit.
       const legacyInterval = cronToInterval(deviceConfig.rotate_cron);
+      if (!deviceSupportsCron.value && legacyInterval === null) {
+        showMessage(
+          "This device's firmware only supports a simple repeating interval. " +
+            'Update the firmware to use day-of-week or specific-time schedules.',
+          true
+        );
+        return;
+      }
+      const rotateFields = deviceSupportsCron.value
+        ? {
+            rotate_cron: deviceConfig.rotate_cron,
+            ...(legacyInterval !== null
+              ? { rotate_interval: legacyInterval }
+              : {}),
+          }
+        : { rotate_interval: legacyInterval };
 
       const result = await updateDeviceConfig(editingDevice.id, {
         config: {
           device_name: editingDevice.name,
           auto_rotate: deviceConfig.auto_rotate,
-          rotate_cron: deviceConfig.rotate_cron,
-          ...(legacyInterval !== null ? { rotate_interval: legacyInterval } : {}),
+          ...rotateFields,
           rotation_mode: deviceConfig.rotation_mode,
           image_url: imageUrl,
           save_downloaded_images: deviceConfig.save_downloaded_images,
