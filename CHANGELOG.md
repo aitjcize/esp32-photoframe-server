@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.10.0
+
+### Added
+
+- **Cron-based rotation schedule builder.** The device auto-rotate schedule is now edited as repeating intervals, specific times, and day-of-week selection, compiled to simplified 3-field cron rules (`minute hour day-of-week`) — replacing the single rotation interval. A unit-test suite covers the cron parser, next-run preview, and rule compilation.
+
+### Changed
+
+- Pre-cron firmware is detected automatically and gets a simplified interval-only editor over the legacy API, so schedule edits can't be silently lost or leave the server showing a schedule the device isn't running.
+- The Sleep schedule (quiet hours) is shown only for pre-cron firmware; cron firmware bounds its active hours in the rules instead (e.g. `0 7-23/2 *`, or two rules for overnight coverage).
+
+### Fixed
+
+- Immich: support the v3 album API that drops inline assets.
+
 ## v1.9.2
 
 ### Fixed
