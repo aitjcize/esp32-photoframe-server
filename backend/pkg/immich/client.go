@@ -81,7 +81,13 @@ func (c *Client) ListAlbums() ([]Album, error) {
 	return albums, nil
 }
 
-// GetAlbumAssets returns all image assets in the given album
+// GetAlbumAssets returns all image assets in the given album.
+//
+// Immich v2 embeds the asset array in GET /api/albums/{id}?withAssets=true.
+// Immich v3 (>= 3.0) dropped that array from the album response — only
+// assetCount remains — so we fall back to POST /api/search/metadata scoped by
+// albumIds when the response has assets missing but a non-zero count. That
+// keeps a single code path working across both server versions.
 func (c *Client) GetAlbumAssets(albumID string) ([]Asset, error) {
 	resp, err := c.do("GET", "/api/albums/"+albumID+"?withAssets=true")
 	if err != nil {
@@ -95,7 +101,11 @@ func (c *Client) GetAlbumAssets(albumID string) ([]Asset, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&album); err != nil {
 		return nil, err
 	}
-	return album.Assets, nil
+	if len(album.Assets) > 0 || album.AssetCount == 0 {
+		return album.Assets, nil // v2, or a genuinely empty album
+	}
+	// v3: the album has assets but they weren't inlined — page them via search.
+	return c.SearchAssets(SearchMetadataRequest{AlbumIDs: []string{albumID}})
 }
 
 // GetThumbnail fetches thumbnail bytes for an asset.
@@ -146,6 +156,7 @@ func (c *Client) SearchAssets(filter SearchMetadataRequest) ([]Asset, error) {
 	const pageSize = 250
 	filter.Type = "IMAGE"
 	filter.Size = pageSize
+	filter.WithExif = true // v3 omits exifInfo unless asked; v2 ignores the flag
 
 	var out []Asset
 	for page := 1; ; page++ {

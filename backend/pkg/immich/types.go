@@ -24,22 +24,27 @@ type Asset struct {
 	ExifInfo         ExifInfo `json:"exifInfo"`
 }
 
-// AlbumDetail is the full album response including assets
+// AlbumDetail is the full album response including assets. Immich v3 removed
+// the assets array from this response (assetCount remains), so Assets being
+// empty while AssetCount is non-zero means "new API" rather than "empty album".
 type AlbumDetail struct {
-	ID        string  `json:"id"`
-	AlbumName string  `json:"albumName"`
-	Assets    []Asset `json:"assets"`
+	ID         string  `json:"id"`
+	AlbumName  string  `json:"albumName"`
+	AssetCount int     `json:"assetCount"`
+	Assets     []Asset `json:"assets"`
 }
 
 // SearchMetadataRequest is the body for POST /api/search/metadata. Only the
 // fields we use are declared; Immich ignores unknown JSON keys on input.
 type SearchMetadataRequest struct {
-	Type        string `json:"type,omitempty"`       // "IMAGE" — we filter out videos
-	IsFavorite  *bool  `json:"isFavorite,omitempty"` // pointer so we can send false vs unset
-	TakenAfter  string `json:"takenAfter,omitempty"` // RFC3339
-	TakenBefore string `json:"takenBefore,omitempty"`
-	Page        int    `json:"page,omitempty"`
-	Size        int    `json:"size,omitempty"`
+	Type        string   `json:"type,omitempty"`       // "IMAGE" — we filter out videos
+	IsFavorite  *bool    `json:"isFavorite,omitempty"` // pointer so we can send false vs unset
+	TakenAfter  string   `json:"takenAfter,omitempty"` // RFC3339
+	TakenBefore string   `json:"takenBefore,omitempty"`
+	AlbumIDs    []string `json:"albumIds,omitempty"`
+	WithExif    bool     `json:"withExif,omitempty"` // v3 omits exifInfo unless requested
+	Page        int      `json:"page,omitempty"`
+	Size        int      `json:"size,omitempty"`
 }
 
 // searchAssetsResponse matches /api/search/metadata's "assets" envelope.
