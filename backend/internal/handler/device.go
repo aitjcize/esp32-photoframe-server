@@ -191,7 +191,7 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			imagePath = tempFile
 		} else if img.Source == model.SourceImmich {
 			// Download from Immich to temporary file
-			data, err := h.immichService.DownloadPhoto(img.ImmichAssetID)
+			data, err := h.immichService.DownloadPhoto(img.ExternalID)
 			if err != nil {
 				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download immich photo: %v", err))
 			}
