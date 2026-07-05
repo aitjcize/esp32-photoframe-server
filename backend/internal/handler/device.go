@@ -214,6 +214,35 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			}
 			tmp.Close()
 			imagePath = tempFile
+		} else if strings.HasPrefix(img.FilePath, "http://") || strings.HasPrefix(img.FilePath, "https://") {
+			// Topic sources (unsplash, pexels) store a remote image URL in
+			// FilePath rather than a local file — fetch it to a temp file.
+			resp, err := http.Get(img.FilePath)
+			if err != nil {
+				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download photo: %v", err))
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download photo: status %d", resp.StatusCode))
+			}
+			data, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to read photo: %v", err))
+			}
+
+			tmp, err := ioutil.TempFile("", "url_push_*.jpg")
+			if err != nil {
+				return respondError(c, http.StatusInternalServerError, "failed to create temp file")
+			}
+			defer os.Remove(tmp.Name())
+			tempFile = tmp.Name()
+
+			if _, err := tmp.Write(data); err != nil {
+				tmp.Close()
+				return respondError(c, http.StatusInternalServerError, "failed to write temp file")
+			}
+			tmp.Close()
+			imagePath = tempFile
 		} else {
 			imagePath = img.FilePath
 		}
