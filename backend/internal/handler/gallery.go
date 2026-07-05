@@ -222,7 +222,7 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		// Synology thumbnail is fetched via service
 		// We request 'small' (typically ~256px) or 'medium'
 		// Synology sizes: small, medium, large, original
-		// New rows carry the synology id in ExternalID (SynologyPhotoID=0).
+		// Synology rows carry the photo id in ExternalID.
 		synoID, _ := strconv.Atoi(item.ExternalID)
 		thumbBytes, err := h.synology.GetPhoto(synoID, item.ThumbnailKey, "small")
 		if err != nil {

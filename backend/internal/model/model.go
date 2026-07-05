@@ -34,17 +34,17 @@ type Image struct {
 	Height      int    `json:"height"`
 	Orientation string `json:"orientation"` // "landscape", "portrait"
 	UserID      int64  `json:"user_id"`
-	Status      string `json:"status"`                                                                                                                        // pending, shown
-	Source      string `gorm:"index:idx_images_source;index:idx_images_source_synology,priority:1;index:idx_images_source_external,priority:1" json:"source"` // "local", "google_photos", "synology_photos"
+	Status      string `json:"status"`                                                                            // pending, shown
+	Source      string `gorm:"index:idx_images_source;index:idx_images_source_external,priority:1" json:"source"` // "local", "google_photos", "synology_photos"
 	// ExternalID is the source's stable id for this asset (immich UUID, synology
-	// photo id as text, unsplash/pexels id). Indexed with Source for dedup;
-	// the generic replacement for the per-source id columns below.
-	ExternalID      string         `gorm:"index:idx_images_source_external,priority:2" json:"external_id"`
-	SynologyPhotoID int            `gorm:"index:idx_images_source_synology,priority:2" json:"synology_id"`
-	ThumbnailKey    string         `json:"thumbnail_key"`  // Cache key for Synology
-	PhotoTakenAt    *time.Time     `json:"photo_taken_at"` // Original photo creation/taken date
-	CreatedAt       time.Time      `json:"created_at"`
-	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
+	// photo id as text, unsplash/pexels id). Indexed with Source for dedup; the
+	// generic replacement for the old per-source id columns (immich_asset_id,
+	// synology_photo_id).
+	ExternalID   string         `gorm:"index:idx_images_source_external,priority:2" json:"external_id"`
+	ThumbnailKey string         `json:"thumbnail_key"`  // Cache key for Synology
+	PhotoTakenAt *time.Time     `json:"photo_taken_at"` // Original photo creation/taken date
+	CreatedAt    time.Time      `json:"created_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type GoogleAuth struct {

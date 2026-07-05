@@ -34,9 +34,8 @@ func (s *synologyPhotosSource) Fetch(req *imagesource.Request) (*imagesource.Res
 		return PickRandomDBPhotoForAlbums(s.db, model.SourceSynologyPhotos, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
-		// The synology photo id lives in ExternalID for both old and new rows
-		// (new rows have SynologyPhotoID=0). DownloadPhoto re-looks the row up by
-		// id to resolve the cache key + album, so pass the id from ExternalID.
+		// The synology photo id lives in ExternalID. DownloadPhoto re-looks the
+		// row up by id to resolve the cache key + album, so pass it from there.
 		id, err := strconv.Atoi(item.ExternalID)
 		if err != nil {
 			return nil, err

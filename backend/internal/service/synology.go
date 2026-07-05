@@ -158,8 +158,7 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 	}
 
 	// 1. Find photo in DB to get stored cache key. Match on external_id (the
-	// synology id as a string), which the shared sync engine populates for both
-	// old and new rows; new rows leave synology_photo_id=0.
+	// synology id as a string), which the shared sync engine populates.
 	var img model.Image
 	if err := s.db.Where("external_id = ? AND source = ?", strconv.Itoa(id), model.SourceSynologyPhotos).First(&img).Error; err != nil {
 		// Fallback if not found in DB
@@ -412,7 +411,7 @@ func (s *SynologyService) backfillMissingResolutions(photos []synology.Item, alb
 	}
 	// Skip ones a previous sync already resolved (real dims stored). Match on
 	// external_id (the synology id as a string), which the shared sync engine
-	// populates for both old and new rows; new rows leave synology_photo_id=0.
+	// populates.
 	needExtIDs := make([]string, len(needIDs))
 	for i, id := range needIDs {
 		needExtIDs[i] = strconv.Itoa(id)
