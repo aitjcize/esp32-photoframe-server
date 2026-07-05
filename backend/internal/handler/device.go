@@ -169,8 +169,13 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 		}
 
 		if img.Source == model.SourceSynologyPhotos {
+			// The Synology photo id lives in ExternalID, matching the serving path.
+			synoID, err := strconv.Atoi(img.ExternalID)
+			if err != nil {
+				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("invalid synology photo id %q: %v", img.ExternalID, err))
+			}
 			// Download to temporary file
-			data, err := h.synologyService.DownloadPhoto(int(img.SynologyPhotoID))
+			data, err := h.synologyService.DownloadPhoto(synoID)
 			if err != nil {
 				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download synology photo: %v", err))
 			}
