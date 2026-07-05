@@ -1,10 +1,29 @@
-.PHONY: format build run dev
+.PHONY: format format-check install-hooks build run dev
 
 format:
 	@echo "Formatting Go code..."
 	gofmt -w backend/
 	@echo "Formatting Frontend code..."
 	cd webapp && npm run format
+
+format-check:
+	@echo "Checking Go formatting..."
+	@unformatted=$$(gofmt -l backend/); \
+	if [ -n "$$unformatted" ]; then \
+		echo "These Go files need formatting (run 'make format'):"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	@echo "Checking Frontend formatting..."
+	@cd webapp && [ -d node_modules ] || npm ci
+	@cd webapp && npm run format:check
+	@echo "All files are properly formatted!"
+
+# Enable the repo's git hooks (pre-commit runs `make format-check`).
+install-hooks:
+	@git config core.hooksPath .githooks
+	@echo "Git hooks enabled (core.hooksPath = .githooks)."
+	@echo "Commits now run 'make format-check' first."
 
 build:
 	docker build -t photoframe-server .

@@ -255,7 +255,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		}
 		body := buf.Bytes()
 
-		applyConfigSyncHeader(c, &device, deviceFound)
+		h.applyConfigSync(c, &device, deviceFound)
 
 		c.Response().Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
 		return c.Blob(http.StatusOK, "image/png", body)
@@ -434,7 +434,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	}
 
 	// 5. Config Sync: push config payload if server has newer config
-	applyConfigSyncHeader(c, &device, deviceFound)
+	h.applyConfigSync(c, &device, deviceFound)
 
 	// Set Content-Length header
 	c.Response().Header().Set("Content-Length", fmt.Sprintf("%d", len(processedBytes)))
@@ -653,20 +653,42 @@ func (h *ImageHandler) GetServedImageThumbnail(c echo.Context) error {
 	return c.Blob(http.StatusOK, "image/jpeg", data)
 }
 
-// applyConfigSyncHeader sets the X-Config-Payload response header when the
-// server's stored device config is newer than what the device most recently
-// reported. Pulled out so both the bypass branch and the main flow share it.
-func applyConfigSyncHeader(c echo.Context, device *model.Device, deviceFound bool) {
-	if !deviceFound || device.ConfigLastUpdated <= 0 {
+// postRotateWaitSec is how long we ask a device to stay awake after rotating so
+// we can pull its config. The firmware clamps this to its own maximum.
+const postRotateWaitSec = 20
+
+// applyConfigSync reconciles config between server and device on each image
+// fetch, using the device's reported X-Config-Last-Updated timestamp:
+//   - server newer → push our config down via X-Config-Payload (device applies it)
+//   - device newer → ask the device to stay up (X-Post-Rotate-Wait-Sec) and pull
+//     its config in the background, catching the server up to on-device edits
+//
+// Shared by the bypass branch and the main flow.
+func (h *ImageHandler) applyConfigSync(c echo.Context, device *model.Device, deviceFound bool) {
+	if !deviceFound {
 		return
 	}
+
 	deviceConfigTS := int64(0)
 	if tsStr := c.Request().Header.Get("X-Config-Last-Updated"); tsStr != "" {
 		if ts, err := strconv.ParseInt(tsStr, 10, 64); err == nil {
 			deviceConfigTS = ts
 		}
 	}
-	if device.ConfigLastUpdated <= deviceConfigTS {
+
+	// Device has edits we haven't captured: ask it to stay up and pull them.
+	if deviceConfigTS > device.ConfigLastUpdated {
+		if device.Host == "" {
+			return // remote device we can't reach back to
+		}
+		c.Response().Header().Set("X-Post-Rotate-Wait-Sec", strconv.Itoa(postRotateWaitSec))
+		h.pullDeviceConfigAsync(*device, deviceConfigTS)
+		return
+	}
+
+	// Server has newer config: push it down. (Nothing to push if we've never
+	// recorded a server-side edit, or the device is already current.)
+	if device.ConfigLastUpdated <= 0 || device.ConfigLastUpdated <= deviceConfigTS {
 		return
 	}
 	payload := buildConfigPayload(device)
@@ -676,6 +698,53 @@ func applyConfigSyncHeader(c echo.Context, device *model.Device, deviceFound boo
 	c.Response().Header().Set("X-Config-Payload", payload)
 	log.Printf("Config sync: pushing config to device (server=%d, device=%d)",
 		device.ConfigLastUpdated, deviceConfigTS)
+}
+
+// pullDeviceConfigAsync fetches the device's current config in the background and
+// stores it, catching the server up when config was changed on the device. The
+// device keeps its HTTP server up for postRotateWaitSec after rotating (it saw
+// X-Post-Rotate-Wait-Sec), so we retry within that window until it answers.
+func (h *ImageHandler) pullDeviceConfigAsync(device model.Device, deviceTS int64) {
+	if device.Host == "" {
+		return
+	}
+	go func() {
+		client := photoframe.NewClient(device.Host)
+		deadline := time.Now().Add(postRotateWaitSec * time.Second)
+		for {
+			configRaw, err := client.FetchConfig()
+			if err == nil {
+				updates := map[string]interface{}{
+					"device_config":       configRaw,
+					"config_last_updated": deviceTS,
+				}
+				if proc, perr := client.FetchProcessingSettings(); perr == nil {
+					updates["device_processing_settings"] = proc
+				}
+				if palette, perr := client.FetchPalette(); perr == nil {
+					updates["device_color_palette"] = palette
+				}
+				var parsed struct {
+					DisplayOrientation string `json:"display_orientation"`
+				}
+				if json.Unmarshal([]byte(configRaw), &parsed) == nil && parsed.DisplayOrientation != "" {
+					updates["orientation"] = parsed.DisplayOrientation
+				}
+				if uerr := h.db.Model(&model.Device{}).Where("id = ?", device.ID).Updates(updates).Error; uerr != nil {
+					log.Printf("Config sync: failed to store pulled config for device %d: %v", device.ID, uerr)
+				} else {
+					log.Printf("Config sync: pulled newer config from device %s (ts=%d)", device.Host, deviceTS)
+				}
+				return
+			}
+			if time.Now().After(deadline) {
+				log.Printf("Config sync: could not reach device %s to pull config within %ds",
+					device.Host, postRotateWaitSec)
+				return
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}()
 }
 
 // rotate90CW returns src rotated 90° clockwise. Used for bypass sources to

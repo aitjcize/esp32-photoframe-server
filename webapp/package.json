@@ -9,7 +9,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "format": "prettier --write .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@aitjcize/epaper-image-convert": "^0.1.14",

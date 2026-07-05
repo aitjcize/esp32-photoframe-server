@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.11.0
+
+### Added
+
+- **Two-way config sync.** Settings changed on the device itself now propagate back to the server. The device advertises a config timestamp on each image fetch; when it's newer than the server's copy, the server asks the device to stay awake briefly (`X-Post-Rotate-Wait-Sec`) and pulls the updated config. Previously the sync was push-only (server → device), so on-device edits were silently ignored. Requires firmware v2.11.0+.
+
 ## v1.10.0
 
 ### Added
