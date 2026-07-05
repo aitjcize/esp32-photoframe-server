@@ -33,7 +33,7 @@ func setupAlbumDB(t *testing.T) *gorm.DB {
 
 func mkImage(t *testing.T, db *gorm.DB, assetID string) model.Image {
 	t.Helper()
-	img := model.Image{ImmichAssetID: assetID, Source: model.SourceImmich, Status: "pending"}
+	img := model.Image{ExternalID: assetID, Source: model.SourceImmich, Status: "pending"}
 	if err := db.Create(&img).Error; err != nil {
 		t.Fatalf("create image: %v", err)
 	}
