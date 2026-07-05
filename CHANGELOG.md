@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.11.1
+
+### Fixed
+
+- **Synology:** manually pushing a selected photo failed with a 404 on libraries synced after the `external_id` migration — the push still used the legacy per-source id (0 for new rows). It now resolves the photo the same way the slideshow does. (#37)
+- **Topic sources (Unsplash, Pexels):** manually pushing a selected photo failed with "image file not found on server" — those photos are remote URLs rather than local files, and are now downloaded before pushing.
+
 ## v1.11.0
 
 ### Added
