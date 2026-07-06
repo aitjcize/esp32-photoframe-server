@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.11.3
+
+### Fixed
+
+- **Random photo selection now respects the device orientation** for DB-backed sources (Immich, Synology, gallery, Google Photos). Previously the normal (non-collage) flow ignored orientation, so a portrait frame could be served landscape photos even when portrait ones were available. It now prefers matching-orientation photos, falling back to any orientation only when none match (`auto`/no-EXIF photos still match either). (#40)
+
 ## v1.11.2
 
 ### Fixed
