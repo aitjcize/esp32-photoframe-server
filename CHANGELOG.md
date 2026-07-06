@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.11.2
+
+### Fixed
+
+- **Photo overlays (date / weather / calendar) failed to render**, returning a 500 with `libLLVM.so.19.1` errors from headless Chrome. An earlier image-size cleanup deleted `libLLVM`, which Alpine 3.21's updated `mesa-gallium` (24.2.8) now hard-requires via `libgallium` — so freshly built images broke Chromium on both amd64 and arm64. Restored the removed libraries. (#39)
+
 ## v1.11.1
 
 ### Fixed
