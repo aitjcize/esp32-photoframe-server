@@ -46,10 +46,10 @@ func RunDBPhotoFlow(
 	var err error
 
 	if req.Device != nil && req.Device.EnableCollage {
-		img, ids, err = smartCollage(req.Width, req.Height, req.ExcludeIDs, pick, load)
+		img, ids, err = smartCollage(req.Orientation, req.Width, req.Height, req.ExcludeIDs, pick, load)
 	} else {
 		var item model.Image
-		item, err = pickRandomWithFallback(pick, req.ExcludeIDs)
+		item, err = pickRandomWithFallback(pick, req.Orientation, req.ExcludeIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -89,31 +89,53 @@ func PickRandomDBPhoto(db *gorm.DB, source, orientationFilter string, excludeIDs
 	return item, err
 }
 
-// pickRandomWithFallback retries with exclusions dropped if the first
-// query found nothing — matches existing behavior of fetchRandomPhoto.
-func pickRandomWithFallback(pick PhotoPicker, excludeIDs []uint) (model.Image, error) {
-	item, err := pick("", excludeIDs)
+// pickRandomWithFallback prefers the device orientation, then relaxes the
+// exclusion list, then relaxes the orientation — so a portrait device draws
+// portrait photos but still shows something when its library is small or has
+// no matching-orientation photos. Pass orientation="" (e.g. the collage path,
+// which composes across orientations) for the original any-orientation pick.
+func pickRandomWithFallback(pick PhotoPicker, orientation string, excludeIDs []uint) (model.Image, error) {
+	// 1. Device orientation, excluding recently shown photos.
+	item, err := pick(orientation, excludeIDs)
 	if err == nil {
 		return item, nil
 	}
-	if len(excludeIDs) == 0 {
-		return item, err
+	// 2. Same orientation, but allow recently shown photos (small library).
+	if len(excludeIDs) > 0 {
+		if item, err = pick(orientation, nil); err == nil {
+			return item, nil
+		}
 	}
-	return pick("", nil)
+	// 3. No photo matches the orientation at all — fall back to any.
+	if orientation != "" {
+		if item, err = pick("", nil); err == nil {
+			return item, nil
+		}
+	}
+	return item, err
 }
 
 // smartCollage fetches one or two photos and composes them into a collage
 // when the first photo's orientation doesn't match the device's. The
 // callbacks let each source pick / load through its own backend.
 func smartCollage(
+	orientation string,
 	screenW, screenH int,
 	excludeIDs []uint,
 	pick PhotoPicker,
 	load PhotoLoader,
 ) (image.Image, []uint, error) {
+	// Prefer the explicit device orientation; fall back to the aspect ratio.
 	devicePortrait := screenH > screenW
+	if orientation == "portrait" {
+		devicePortrait = true
+	} else if orientation == "landscape" {
+		devicePortrait = false
+	}
 
-	item1, err := pickRandomWithFallback(pick, excludeIDs)
+	// The collage composes across orientations, so the first pick stays
+	// orientation-agnostic — its shape decides single vs. collage.
+	item1, err := pickRandomWithFallback(pick, "", excludeIDs)
 	if err != nil {
 		return nil, nil, err
 	}
