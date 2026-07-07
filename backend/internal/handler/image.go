@@ -76,6 +76,23 @@ func NewImageHandler(deps ImageHandlerDeps) *ImageHandler {
 	}
 }
 
+// deviceBaseURL returns the base URL devices use to reach this server: the
+// admin-configured "Server URL for devices" setting when set, otherwise
+// derived from the incoming request (honoring X-Forwarded-Proto so URLs
+// behind a TLS-terminating reverse proxy keep the https scheme).
+func (h *ImageHandler) deviceBaseURL(c echo.Context) string {
+	if base, err := h.settings.Get("device_image_base_url"); err == nil {
+		if base = strings.TrimRight(strings.TrimSpace(base), "/"); base != "" {
+			return base
+		}
+	}
+	scheme := "http"
+	if c.Request().TLS != nil || c.Request().Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + c.Request().Host
+}
+
 // identifyDevice resolves the requesting device SOLELY from its per-device
 // token (the device_id set by the auth middleware). The previous X-Hostname /
 // client-IP fallbacks were client-spoofable and have been removed — the token
@@ -426,7 +443,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		thumbPath := filepath.Join(h.dataDir, fmt.Sprintf("thumb_%s.jpg", thumbID))
 
 		if err := os.WriteFile(thumbPath, thumbBytes, 0644); err == nil {
-			thumbnailUrl := fmt.Sprintf("http://%s/served-image-thumbnail/%s", c.Request().Host, thumbID)
+			thumbnailUrl := fmt.Sprintf("%s/served-image-thumbnail/%s", h.deviceBaseURL(c), thumbID)
 			c.Response().Header().Set("X-Thumbnail-URL", thumbnailUrl)
 		} else {
 			fmt.Printf("Failed to save served thumbnail: %v\n", err)
