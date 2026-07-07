@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.11.4
+
+### Fixed
+
+- **Current Image thumbnail broke behind an https reverse proxy.** The `X-Thumbnail-URL` header hardcoded `http://`, so devices behind a TLS-terminating proxy (e.g. Caddy) got a URL they couldn't download, leaving a broken Current Image in Home Assistant. The URL now uses the "Server URL for devices" setting when configured, otherwise derives the scheme from the request (honoring `X-Forwarded-Proto`). (#41)
+
 ## v1.11.3
 
 ### Fixed
