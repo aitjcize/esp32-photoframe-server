@@ -378,15 +378,16 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 	// Album memberships drop via ON DELETE CASCADE (this is an Unscoped hard
 	// delete, so the cascade fires).
 
-	// For local sources (gallery / google), drop the file and thumbnail.
+	// For local sources (gallery / google), drop the original file too.
 	// Synology / Immich keep the original on the source, so nothing on disk.
 	if item.Source == model.SourceGooglePhotos || item.Source == model.SourceGallery {
 		if item.FilePath != "" {
 			os.Remove(item.FilePath)
 		}
-		thumbPath := filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID))
-		os.Remove(thumbPath)
 	}
+	// Any source may have a cached thumbnail (URL-based sources cache one on
+	// first gallery view); remove it for all — a no-op when absent.
+	os.Remove(filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID)))
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -431,9 +432,8 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 			if item.FilePath != "" {
 				os.Remove(item.FilePath)
 			}
-			thumbPath := filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID))
-			os.Remove(thumbPath)
 		}
+		os.Remove(filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID)))
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{

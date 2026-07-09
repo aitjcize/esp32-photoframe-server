@@ -55,7 +55,14 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 	if err := db.Where("source = ? AND sync_enabled = ?", source, true).Find(&albums).Error; err != nil {
 		return 0, err
 	}
+
+	// Albums unchecked since the last sync keep their membership rows, which
+	// would shield their images from the orphan GC below. Drop them first so
+	// a resync removes what the user deselected.
+	pruneDisabledAlbumMemberships(db, source)
+
 	if len(albums) == 0 {
+		gcOrphanImagesForSource(db, source)
 		log.Printf("%s sync: no albums enabled for sync", source)
 		return 0, nil
 	}
@@ -198,8 +205,10 @@ func upsertAlbumAssets(db *gorm.DB, source string, albumID uint, assets []Remote
 // disables every other REAL album for the source. Virtual albums (e.g. Immich
 // all/favorites/memories) are left untouched -- the caller manages those. Shared
 // by immich/synology album selection and by topic-source topic management.
+// Images of the deselected albums are removed immediately (metadata only; a
+// re-check plus resync re-imports them), matching topic-source behavior.
 func SetSyncAlbums(db *gorm.DB, source string, albums []RemoteAlbum) error {
-	return db.Transaction(func(tx *gorm.DB) error {
+	err := db.Transaction(func(tx *gorm.DB) error {
 		wantIDs := make([]string, 0, len(albums))
 		for _, a := range albums {
 			wantIDs = append(wantIDs, a.ExternalID)
@@ -237,4 +246,12 @@ func SetSyncAlbums(db *gorm.DB, source string, albums []RemoteAlbum) error {
 		}
 		return q.Update("sync_enabled", false).Error
 	})
+	if err != nil {
+		return err
+	}
+	// Drop the deselected albums' images right away instead of waiting for the
+	// next sync, so the gallery reflects the new selection immediately.
+	pruneDisabledAlbumMemberships(db, source)
+	gcOrphanImagesForSource(db, source)
+	return nil
 }

@@ -132,6 +132,7 @@ func main() {
 	backfillDeviceTokens(database)
 
 	// Initialize Services
+	service.SetThumbnailDir(filepath.Join(dataDir, "thumbnails"))
 	settingsService := service.NewSettingsService(database)
 	tokenStore := service.NewDBTokenStore(database, "photos")
 	// Resolve the JWT secret: env → persisted setting → freshly generated.

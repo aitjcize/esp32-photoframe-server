@@ -211,6 +211,12 @@ func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories
 		}
 	}
 
+	// Drop the deselected albums' images right away (covers virtual albums
+	// too, which the shared SetSyncAlbums doesn't manage). Metadata only; a
+	// re-check plus resync re-imports them.
+	pruneDisabledAlbumMemberships(s.db, model.SourceImmich)
+	gcOrphanImagesForSource(s.db, model.SourceImmich)
+
 	// Persist the selection only — do NOT import here. The import is triggered
 	// explicitly (manual Sync) or by the auto-sync scheduler, so toggling
 	// albums doesn't kick off a clear+resync on every change.
