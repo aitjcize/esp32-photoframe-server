@@ -393,6 +393,12 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	if orientation != "" {
 		procOptions["orientation"] = orientation
 	}
+	// Honor the device's fit/cover setting in the CLI. This matters when no
+	// overlay is rendered: the raw photo goes straight to epaper-image-convert,
+	// which would otherwise default to cover and crop. (With an overlay, the
+	// renderer already composed the photo at panel dimensions, so the CLI
+	// scale is a no-op either way.)
+	procOptions["scale-mode"] = displayMode
 
 	// Determine output format based on firmware version (epdgz requires >= 2.6.1)
 	firmwareVersion := c.Request().Header.Get("X-Firmware-Version")
