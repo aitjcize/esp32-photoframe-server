@@ -1015,6 +1015,15 @@
                           color="primary"
                           variant="text"
                           size="small"
+                          icon="mdi-open-in-new"
+                          title="Open Device"
+                          :href="deviceURL(device)"
+                          target="_blank"
+                        ></v-btn>
+                        <v-btn
+                          color="primary"
+                          variant="text"
+                          size="small"
                           icon="mdi-pencil"
                           title="Edit Device"
                           @click="editDevice(device)"
@@ -1069,6 +1078,15 @@
                         {{ device.host }}
                       </v-list-item-subtitle>
                       <template #append>
+                        <v-btn
+                          color="primary"
+                          variant="text"
+                          size="small"
+                          icon="mdi-open-in-new"
+                          title="Open Device"
+                          :href="deviceURL(device)"
+                          target="_blank"
+                        ></v-btn>
                         <v-btn
                           color="primary"
                           variant="text"
@@ -2968,6 +2986,12 @@ const openAddDeviceDialog = () => {
   isAddingDevice.value = true;
   deviceDialogTab.value = 'general';
   showEditDeviceDialog.value = true;
+};
+
+const deviceURL = (device: Device) => {
+  return /^https?:\/\//.test(device.host)
+    ? device.host
+    : `http://${device.host}`;
 };
 
 const editDevice = async (device: Device) => {
