@@ -1,14 +1,21 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 )
 
 // respondError writes a JSON {"error": msg} response with the given status.
+// It then returns an error carrying msg so the access-log ${error} field
+// records it; since the response is already committed, Echo's error handler
+// won't write a second body.
 func respondError(c echo.Context, status int, msg string) error {
-	return c.JSON(status, map[string]string{"error": msg})
+	if err := c.JSON(status, map[string]string{"error": msg}); err != nil {
+		return err
+	}
+	return errors.New(msg)
 }
 
 // PhotoSyncBackend is the per-source service surface the generic photo-sync
