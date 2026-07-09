@@ -18,12 +18,24 @@ import (
 	"gorm.io/gorm"
 )
 
+// loginRetryCooldown is how long background callers (thumbnail proxying,
+// auto-sync) wait after a failed login before trying again. Without it, a
+// burst of gallery thumbnail requests against an expired session each retries
+// the login serially under s.mu, blocking the explicit Connect/Test request
+// for minutes.
+const loginRetryCooldown = 30 * time.Second
+
 type SynologyService struct {
 	db       *gorm.DB
 	settings *SettingsService
 	client   *synology.Client
 	mu       sync.Mutex
-	autoSync *AutoSyncScheduler
+	// lastLoginFail and loginGen are guarded by mu. loginGen counts
+	// successful logins so relogin can detect that another request already
+	// re-authenticated the session.
+	lastLoginFail time.Time
+	loginGen      uint64
+	autoSync      *AutoSyncScheduler
 }
 
 func NewSynologyService(db *gorm.DB, settings *SettingsService) *SynologyService {
@@ -67,8 +79,10 @@ func (s *SynologyService) getAutoSyncConfig() (bool, time.Duration) {
 		"synology_auto_sync_enabled", "synology_auto_sync_interval_minutes")
 }
 
-// ensureClient initializes and logs in the client if needed
-func (s *SynologyService) ensureClient(otpCode string) error {
+// ensureClient initializes and logs in the client if needed. force bypasses
+// the failed-login cooldown and is reserved for explicit user actions
+// (Connect/Test); background callers fail fast while the cooldown is active.
+func (s *SynologyService) ensureClient(otpCode string, force bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -116,9 +130,15 @@ func (s *SynologyService) ensureClient(otpCode string) error {
 
 	// Login if no SID or if explicitly requested (otpCode provided implies re-login attempt?)
 	if s.client.SID == "" || otpCode != "" {
+		if !force && time.Since(s.lastLoginFail) < loginRetryCooldown {
+			return errors.New("synology login recently failed; waiting before retrying")
+		}
 		if err := s.client.Login(otpCode); err != nil {
+			s.lastLoginFail = time.Now()
 			return err
 		}
+		s.lastLoginFail = time.Time{}
+		s.loginGen++
 		// Save SID and DID
 		s.settings.Set("synology_sid", s.client.SID)
 		s.settings.Set("synology_did", s.client.DID)
@@ -149,11 +169,11 @@ func (s *SynologyService) TestConnection(otpCode string) error {
 	s.client = nil
 	s.mu.Unlock()
 
-	return s.ensureClient(otpCode)
+	return s.ensureClient(otpCode, true)
 }
 
 func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, error) {
-	if err := s.ensureClient(""); err != nil {
+	if err := s.ensureClient("", false); err != nil {
 		return nil, err
 	}
 
@@ -162,9 +182,10 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 	var img model.Image
 	if err := s.db.Where("external_id = ? AND source = ?", strconv.Itoa(id), model.SourceSynologyPhotos).First(&img).Error; err != nil {
 		// Fallback if not found in DB
+		gen := s.loginGeneration()
 		data, getErr := s.client.GetPhoto(id, cacheKeyStr, size, 0, s.client.SynoToken)
 		if s.isAuthExpired(getErr) {
-			if reErr := s.relogin(); reErr != nil {
+			if reErr := s.relogin(gen); reErr != nil {
 				return nil, reErr
 			}
 			return s.client.GetPhoto(id, cacheKeyStr, size, 0, s.client.SynoToken)
@@ -176,9 +197,10 @@ func (s *SynologyService) GetPhoto(id int, cacheKeyStr, size string) ([]byte, er
 	// global setting) so multi-album photos are fetched with the right album.
 	albumID := s.albumIDForImage(img.ID)
 
+	gen := s.loginGeneration()
 	data, err := s.client.GetPhoto(id, img.ThumbnailKey, size, albumID, s.client.SynoToken)
 	if s.isAuthExpired(err) {
-		if reErr := s.relogin(); reErr != nil {
+		if reErr := s.relogin(gen); reErr != nil {
 			return nil, reErr
 		}
 		return s.client.GetPhoto(id, img.ThumbnailKey, size, albumID, s.client.SynoToken)
@@ -207,15 +229,32 @@ func (s *SynologyService) albumIDForImage(imageID uint) int {
 	return 0
 }
 
+// loginGeneration returns the current successful-login counter. Callers
+// capture it before a client call so relogin can tell whether the session
+// that failed is still the current one.
+func (s *SynologyService) loginGeneration() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.loginGen
+}
+
 // relogin clears the expired session and attempts to re-authenticate.
 // The saved DID (device token) allows bypassing 2FA on trusted devices.
-func (s *SynologyService) relogin() error {
+// gen is the login generation the caller observed before its request failed;
+// if another request already re-authenticated since, relogin is a no-op so
+// concurrent auth-expired requests (e.g. a burst of gallery thumbnails) share
+// a single login instead of each re-logging-in serially.
+func (s *SynologyService) relogin(gen uint64) error {
 	s.mu.Lock()
+	if s.loginGen != gen {
+		s.mu.Unlock()
+		return nil
+	}
 	s.client.SID = ""
 	s.mu.Unlock()
 	s.settings.Set("synology_sid", "")
 	log.Printf("Synology session expired, attempting re-login with saved device token")
-	return s.ensureClient("")
+	return s.ensureClient("", false)
 }
 
 func (s *SynologyService) isAuthExpired(err error) bool {
@@ -223,13 +262,14 @@ func (s *SynologyService) isAuthExpired(err error) bool {
 }
 
 func (s *SynologyService) ListAlbums() ([]synology.Album, error) {
-	if err := s.ensureClient(""); err != nil {
+	if err := s.ensureClient("", false); err != nil {
 		return nil, err
 	}
 
+	gen := s.loginGeneration()
 	albums, err := s.client.ListAlbums(0, 100)
 	if s.isAuthExpired(err) {
-		if reErr := s.relogin(); reErr != nil {
+		if reErr := s.relogin(gen); reErr != nil {
 			return nil, errors.New("authentication expired and re-login failed: " + reErr.Error())
 		}
 		albums, err = s.client.ListAlbums(0, 100)
@@ -275,9 +315,10 @@ func (s *SynologyService) FetchAlbumAssets(album model.Album) ([]RemoteAsset, er
 	var photos []synology.Item
 	offset, limit := 0, 500
 	for offset < 5000 {
+		gen := s.loginGeneration()
 		batch, e := s.client.ListPhotos(offset, limit, albumID)
 		if s.isAuthExpired(e) {
-			if reErr := s.relogin(); reErr != nil {
+			if reErr := s.relogin(gen); reErr != nil {
 				return nil, reErr
 			}
 			batch, e = s.client.ListPhotos(offset, limit, albumID)
@@ -329,7 +370,7 @@ func (s *SynologyService) FetchAlbumAssets(album model.Album) ([]RemoteAsset, er
 // shared album-sync engine: image rows (deduped by external_id) plus (asset,
 // album) memberships, pruning stale memberships and orphaned image rows.
 func (s *SynologyService) ImportPhotos() error {
-	if err := s.ensureClient(""); err != nil {
+	if err := s.ensureClient("", false); err != nil {
 		return err
 	}
 
@@ -378,9 +419,10 @@ func (s *SynologyService) resolvePhotoDimensions(id int, thumbKey string, albumI
 	if thumbKey == "" {
 		return 0, 0, errors.New("no thumbnail key")
 	}
+	gen := s.loginGeneration()
 	data, err := s.client.GetPhoto(id, thumbKey, "large", albumID, s.client.SynoToken)
 	if s.isAuthExpired(err) {
-		if reErr := s.relogin(); reErr != nil {
+		if reErr := s.relogin(gen); reErr != nil {
 			return 0, 0, reErr
 		}
 		data, err = s.client.GetPhoto(id, thumbKey, "large", albumID, s.client.SynoToken)
