@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.12.0
+
+### Added
+
+- **Open-device button in the device list.** Each device row in Settings → Devices now has an open-in-new-tab button that opens the photoframe's own web UI.
+- **Fit-mode background color.** New per-device "Fit Background Color" setting (Edit Device → General → Display Settings, shown when the display mode is Fit). Letterboxed photos fill the panel margins with the chosen palette color (white, black, red, green, blue, or yellow) instead of always white.
+
+### Fixed
+
+- **The fit/cover display mode was ignored unless an overlay was enabled.** With overlays and collage off, photos went to `epaper-image-convert` without `--scale-mode`, so a frame set to Fit was still cropped as Cover. The device's mode is now always passed to the CLI.
+- **Unchecking a synced album (Immich/Synology) now actually removes its photos.** Previously the album's images stayed in the gallery and kept rotating onto devices until a manual Clear. Deselecting an album — or resyncing after one was disabled through any path — now removes its photos, unless they also belong to a still-enabled album; re-checking the album re-imports them on the next sync. Cached thumbnails of deleted photos are also garbage-collected from disk, including files leaked by earlier versions.
+- **An expired Synology session no longer wedges the Connect flow.** When the NAS session expired (e.g. after a reboot), every gallery thumbnail request retried a full login serially under a lock, so pressing Connect appeared stuck for minutes. Auth-expired requests now share a single re-login, failed logins back off for 30 seconds (background requests fail fast instead of retrying), and the explicit Connect button always goes straight through.
+- **HTTP 500s now include their error message in the server access log.** Error responses were logged with an empty `"error":""` field, hiding the cause of failures like the above.
+
 ## v1.11.4
 
 ### Fixed
