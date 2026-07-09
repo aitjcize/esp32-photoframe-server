@@ -399,6 +399,9 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// renderer already composed the photo at panel dimensions, so the CLI
 	// scale is a no-op either way.)
 	procOptions["scale-mode"] = displayMode
+	if displayMode == "fit" && deviceFound && device.BackgroundColor != "" {
+		procOptions["background-color"] = device.BackgroundColor
+	}
 
 	// Determine output format based on firmware version (epdgz requires >= 2.6.1)
 	firmwareVersion := c.Request().Header.Get("X-Firmware-Version")

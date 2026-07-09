@@ -83,6 +83,9 @@ type Device struct {
 	AIPrompt      string  `gorm:"column:ai_prompt" json:"ai_prompt"`
 	Layout        string  `json:"layout"`       // "photo_info", "photo_overlay", "side_panel"
 	DisplayMode   string  `json:"display_mode"` // "cover" or "fit"
+	// Palette color name used to letterbox photos in fit mode (passed to
+	// epaper-image-convert --background-color). Empty = CLI default (white).
+	BackgroundColor string `json:"background_color" gorm:"default:''"`
 	// Per-device image source (e.g. "immich"), resolved by the unified /image
 	// endpoint. Empty means the device hasn't picked a server-side source.
 	Source       string `json:"source"`

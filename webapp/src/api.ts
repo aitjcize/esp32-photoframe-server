@@ -71,6 +71,7 @@ export interface Device {
   ai_prompt?: string;
   layout?: string;
   display_mode?: string;
+  background_color?: string;
   show_calendar?: boolean;
   calendar_id?: string;
   date_format?: string;
@@ -129,7 +130,8 @@ export const updateDevice = async (
   showCalendar?: boolean,
   calendarId?: string,
   dateFormat?: string,
-  source?: string
+  source?: string,
+  backgroundColor?: string
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -150,6 +152,7 @@ export const updateDevice = async (
     calendar_id: calendarId || '',
     date_format: dateFormat || '',
     source: source || '',
+    background_color: backgroundColor || '',
   });
   return response.data;
 };

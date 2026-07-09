@@ -1477,6 +1477,27 @@
                                 hide-details
                               ></v-select>
                             </v-col>
+                            <v-col
+                              v-if="editingDevice.display_mode === 'fit'"
+                              cols="12"
+                              md="6"
+                            >
+                              <v-select
+                                v-model="editingDevice.background_color"
+                                :items="[
+                                  { title: 'White', value: 'white' },
+                                  { title: 'Black', value: 'black' },
+                                  { title: 'Red', value: 'red' },
+                                  { title: 'Green', value: 'green' },
+                                  { title: 'Blue', value: 'blue' },
+                                  { title: 'Yellow', value: 'yellow' },
+                                ]"
+                                label="Fit Background Color"
+                                variant="outlined"
+                                density="compact"
+                                hide-details
+                              ></v-select>
+                            </v-col>
                           </v-row>
                           <v-checkbox
                             v-model="editingDevice.enable_collage"
@@ -2966,6 +2987,7 @@ const openAddDeviceDialog = () => {
     ai_prompt: '',
     layout: 'photo_overlay',
     display_mode: 'cover',
+    background_color: 'white',
     show_calendar: false,
     calendar_id: '',
     date_format: '',
@@ -2996,6 +3018,9 @@ const deviceURL = (device: Device) => {
 
 const editDevice = async (device: Device) => {
   Object.assign(editingDevice, device);
+  if (!editingDevice.background_color) {
+    editingDevice.background_color = 'white';
+  }
   // Initialize display_orientation from device's orientation
   deviceConfig.display_orientation = device.orientation || 'landscape';
   isAddingDevice.value = false;
@@ -3123,7 +3148,8 @@ const saveDevice = async () => {
         editingDevice.show_calendar || false,
         editingDevice.calendar_id || '',
         editingDevice.date_format || '',
-        deviceSource
+        deviceSource,
+        editingDevice.background_color || ''
       );
 
       // Save device remote config (config + processing + palette)
