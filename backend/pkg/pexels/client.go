@@ -38,12 +38,14 @@ type Photo struct {
 }
 
 type searchResponse struct {
-	Photos []Photo `json:"photos"`
+	Photos       []Photo `json:"photos"`
+	TotalResults int     `json:"total_results"`
 }
 
-// Search returns one page of photos matching query. perPage is capped at 80
-// (the Pexels maximum); page is 1-based.
-func (c *Client) Search(query string, perPage, page int) ([]Photo, error) {
+// Search returns one page of photos matching query, plus the total number of
+// results the query has. perPage is capped at 80 (the Pexels maximum); page
+// is 1-based.
+func (c *Client) Search(query string, perPage, page int) ([]Photo, int, error) {
 	if perPage <= 0 || perPage > 80 {
 		perPage = 80
 	}
@@ -57,22 +59,22 @@ func (c *Client) Search(query string, perPage, page int) ([]Photo, error) {
 
 	req, err := http.NewRequest(http.MethodGet, apiBase+"/search?"+q.Encode(), nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Authorization", c.APIKey)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("pexels search: status %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("pexels search: status %d", resp.StatusCode)
 	}
 
 	var out searchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return out.Photos, nil
+	return out.Photos, out.TotalResults, nil
 }

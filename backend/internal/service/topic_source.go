@@ -10,6 +10,7 @@ package service
 import (
 	"errors"
 	"image"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,6 +24,82 @@ import (
 
 // topicSyncLimit is how many results one topic sync pulls per topic.
 const topicSyncLimit = 100
+
+// topicRandomizeMaxResults caps how deep into the search results randomized
+// sampling reaches. Results beyond the first ~1000 drift away from the topic,
+// so sampling stays within this window.
+const topicRandomizeMaxResults = 1000
+
+// searchTopicPages collects up to limit assets from a paged search API.
+// fetch returns one 1-based page of results plus the query's total result
+// count. Page 1 is always fetched first — it anchors the most relevant
+// results and reveals how many pages exist. The remaining pages are read
+// sequentially, or, when randomize is on, sampled in random order from the
+// first topicRandomizeMaxResults results so each sync yields a different set.
+// Results are deduped by ExternalID (page contents can shift between
+// requests).
+func searchTopicPages(perPage, limit int, randomize bool, fetch func(page int) ([]RemoteAsset, int, error)) ([]RemoteAsset, error) {
+	first, total, err := fetch(1)
+	if err != nil {
+		return nil, err
+	}
+
+	assets := make([]RemoteAsset, 0, limit)
+	seen := make(map[string]bool, limit)
+	add := func(batch []RemoteAsset) {
+		for _, a := range batch {
+			if len(assets) >= limit {
+				return
+			}
+			if a.ExternalID == "" || seen[a.ExternalID] {
+				continue
+			}
+			seen[a.ExternalID] = true
+			assets = append(assets, a)
+		}
+	}
+	add(first)
+	// A short first page is also the last page — nothing more to fetch.
+	if len(assets) >= limit || len(first) < perPage {
+		return assets, nil
+	}
+
+	if randomize && total > perPage {
+		lastPage := (min(total, topicRandomizeMaxResults) + perPage - 1) / perPage
+		pages := make([]int, 0, lastPage-1)
+		for p := 2; p <= lastPage; p++ {
+			pages = append(pages, p)
+		}
+		rand.Shuffle(len(pages), func(i, j int) { pages[i], pages[j] = pages[j], pages[i] })
+		for _, p := range pages {
+			if len(assets) >= limit {
+				break
+			}
+			batch, _, err := fetch(p)
+			if err != nil {
+				return nil, err
+			}
+			add(batch)
+		}
+		return assets, nil
+	}
+
+	for page := 2; len(assets) < limit; page++ {
+		batch, _, err := fetch(page)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		before := len(assets)
+		add(batch)
+		if len(assets) == before {
+			break // page yielded nothing new; stop rather than loop forever
+		}
+	}
+	return assets, nil
+}
 
 // topicSource implements AlbumSource and the photo-sync backend surface for a
 // search-topic source.

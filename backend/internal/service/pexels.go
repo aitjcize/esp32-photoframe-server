@@ -14,7 +14,8 @@ const pexelsAPIKeyName = "pexels_api_key"
 
 // NewPexelsService constructs the Pexels topic source. It reads the API key
 // from settings at sync time and paginates search results until it has `limit`
-// photos or the results run out.
+// photos or the results run out. When pexels_randomize_results is enabled,
+// pages are sampled randomly so each sync yields a different set.
 func NewPexelsService(db *gorm.DB, settings *SettingsService) *topicSource {
 	search := func(query string, limit int) ([]RemoteAsset, error) {
 		key, _ := settings.Get(pexelsAPIKeyName)
@@ -22,17 +23,15 @@ func NewPexelsService(db *gorm.DB, settings *SettingsService) *topicSource {
 			return nil, errors.New("pexels api key not configured")
 		}
 		client := pexels.New(key)
+		randomize, _ := settings.Get("pexels_randomize_results")
 
 		const perPage = 80 // Pexels maximum
-		assets := make([]RemoteAsset, 0, limit)
-		for page := 1; len(assets) < limit; page++ {
-			photos, err := client.Search(query, perPage, page)
+		return searchTopicPages(perPage, limit, randomize == "true", func(page int) ([]RemoteAsset, int, error) {
+			photos, total, err := client.Search(query, perPage, page)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
-			if len(photos) == 0 {
-				break
-			}
+			assets := make([]RemoteAsset, 0, len(photos))
 			for _, p := range photos {
 				assets = append(assets, RemoteAsset{
 					ExternalID: strconv.Itoa(p.ID),
@@ -41,12 +40,9 @@ func NewPexelsService(db *gorm.DB, settings *SettingsService) *topicSource {
 					Width:      p.Width,
 					Height:     p.Height,
 				})
-				if len(assets) >= limit {
-					break
-				}
 			}
-		}
-		return assets, nil
+			return assets, total, nil
+		})
 	}
 	return newTopicSource(db, settings, model.SourcePexels, pexelsAPIKeyName, true, search)
 }

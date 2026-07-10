@@ -40,6 +40,18 @@
       </div>
     </v-card>
 
+    <!-- Randomize results -->
+    <v-checkbox
+      :model-value="randomizeResults"
+      label="Randomize results"
+      color="primary"
+      density="compact"
+      hide-details="auto"
+      hint="Sample random pages of the search results on each sync, so the albums rotate over time instead of always keeping the top results."
+      persistent-hint
+      @update:model-value="emit('update:randomizeResults', !!$event)"
+    ></v-checkbox>
+
     <!-- Auto sync -->
     <v-row class="mt-0">
       <v-col cols="12" md="6">
@@ -93,6 +105,7 @@ const props = defineProps<{
   // A topic-source store instance (createSourceStore). Read count/loading and
   // seed topics from its syncedAlbums.
   store: any;
+  randomizeResults: boolean;
   autoSyncEnabled: boolean;
   autoSyncInterval: number;
   autoSyncOptions: { title: string; value: number }[];
@@ -102,6 +115,7 @@ const emit = defineEmits<{
   save: [topics: string[]];
   sync: [];
   clear: [];
+  'update:randomizeResults': [boolean];
   'update:autoSyncEnabled': [boolean];
   'update:autoSyncInterval': [number];
 }>();

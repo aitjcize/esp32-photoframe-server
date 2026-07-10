@@ -629,9 +629,14 @@
                   title="Search topics"
                   :store="unsplashStore"
                   hint="Each topic becomes an album of matching photos."
+                  :randomize-results="form.unsplash_randomize_results"
                   :auto-sync-enabled="form.unsplash_auto_sync_enabled"
                   :auto-sync-interval="form.unsplash_auto_sync_interval_minutes"
                   :auto-sync-options="autoSyncIntervalOptions"
+                  @update:randomize-results="
+                    form.unsplash_randomize_results = $event;
+                    saveSettingsInternal();
+                  "
                   @update:auto-sync-enabled="
                     form.unsplash_auto_sync_enabled = $event;
                     saveSettingsInternal();
@@ -706,9 +711,14 @@
                   title="Search topics"
                   :store="pexelsStore"
                   hint="Each topic becomes an album of matching photos."
+                  :randomize-results="form.pexels_randomize_results"
                   :auto-sync-enabled="form.pexels_auto_sync_enabled"
                   :auto-sync-interval="form.pexels_auto_sync_interval_minutes"
                   :auto-sync-options="autoSyncIntervalOptions"
+                  @update:randomize-results="
+                    form.pexels_randomize_results = $event;
+                    saveSettingsInternal();
+                  "
                   @update:auto-sync-enabled="
                     form.pexels_auto_sync_enabled = $event;
                     saveSettingsInternal();
@@ -3424,8 +3434,10 @@ const form = reactive({
   pexels_api_key: '',
   unsplash_auto_sync_enabled: false,
   unsplash_auto_sync_interval_minutes: 60,
+  unsplash_randomize_results: false,
   pexels_auto_sync_enabled: false,
   pexels_auto_sync_interval_minutes: 60,
+  pexels_randomize_results: false,
   // Device-facing base URL for image requests (e.g. http://homeassistant.local:9608).
   // Empty = derive from the browser's location.
   device_image_base_url: '',
@@ -3695,11 +3707,15 @@ onMounted(async () => {
     unsplash_auto_sync_interval_minutes: parseInt(
       store.settings.unsplash_auto_sync_interval || '60'
     ),
+    unsplash_randomize_results:
+      store.settings.unsplash_randomize_results === 'true',
     pexels_auto_sync_enabled:
       store.settings.pexels_auto_sync_enabled === 'true',
     pexels_auto_sync_interval_minutes: parseInt(
       store.settings.pexels_auto_sync_interval || '60'
     ),
+    pexels_randomize_results:
+      store.settings.pexels_randomize_results === 'true',
   });
 
   // Load cached albums if available
@@ -3838,8 +3854,10 @@ const saveSettingsInternal = async () => {
     unsplash_auto_sync_interval: String(
       form.unsplash_auto_sync_interval_minutes
     ),
+    unsplash_randomize_results: String(form.unsplash_randomize_results),
     pexels_auto_sync_enabled: String(form.pexels_auto_sync_enabled),
     pexels_auto_sync_interval: String(form.pexels_auto_sync_interval_minutes),
+    pexels_randomize_results: String(form.pexels_randomize_results),
     device_image_base_url: form.device_image_base_url,
   });
 };

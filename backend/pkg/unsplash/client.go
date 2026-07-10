@@ -43,11 +43,13 @@ type Photo struct {
 
 type searchResponse struct {
 	Results []Photo `json:"results"`
+	Total   int     `json:"total"`
 }
 
-// Search returns one page of photos matching query. perPage is capped at 30
-// (the Unsplash maximum); page is 1-based.
-func (c *Client) Search(query string, perPage, page int) ([]Photo, error) {
+// Search returns one page of photos matching query, plus the total number of
+// results the query has. perPage is capped at 30 (the Unsplash maximum); page
+// is 1-based.
+func (c *Client) Search(query string, perPage, page int) ([]Photo, int, error) {
 	if perPage <= 0 || perPage > 30 {
 		perPage = 30
 	}
@@ -62,22 +64,22 @@ func (c *Client) Search(query string, perPage, page int) ([]Photo, error) {
 
 	req, err := http.NewRequest(http.MethodGet, apiBase+"/search/photos?"+q.Encode(), nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Client-ID "+c.APIKey)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unsplash search: status %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("unsplash search: status %d", resp.StatusCode)
 	}
 
 	var out searchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return out.Results, nil
+	return out.Results, out.Total, nil
 }
