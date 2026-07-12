@@ -14,7 +14,12 @@ RUN go mod download
 
 # Copy Source
 COPY backend/ ./backend/
-RUN CGO_ENABLED=1 go build -o photoframe-server ./backend
+# VERSION is stamped into the binary and surfaced via /api/status and the
+# webapp footer, so users on the "latest" image tag can tell what they run.
+ARG VERSION=dev
+RUN CGO_ENABLED=1 go build \
+    -ldflags "-X github.com/aitjcize/esp32-photoframe-server/backend/internal/version.Version=${VERSION}" \
+    -o photoframe-server ./backend
 
 # Build Stage for Frontend
 FROM node:20-alpine AS frontend-builder

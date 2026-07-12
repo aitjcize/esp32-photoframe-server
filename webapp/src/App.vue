@@ -43,6 +43,17 @@
       </v-container>
     </v-main>
 
+    <!-- Same style as the device webapp's version footer -->
+    <v-footer
+      v-if="serverVersion"
+      app
+      class="text-center d-flex justify-center"
+    >
+      <span class="text-body-2 text-grey">
+        ESP32 PhotoFrame Server {{ serverVersion }}
+      </span>
+    </v-footer>
+
     <!-- Global snackbar shared via useSnackbar() -->
     <v-snackbar
       v-model="snackbar.show"
@@ -59,17 +70,25 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import Settings from './components/Settings.vue';
 import Login from './components/Login.vue';
 import Setup from './components/Setup.vue';
 import { useAuthStore } from './stores/auth';
 import { useSnackbar } from './composables/useSnackbar';
+import { getStatus } from './api';
 
 const authStore = useAuthStore();
 const { snackbar } = useSnackbar();
+const serverVersion = ref('');
 
 onMounted(async () => {
+  try {
+    const status = await getStatus();
+    serverVersion.value = status.version || '';
+  } catch {
+    // Non-fatal: just omit the footer.
+  }
   await authStore.checkStatus();
 });
 </script>

@@ -93,6 +93,8 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-${{ matrix.arch }}
             ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-${{ matrix.arch }}
