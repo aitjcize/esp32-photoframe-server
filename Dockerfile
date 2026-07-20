@@ -62,6 +62,7 @@ RUN apk add --no-cache \
         build-base \
         python3 \
         npm \
+        git \
         cairo-dev \
         pango-dev \
         jpeg-dev \
@@ -82,6 +83,23 @@ RUN mkdir -p /app/bin /app/static /app/data
 
 # Copy Binary
 COPY --from=builder /app/photoframe-server /app/photoframe-server
+
+# Copy epdoptimize wrapper script and install its local dependencies
+COPY backend/internal/service/epdoptimize-wrapper.mjs /app/epdoptimize-wrapper.mjs
+COPY backend/internal/service/epdoptimize-wrapper-package.json /app/package.json
+RUN apk add --no-cache --virtual .build-deps \
+        build-base \
+        python3 \
+        npm \
+        git \
+        cairo-dev \
+        pango-dev \
+        jpeg-dev \
+        giflib-dev \
+        librsvg-dev \
+    && npm install --omit=dev \
+    && apk del .build-deps \
+    && rm -rf /root/.npm /tmp/*
 
 # Copy Frontend Build
 COPY --from=frontend-builder /app/dist /app/static
