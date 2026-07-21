@@ -233,8 +233,11 @@ func (s *ProcessorService) processWithEpdOptimize(inputPath string, options map[
 		"--settings", string(settingsJSON),
 	}
 
-	if orientation, ok := options["orientation"]; ok {
-		args = append(args, "--orientation", orientation)
+	// Save orientation before deleting it — needed later for EPDGZ encoding.
+	epdgzOrientation := ""
+	if o, ok := options["orientation"]; ok {
+		args = append(args, "--orientation", o)
+		epdgzOrientation = o
 		delete(options, "orientation")
 	}
 
@@ -279,6 +282,9 @@ func (s *ProcessorService) processWithEpdOptimize(inputPath string, options map[
 		convertArgs := []string{outputPath, epdgzPath, "-f", "epdgz"}
 		if dim != "" {
 			convertArgs = append(convertArgs, "-d", dim)
+		}
+		if epdgzOrientation != "" {
+			convertArgs = append(convertArgs, "--orientation", epdgzOrientation)
 		}
 		convertArgs = append(convertArgs, "-v")
 
