@@ -4,6 +4,8 @@ package service
 // from photosource_helpers.go so the album feature stays self-contained.
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
@@ -27,8 +29,18 @@ func DeviceAlbumIDs(db *gorm.DB, deviceID uint, source string) []uint {
 func PickRandomDBPhotoForAlbums(
 	db *gorm.DB, source, orientationFilter string, albumIDs, excludeIDs []uint,
 ) (model.Image, error) {
+	return PickRandomDBPhotoForAlbumsFiltered(db, source, orientationFilter, albumIDs, excludeIDs, time.Time{}, time.Time{})
+}
+
+// PickRandomDBPhotoForAlbumsFiltered is like PickRandomDBPhotoForAlbums but
+// additionally filters by a date range on photo_taken_at. Zero times mean no
+// bound.
+func PickRandomDBPhotoForAlbumsFiltered(
+	db *gorm.DB, source, orientationFilter string, albumIDs, excludeIDs []uint,
+	dateFrom, dateTo time.Time,
+) (model.Image, error) {
 	if len(albumIDs) == 0 {
-		return PickRandomDBPhoto(db, source, orientationFilter, excludeIDs)
+		return PickRandomDBPhotoFiltered(db, source, orientationFilter, excludeIDs, dateFrom, dateTo)
 	}
 
 	query := db.Model(&model.Image{}).
@@ -41,6 +53,12 @@ func PickRandomDBPhotoForAlbums(
 	}
 	if orientationFilter != "" {
 		query = query.Where("images.orientation IN ?", []string{orientationFilter, "auto"})
+	}
+	if !dateFrom.IsZero() {
+		query = query.Where("images.photo_taken_at >= ?", dateFrom)
+	}
+	if !dateTo.IsZero() {
+		query = query.Where("images.photo_taken_at <= ?", dateTo)
 	}
 
 	var item model.Image

@@ -529,6 +529,35 @@
 
                 <v-row class="mt-1">
                   <v-col cols="12" md="6">
+                    <v-text-field
+                      v-model="form.immich_date_from"
+                      label="Date From"
+                      type="date"
+                      variant="outlined"
+                      density="compact"
+                      clearable
+                      hint="Only sync/show photos taken after this date"
+                      persistent-hint
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-text-field>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field
+                      v-model="form.immich_date_to"
+                      label="Date To"
+                      type="date"
+                      variant="outlined"
+                      density="compact"
+                      clearable
+                      hint="Only sync/show photos taken before this date"
+                      persistent-hint
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-text-field>
+                  </v-col>
+                </v-row>
+
+                <v-row class="mt-1">
+                  <v-col cols="12" md="6">
                     <v-checkbox
                       v-model="form.immich_auto_sync_enabled"
                       label="Auto Sync Album"
@@ -3555,6 +3584,8 @@ const form = reactive({
   immich_album_id: '',
   immich_auto_sync_enabled: false,
   immich_auto_sync_interval_minutes: 60,
+  immich_date_from: '',
+  immich_date_to: '',
   immich_albums: [] as any[],
   telegram_bot_token: '',
   telegram_push_enabled: false,
@@ -3829,6 +3860,8 @@ onMounted(async () => {
     immich_auto_sync_interval_minutes: parseInt(
       store.settings.immich_auto_sync_interval_minutes || '60'
     ),
+    immich_date_from: store.settings.immich_date_from || '',
+    immich_date_to: store.settings.immich_date_to || '',
     device_image_base_url: store.settings.device_image_base_url || '',
     openai_api_key: store.settings.openai_api_key || '',
     google_api_key: store.settings.google_api_key || '',
@@ -3978,6 +4011,8 @@ const saveSettingsInternal = async () => {
     immich_auto_sync_interval_minutes: String(
       form.immich_auto_sync_interval_minutes
     ),
+    immich_date_from: form.immich_date_from,
+    immich_date_to: form.immich_date_to,
     openai_api_key: form.openai_api_key,
     google_api_key: form.google_api_key,
     unsplash_api_key: form.unsplash_api_key,

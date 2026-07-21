@@ -33,7 +33,8 @@ func NewImmichService(db *gorm.DB, settings *SettingsService) *ImmichService {
 			switch key {
 			case "immich_auto_sync_enabled", "immich_auto_sync_interval_minutes",
 				"immich_source_mode", "immich_memory_mode", "immich_album_id",
-				"immich_url", "immich_api_key":
+				"immich_url", "immich_api_key",
+				"immich_date_from", "immich_date_to":
 				return true
 			default:
 				return false
@@ -84,6 +85,36 @@ func (s *ImmichService) immichMemoryMode() string {
 		return ImmichMemoryModeLatest
 	}
 	return ImmichMemoryModeAll
+}
+
+// DateRange returns the configured date range filter for Immich photos.
+// An empty/zero time means no bound on that side.
+func (s *ImmichService) DateRange() (from, to time.Time) {
+	if v, _ := s.settings.Get("immich_date_from"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			from = t
+		}
+	}
+	if v, _ := s.settings.Get("immich_date_to"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			// Include the entire "to" day by adding 23h59m.
+			to = time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, t.Location())
+		}
+	}
+	return
+}
+
+// ApplyDateRange adds WHERE clauses for the configured date range to a GORM
+// query on the images table. No-ops when both bounds are zero.
+func (s *ImmichService) ApplyDateRange(q *gorm.DB) *gorm.DB {
+	from, to := s.DateRange()
+	if !from.IsZero() {
+		q = q.Where("photo_taken_at >= ?", from)
+	}
+	if !to.IsZero() {
+		q = q.Where("photo_taken_at <= ?", to)
+	}
+	return q
 }
 
 func (s *ImmichService) isAutoSyncConfigured() bool {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -77,12 +78,24 @@ func RunDBPhotoFlow(
 // always matched alongside) and excluding ids. Generic over the four sources
 // that follow the source = ? filter shape (gallery, immich, synology, google).
 func PickRandomDBPhoto(db *gorm.DB, source, orientationFilter string, excludeIDs []uint) (model.Image, error) {
+	return PickRandomDBPhotoFiltered(db, source, orientationFilter, excludeIDs, time.Time{}, time.Time{})
+}
+
+// PickRandomDBPhotoFiltered is like PickRandomDBPhoto but additionally filters
+// by a date range on photo_taken_at. Zero times mean no bound.
+func PickRandomDBPhotoFiltered(db *gorm.DB, source, orientationFilter string, excludeIDs []uint, dateFrom, dateTo time.Time) (model.Image, error) {
 	query := db.Order("RANDOM()").Where("source = ?", source)
 	if len(excludeIDs) > 0 {
 		query = query.Where("id NOT IN ?", excludeIDs)
 	}
 	if orientationFilter != "" {
 		query = query.Where("orientation IN ?", []string{orientationFilter, "auto"})
+	}
+	if !dateFrom.IsZero() {
+		query = query.Where("photo_taken_at >= ?", dateFrom)
+	}
+	if !dateTo.IsZero() {
+		query = query.Where("photo_taken_at <= ?", dateTo)
 	}
 	var item model.Image
 	err := query.First(&item).Error
