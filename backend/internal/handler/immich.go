@@ -48,5 +48,42 @@ func (h *ImmichHandler) SetSyncAlbums(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// CacheStatus returns the current state of the Immich image cache.
+// GET /api/immich/cache/status
+func (h *ImmichHandler) CacheStatus(c echo.Context) error {
+	cache := h.immich.GetCacheService()
+	if cache == nil {
+		return c.JSON(http.StatusOK, service.CacheStatus{Enabled: false})
+	}
+	return c.JSON(http.StatusOK, cache.Status())
+}
+
+// CachePopulate triggers an immediate background cache population cycle.
+// POST /api/immich/cache/populate
+func (h *ImmichHandler) CachePopulate(c echo.Context) error {
+	cache := h.immich.GetCacheService()
+	if cache == nil {
+		return respondError(c, http.StatusBadRequest, "cache service not available")
+	}
+	if !cache.Enabled() {
+		return respondError(c, http.StatusBadRequest, "immich cache is not enabled")
+	}
+	cache.PopulateNow()
+	return c.JSON(http.StatusOK, map[string]string{"status": "population started"})
+}
+
+// CacheClear deletes all cached images from disk and the database.
+// POST /api/immich/cache/clear
+func (h *ImmichHandler) CacheClear(c echo.Context) error {
+	cache := h.immich.GetCacheService()
+	if cache == nil {
+		return respondError(c, http.StatusBadRequest, "cache service not available")
+	}
+	if err := cache.ClearCache(); err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "cache cleared"})
+}
+
 // Sync / SyncStatus / Clear / Count are served by the generic PhotoSyncHandler
 // (see photosync_handler.go) — identical across photo sources.

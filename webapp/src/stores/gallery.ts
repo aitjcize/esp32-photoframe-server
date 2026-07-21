@@ -60,9 +60,6 @@ export const useGalleryStore = defineStore('gallery', {
 
     async fetchPhotos() {
       this.loading = true;
-      // Capture the request context so a slow response from a previous
-      // source/album/page doesn't clobber a newer one (e.g. on load, the
-      // default 'gallery' fetch racing the hash-restored source).
       const reqSource = this.source;
       const reqAlbum = this.album;
       const reqPage = this.page;
@@ -75,6 +72,17 @@ export const useGalleryStore = defineStore('gallery', {
         let url = `/gallery/photos?source=${reqSource}&limit=${this.limit}&offset=${offset}`;
         if (reqAlbum != null) {
           url += `&album=${reqAlbum}`;
+        }
+        // When Immich cache is enabled, only show cached images in the gallery.
+        if (reqSource === 'immich') {
+          try {
+            const statusRes = await api.get('/immich/cache/status');
+            if (statusRes.data?.enabled) {
+              url += '&cached_only=true';
+            }
+          } catch {
+            // Cache endpoint unavailable — show all images
+          }
         }
         const res = await api.get(url);
         if (!isCurrent()) return; // discard stale response

@@ -70,6 +70,14 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 		}
 	}
 
+	// When cached_only is set, only return images that have a local cache entry.
+	// Used by the Immich source when offline-cache mode is enabled so the
+	// gallery only shows photos the frame can actually serve without Immich.
+	if c.QueryParam("cached_only") == "true" {
+		query = query.
+			Joins("JOIN immich_caches c ON c.image_id = images.id")
+	}
+
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return respondError(c, http.StatusInternalServerError, "failed to count photos")
@@ -235,8 +243,18 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		return err
 	}
 
-	// Case 1b: Immich (Proxy)
+	// Case 1b: Immich (Proxy or local cache)
 	if item.Source == model.SourceImmich {
+		// Try local cache first — works even when Immich is offline.
+		var cache model.ImmichCache
+		if err := h.db.Where("image_id = ?", item.ID).First(&cache).Error; err == nil {
+			if _, err := os.Stat(cache.FilePath); err == nil {
+				c.Response().Header().Set("Content-Type", "image/jpeg")
+				c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+				return c.File(cache.FilePath)
+			}
+		}
+		// Fall back to Immich API.
 		thumbBytes, err := h.immich.GetPhoto(item.ExternalID, "thumbnail")
 		if err != nil {
 			fmt.Printf("Failed to fetch immich thumbnail (asset=%s): %v\n", item.ExternalID, err)

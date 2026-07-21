@@ -22,6 +22,7 @@ type ImmichService struct {
 	client   *immich.Client
 	mu       sync.Mutex
 	autoSync *AutoSyncScheduler
+	cache    *ImmichCacheService
 }
 
 func NewImmichService(db *gorm.DB, settings *SettingsService) *ImmichService {
@@ -34,6 +35,8 @@ func NewImmichService(db *gorm.DB, settings *SettingsService) *ImmichService {
 			case "immich_auto_sync_enabled", "immich_auto_sync_interval_minutes",
 				"immich_source_mode", "immich_memory_mode", "immich_album_id",
 				"immich_url", "immich_api_key",
+				"immich_cache_enabled", "immich_cache_max_images",
+				"immich_cache_max_size_mb", "immich_cache_priority",
 				"immich_date_from", "immich_date_to":
 				return true
 			default:
@@ -51,6 +54,17 @@ func NewImmichService(db *gorm.DB, settings *SettingsService) *ImmichService {
 // when the corresponding settings are enabled.
 func (s *ImmichService) StartAutoSync() {
 	s.autoSync.Start()
+}
+
+// SetCacheService attaches the cache service (called after construction to
+// resolve the circular dependency between ImmichService and ImmichCacheService).
+func (s *ImmichService) SetCacheService(cache *ImmichCacheService) {
+	s.cache = cache
+}
+
+// GetCacheService returns the attached cache service, or nil if not set.
+func (s *ImmichService) GetCacheService() *ImmichCacheService {
+	return s.cache
 }
 
 // Immich source modes — what the sync pulls from. See issue #32.
@@ -425,9 +439,16 @@ func (s *ImmichService) IsSyncing() bool {
 // startup (lastSuccessAt is in-memory and resets to zero), and a blanket delete
 // before a re-import that then fails would leave the gallery empty. Removed
 // assets are pruned by the shared album-sync engine; the explicit Clear button
-// (ClearPhotos) remains the only destructive path.
+// (ClearPhotos) remains the only destructive path. After metadata sync, it
+// triggers background cache population if caching is enabled.
 func (s *ImmichService) resyncInternal() error {
-	return s.ImportPhotos()
+	if err := s.ImportPhotos(); err != nil {
+		return err
+	}
+	if s.cache != nil && s.cache.Enabled() {
+		s.cache.PopulateNow()
+	}
+	return nil
 }
 
 // parseImmichDate parses ISO 8601 date strings from the Immich API.

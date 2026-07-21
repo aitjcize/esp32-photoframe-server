@@ -400,9 +400,18 @@ const fetchAlbumChips = async () => {
     return;
   }
   try {
-    const res = await api.get(
-      `/albums?source=${galleryStore.source}&synced=true`
-    );
+    let url = `/albums?source=${galleryStore.source}&synced=true`;
+    if (galleryStore.source === 'immich') {
+      try {
+        const statusRes = await api.get('/immich/cache/status');
+        if (statusRes.data?.enabled) {
+          url += '&cached_only=true';
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const res = await api.get(url);
     // Only show albums that currently have photos — hide ones emptied upstream.
     albumChips.value = (res.data || []).filter(
       (a: any) => (a.asset_count ?? 0) > 0

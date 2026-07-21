@@ -598,6 +598,175 @@
                     >Disconnect</v-btn
                   >
                 </div>
+
+                <v-divider class="my-6"></v-divider>
+
+                <h3 class="text-subtitle-1 font-weight-bold mb-3">
+                  Offline Cache
+                </h3>
+                <div class="text-caption text-grey mb-3">
+                  Cache images locally so the frame keeps showing photos when
+                  Immich is unreachable. Images are resized to max 1600×1200 and
+                  stored as JPEG.
+                </div>
+
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-checkbox
+                      v-model="form.immich_cache_enabled"
+                      label="Enable Offline Cache"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-checkbox>
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field
+                      v-model.number="form.immich_cache_max_images"
+                      label="Max Cached Images"
+                      type="number"
+                      min="0"
+                      variant="outlined"
+                      density="compact"
+                      :disabled="!form.immich_cache_enabled"
+                      hint="0 = unlimited"
+                      persistent-hint
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-text-field>
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field
+                      v-model.number="form.immich_cache_max_size_mb"
+                      label="Max Cache Size (MB)"
+                      type="number"
+                      min="0"
+                      variant="outlined"
+                      density="compact"
+                      :disabled="!form.immich_cache_enabled"
+                      hint="0 = unlimited"
+                      persistent-hint
+                      @update:model-value="saveSettingsInternal()"
+                    ></v-text-field>
+                  </v-col>
+                </v-row>
+
+                <v-row v-if="form.immich_cache_enabled">
+                  <v-col cols="12">
+                    <div class="text-caption text-grey mb-2">
+                      How many photos to cache from each category. Higher values
+                      = more photos from that category.
+                    </div>
+                    <div class="d-flex flex-column ga-3">
+                      <div class="d-flex align-center ga-3">
+                        <v-icon size="small" color="amber">mdi-star</v-icon>
+                        <div class="text-body-2" style="width: 90px">
+                          Favorites
+                        </div>
+                        <v-slider
+                          v-model="cachePriorityWeights.favorites"
+                          :min="0"
+                          :max="100"
+                          :step="5"
+                          color="amber"
+                          density="compact"
+                          hide-details
+                          thumb-label
+                          class="flex-grow-1"
+                          @update:model-value="saveCachePriority()"
+                        ></v-slider>
+                      </div>
+                      <div class="d-flex align-center ga-3">
+                        <v-icon size="small" color="blue"
+                          >mdi-clock-fast</v-icon
+                        >
+                        <div class="text-body-2" style="width: 90px">
+                          Recent
+                        </div>
+                        <v-slider
+                          v-model="cachePriorityWeights.recent"
+                          :min="0"
+                          :max="100"
+                          :step="5"
+                          color="blue"
+                          density="compact"
+                          hide-details
+                          thumb-label
+                          class="flex-grow-1"
+                          @update:model-value="saveCachePriority()"
+                        ></v-slider>
+                      </div>
+                      <div class="d-flex align-center ga-3">
+                        <v-icon size="small" color="grey"
+                          >mdi-shuffle-variant</v-icon
+                        >
+                        <div class="text-body-2" style="width: 90px">
+                          Random
+                        </div>
+                        <v-slider
+                          v-model="cachePriorityWeights.random"
+                          :min="0"
+                          :max="100"
+                          :step="5"
+                          color="grey"
+                          density="compact"
+                          hide-details
+                          thumb-label
+                          class="flex-grow-1"
+                          @update:model-value="saveCachePriority()"
+                        ></v-slider>
+                      </div>
+                      <div class="d-flex align-center ga-3">
+                        <v-icon size="small" color="deep-purple"
+                          >mdi-history</v-icon
+                        >
+                        <div class="text-body-2" style="width: 90px">Older</div>
+                        <v-slider
+                          v-model="cachePriorityWeights.old"
+                          :min="0"
+                          :max="100"
+                          :step="5"
+                          color="deep-purple"
+                          density="compact"
+                          hide-details
+                          thumb-label
+                          class="flex-grow-1"
+                          @update:model-value="saveCachePriority()"
+                        ></v-slider>
+                      </div>
+                    </div>
+                  </v-col>
+                </v-row>
+
+                <v-row v-if="form.immich_cache_enabled" class="mt-2">
+                  <v-col cols="12">
+                    <div class="d-flex align-center ga-3">
+                      <v-btn
+                        size="small"
+                        color="primary"
+                        variant="tonal"
+                        :loading="immichStore.cacheStatus?.populating"
+                        @click="populateImmichCache"
+                        >Populate Now</v-btn
+                      >
+                      <v-btn
+                        size="small"
+                        color="warning"
+                        variant="tonal"
+                        @click="clearImmichCache"
+                        >Clear Cache</v-btn
+                      >
+                      <span
+                        v-if="immichStore.cacheStatus"
+                        class="text-caption text-grey"
+                      >
+                        {{ immichStore.cacheStatus.count }} images ({{
+                          immichStore.cacheStatus.size_human
+                        }})
+                      </span>
+                    </div>
+                  </v-col>
+                </v-row>
               </div>
 
               <div v-else>
@@ -3587,6 +3756,10 @@ const form = reactive({
   immich_date_from: '',
   immich_date_to: '',
   immich_albums: [] as any[],
+  immich_cache_enabled: false,
+  immich_cache_max_images: 0,
+  immich_cache_max_size_mb: 0,
+  immich_cache_priority: 'favorites=50,recent=30,random=20',
   telegram_bot_token: '',
   telegram_push_enabled: false,
   telegram_target_device_id: [] as number[],
@@ -3862,6 +4035,16 @@ onMounted(async () => {
     ),
     immich_date_from: store.settings.immich_date_from || '',
     immich_date_to: store.settings.immich_date_to || '',
+    immich_cache_enabled: store.settings.immich_cache_enabled === 'true',
+    immich_cache_max_images: parseInt(
+      store.settings.immich_cache_max_images || '0'
+    ),
+    immich_cache_max_size_mb: parseInt(
+      store.settings.immich_cache_max_size_mb || '0'
+    ),
+    immich_cache_priority:
+      store.settings.immich_cache_priority ||
+      'favorites=50,recent=30,random=20',
     device_image_base_url: store.settings.device_image_base_url || '',
     openai_api_key: store.settings.openai_api_key || '',
     google_api_key: store.settings.google_api_key || '',
@@ -3933,6 +4116,11 @@ onMounted(async () => {
           applySyncedAlbumState();
         } catch (e) {
           // Non-fatal: checkboxes start unchecked until user refreshes
+        }
+        try {
+          await immichStore.fetchCacheStatus();
+        } catch (e) {
+          // Non-fatal
         }
       })()
     );
@@ -4013,6 +4201,10 @@ const saveSettingsInternal = async () => {
     ),
     immich_date_from: form.immich_date_from,
     immich_date_to: form.immich_date_to,
+    immich_cache_enabled: String(form.immich_cache_enabled),
+    immich_cache_max_images: String(form.immich_cache_max_images),
+    immich_cache_max_size_mb: String(form.immich_cache_max_size_mb),
+    immich_cache_priority: form.immich_cache_priority,
     openai_api_key: form.openai_api_key,
     google_api_key: form.google_api_key,
     unsplash_api_key: form.unsplash_api_key,
@@ -4258,6 +4450,7 @@ const disconnectImmich = async () => {
   immichConnected.value = false;
   immichStore.count = 0;
   immichStore.albums = [];
+  immichStore.cacheStatus = null;
   showMessage('Disconnected from Immich.');
 };
 
@@ -4328,6 +4521,11 @@ const loadImmichAlbums = async () => {
     } catch (e) {
       // Non-fatal
     }
+    try {
+      await immichStore.fetchCacheStatus();
+    } catch (e) {
+      // Non-fatal
+    }
     showMessage('Albums loaded!');
   } catch (e: any) {
     showMessage(
@@ -4385,6 +4583,77 @@ const syncImmich = async () => {
 };
 
 const clearImmich = () => deleteAllPhotosForSource('immich');
+
+// Cache priority weights — parsed from the serialized string for the sliders.
+const cachePriorityWeights = reactive({
+  favorites: 50,
+  recent: 30,
+  random: 20,
+  old: 0,
+});
+
+const parseCachePriority = (s: string) => {
+  const parts: Record<string, number> = {};
+  for (const part of s.split(',')) {
+    const [k, v] = part.split('=').map((x) => x.trim());
+    if (k && v) parts[k] = parseInt(v) || 0;
+  }
+  return parts;
+};
+
+const serializeCachePriority = () => {
+  const entries = Object.entries(cachePriorityWeights)
+    .map(([k, v]) => `${k}=${v}`);
+  return entries.join(',') || 'favorites=50,recent=30,random=20';
+};
+
+const saveCachePriority = async () => {
+  form.immich_cache_priority = serializeCachePriority();
+  await saveSettingsInternal();
+};
+
+// Initialize sliders from form on mount
+watch(
+  () => form.immich_cache_priority,
+  (val) => {
+    const parsed = parseCachePriority(val || '');
+    cachePriorityWeights.favorites = parsed.favorites ?? 50;
+    cachePriorityWeights.recent = parsed.recent ?? 30;
+    cachePriorityWeights.random = parsed.random ?? 20;
+    cachePriorityWeights.old = parsed.old ?? 0;
+  },
+  { immediate: true }
+);
+
+const populateImmichCache = async () => {
+  try {
+    await immichStore.populateCache();
+    showMessage('Cache population started in background.');
+  } catch (e: any) {
+    showMessage(
+      'Cache populate failed: ' + (e.response?.data?.error || 'Unknown error'),
+      true
+    );
+  }
+};
+
+const clearImmichCache = async () => {
+  if (
+    !(await confirmDialog.value.open(
+      'Are you sure you want to clear the offline cache? Cached images will be removed from disk.'
+    ))
+  )
+    return;
+  try {
+    await immichStore.clearCache();
+    showMessage('Cache cleared.');
+  } catch (e: any) {
+    showMessage(
+      'Cache clear failed: ' + (e.response?.data?.error || 'Unknown error'),
+      true
+    );
+  }
+};
 
 // --- Topic sources (Unsplash / Pexels) ---
 // Replace the synced topic set, then offer to sync (topics have no photos

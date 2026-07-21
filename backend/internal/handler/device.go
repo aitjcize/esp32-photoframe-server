@@ -294,17 +294,21 @@ func (h *DeviceHandler) ListAlbums(c echo.Context) error {
 	// Report the LIVE photo count (memberships joined to existing images) rather
 	// than the cached Album.asset_count, which can go stale when images are
 	// removed (cleared, or an album emptied/deleted upstream). One grouped query
-	// instead of a COUNT per album.
+	// instead of a COUNT per album. When cached_only=true, count only images
+	// that have a local cache entry.
 	type albumCount struct {
 		AlbumID uint
 		N       int
 	}
 	var counts []albumCount
-	h.db.Model(&model.ImageAlbumMembership{}).
+	countQuery := h.db.Model(&model.ImageAlbumMembership{}).
 		Select("image_album_memberships.album_id as album_id, COUNT(*) as n").
-		Joins("JOIN images ON images.id = image_album_memberships.image_id AND images.deleted_at IS NULL").
-		Group("image_album_memberships.album_id").
-		Scan(&counts)
+		Joins("JOIN images ON images.id = image_album_memberships.image_id AND images.deleted_at IS NULL")
+	if c.QueryParam("cached_only") == "true" {
+		countQuery = countQuery.
+			Joins("JOIN immich_caches c ON c.image_id = images.id")
+	}
+	countQuery.Group("image_album_memberships.album_id").Scan(&counts)
 	countByID := make(map[uint]int, len(counts))
 	for _, cnt := range counts {
 		countByID[cnt.AlbumID] = cnt.N

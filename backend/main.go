@@ -167,6 +167,8 @@ func main() {
 	synologyService.StartAutoSync()
 	// Initialize Immich Service
 	immichService := service.NewImmichService(database, settingsService)
+	immichCacheService := service.NewImmichCacheService(database, settingsService, immichService, dataDir)
+	immichService.SetCacheService(immichCacheService)
 	immichService.StartAutoSync()
 	// Initialize search-topic sources (each user topic becomes a synced album).
 	unsplashService := service.NewUnsplashService(database, settingsService)
@@ -184,7 +186,7 @@ func main() {
 	// two stay easy to scan against each other.
 	sourceRegistry := imagesource.NewRegistry()
 	sourceRegistry.Register(service.NewGallerySource(database, dataDir))
-	sourceRegistry.Register(service.NewImmichSource(database, immichService))
+	sourceRegistry.Register(service.NewImmichSource(database, immichService, immichCacheService))
 	sourceRegistry.Register(service.NewGooglePhotosSource(database, dataDir))
 	sourceRegistry.Register(service.NewSynologyPhotosSource(database, synologyService))
 	sourceRegistry.Register(service.NewTopicSourcePlugin(database, model.SourceUnsplash))
@@ -373,6 +375,9 @@ func main() {
 	protectedApi.GET("/immich/albums", imh.ListAlbums)
 	protectedApi.POST("/immich/sync-albums", imh.SetSyncAlbums)
 	protectedApi.GET("/immich/count", immichSync.Count)
+	protectedApi.GET("/immich/cache/status", imh.CacheStatus)
+	protectedApi.POST("/immich/cache/populate", imh.CachePopulate)
+	protectedApi.POST("/immich/cache/clear", imh.CacheClear)
 
 	// Search-topic sources (Unsplash / Pexels). Topics are listed via
 	// the generic GET /albums?source=<src>; sync/count/clear reuse PhotoSyncHandler.

@@ -27,6 +27,7 @@ photoframe.db
 # Data & Temp files
 data/photos/
 data/thumbnails/
+data/immich_cache/
 data/thumb_*.jpg
 data/*.jpg
 data/*.png

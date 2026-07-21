@@ -2,6 +2,16 @@ import { defineStore } from 'pinia';
 import { api } from '../api';
 import { getApiError } from '../utils/errors';
 
+interface CacheStatus {
+  enabled: boolean;
+  count: number;
+  size_bytes: number;
+  size_human: string;
+  max_images: number;
+  max_size_mb: number;
+  populating: boolean;
+}
+
 export const useImmichStore = defineStore('immich', {
   state: () => ({
     count: 0,
@@ -9,6 +19,7 @@ export const useImmichStore = defineStore('immich', {
     syncedAlbums: [] as any[],
     loading: false,
     error: null as string | null,
+    cacheStatus: null as CacheStatus | null,
   }),
   actions: {
     async fetchCount() {
@@ -79,6 +90,35 @@ export const useImmichStore = defineStore('immich', {
         await this.fetchCount();
       } finally {
         this.loading = false;
+      }
+    },
+
+    async fetchCacheStatus() {
+      try {
+        const res = await api.get('/immich/cache/status');
+        this.cacheStatus = res.data;
+      } catch (e) {
+        console.error('Failed to fetch Immich cache status', e);
+      }
+    },
+
+    async populateCache() {
+      try {
+        await api.post('/immich/cache/populate');
+        await this.fetchCacheStatus();
+      } catch (e) {
+        this.error = getApiError(e);
+        throw e;
+      }
+    },
+
+    async clearCache() {
+      try {
+        await api.post('/immich/cache/clear');
+        await this.fetchCacheStatus();
+      } catch (e) {
+        this.error = getApiError(e);
+        throw e;
       }
     },
   },
