@@ -493,13 +493,12 @@ func (h *ImageHandler) SyncDeviceConfig(c echo.Context) error {
 		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
-	// Store device's config in database
+	// Store device's config in database. Processing settings are NOT
+	// accepted from the device; the server is the sole authority and
+	// pushes them via X-Config-Payload on image fetch.
 	updates := map[string]interface{}{}
 	if len(req.Config) > 0 {
 		updates["device_config"] = string(req.Config)
-	}
-	if len(req.ProcessingSettings) > 0 {
-		updates["device_processing_settings"] = string(req.ProcessingSettings)
 	}
 	if len(req.ColorPalette) > 0 {
 		updates["device_color_palette"] = string(req.ColorPalette)
@@ -743,9 +742,6 @@ func (h *ImageHandler) pullDeviceConfigAsync(device model.Device, deviceTS int64
 				updates := map[string]interface{}{
 					"device_config":       configRaw,
 					"config_last_updated": deviceTS,
-				}
-				if proc, perr := client.FetchProcessingSettings(); perr == nil {
-					updates["device_processing_settings"] = proc
 				}
 				if palette, perr := client.FetchPalette(); perr == nil {
 					updates["device_color_palette"] = palette
