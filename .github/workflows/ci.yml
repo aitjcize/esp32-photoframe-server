@@ -77,11 +77,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract version
         id: version
@@ -96,8 +97,8 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.VERSION }}
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-${{ matrix.arch }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-${{ matrix.arch }}
+            ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:latest-${{ matrix.arch }}
+            ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-${{ matrix.arch }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
@@ -106,11 +107,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker-build
     steps:
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract version
         id: version
@@ -118,27 +120,14 @@ jobs:
 
       - name: Create and push manifest (latest)
         run: |
-          docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest \
-            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-amd64 \
-            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-arm64
+          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:latest \
+            ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:latest-amd64 \
+            ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:latest-arm64
 
       - name: Create and push manifest (${{ steps.version.outputs.VERSION }})
         run: |
-          docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }} \
-            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-amd64 \
-            ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-arm64
+          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }} \
+            ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-amd64 \
+            ghcr.io/${{ github.repository_owner }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-arm64
 
-  update-readme:
-    name: Update Docker Hub README
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Sync README to Docker Hub
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server
-          short-description: "Image server for ESP32 PhotoFrame: Google Photos, Synology, Telegram & AI generation."
