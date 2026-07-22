@@ -409,22 +409,23 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		procOptions["format"] = "png"
 	}
 
-	// 3.5. Parse X-Processing-Settings header if present
+	// 3.5. Load processing settings from the server-side database. The server
+	// is the sole authority on processing (converter, autoMode, etc.) — we
+	// never read them from the device's request headers, which may carry stale
+	// values or lack server-only fields.
 	var settings *photoframe.ProcessingSettings
-	if settingsStr := c.Request().Header.Get("X-Processing-Settings"); settingsStr != "" {
+	if deviceFound && device.DeviceProcessingSettings != "" && device.DeviceProcessingSettings != "{}" {
 		settings = &photoframe.ProcessingSettings{}
-		if err := json.Unmarshal([]byte(settingsStr), settings); err != nil {
-			fmt.Printf("Failed to parse X-Processing-Settings header: %v\n", err)
+		if err := json.Unmarshal([]byte(device.DeviceProcessingSettings), settings); err != nil {
 			settings = nil
 		}
 	}
 
-	// 3.6. Parse X-Color-Palette header if present
+	// 3.6. Load color palette from the server-side database.
 	var palette *photoframe.Palette
-	if paletteStr := c.Request().Header.Get("X-Color-Palette"); paletteStr != "" {
+	if deviceFound && device.DeviceColorPalette != "" && device.DeviceColorPalette != "{}" {
 		palette = &photoframe.Palette{}
-		if err := json.Unmarshal([]byte(paletteStr), palette); err != nil {
-			fmt.Printf("Failed to parse X-Color-Palette header: %v\n", err)
+		if err := json.Unmarshal([]byte(device.DeviceColorPalette), palette); err != nil {
 			palette = nil
 		}
 	}
@@ -493,17 +494,17 @@ func (h *ImageHandler) SyncDeviceConfig(c echo.Context) error {
 		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
-	// Store device's config in database. Processing settings are NOT
-	// accepted from the device; the server is the sole authority and
-	// pushes them via X-Config-Payload on image fetch.
+	// Only accept the device's config and color palette when the device is
+	// newer than the server. Processing settings are never accepted — the
+	// server is the sole authority and pushes them via X-Config-Payload.
 	updates := map[string]interface{}{}
-	if len(req.Config) > 0 {
-		updates["device_config"] = string(req.Config)
-	}
-	if len(req.ColorPalette) > 0 {
-		updates["device_color_palette"] = string(req.ColorPalette)
-	}
-	if req.ConfigLastUpdated > 0 {
+	if req.ConfigLastUpdated > device.ConfigLastUpdated {
+		if len(req.Config) > 0 {
+			updates["device_config"] = string(req.Config)
+		}
+		if len(req.ColorPalette) > 0 {
+			updates["device_color_palette"] = string(req.ColorPalette)
+		}
 		updates["config_last_updated"] = req.ConfigLastUpdated
 	}
 
