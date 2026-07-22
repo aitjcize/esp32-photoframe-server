@@ -31,12 +31,13 @@ func (s *immichSource) Fetch(req *imagesource.Request) (*imagesource.Response, e
 		albumIDs = DeviceAlbumIDs(s.db, req.Device.ID, model.SourceImmich)
 	}
 	dateFrom, dateTo := s.immich.DateRange()
+	cacheEnabled := s.cache != nil && s.cache.Enabled()
 	pick := func(orientation string, exclude []uint) (model.Image, error) {
-		return PickRandomDBPhotoForAlbumsFiltered(s.db, model.SourceImmich, orientation, albumIDs, exclude, dateFrom, dateTo)
+		return PickRandomDBPhotoForAlbumsFiltered(s.db, model.SourceImmich, orientation, albumIDs, exclude, dateFrom, dateTo, cacheEnabled)
 	}
 	load := func(item model.Image) (image.Image, error) {
 		// Try cache first
-		if s.cache != nil && s.cache.Enabled() {
+		if cacheEnabled {
 			if cached := s.cache.Lookup(item.ID); cached != "" {
 				img, err := loadLocalImage(cached)
 				if err == nil {
@@ -52,7 +53,7 @@ func (s *immichSource) Fetch(req *imagesource.Request) (*imagesource.Response, e
 		}
 
 		// Save to cache in background if cache is enabled
-		if s.cache != nil && s.cache.Enabled() {
+		if cacheEnabled {
 			go func() {
 				if _, cerr := s.cache.CacheImage(item.ID, item.ExternalID); cerr != nil {
 					// already logged inside CacheImage

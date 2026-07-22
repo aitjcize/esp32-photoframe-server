@@ -78,12 +78,15 @@ func RunDBPhotoFlow(
 // always matched alongside) and excluding ids. Generic over the four sources
 // that follow the source = ? filter shape (gallery, immich, synology, google).
 func PickRandomDBPhoto(db *gorm.DB, source, orientationFilter string, excludeIDs []uint) (model.Image, error) {
-	return PickRandomDBPhotoFiltered(db, source, orientationFilter, excludeIDs, time.Time{}, time.Time{})
+	return PickRandomDBPhotoFiltered(db, source, orientationFilter, excludeIDs, time.Time{}, time.Time{}, false)
 }
 
 // PickRandomDBPhotoFiltered is like PickRandomDBPhoto but additionally filters
-// by a date range on photo_taken_at. Zero times mean no bound.
-func PickRandomDBPhotoFiltered(db *gorm.DB, source, orientationFilter string, excludeIDs []uint, dateFrom, dateTo time.Time) (model.Image, error) {
+// by a date range on photo_taken_at. Zero times mean no bound. When
+// cachedOnly is true, only images that have an entry in immich_caches are
+// returned — useful when the Immich server is offline and only cached images
+// can be served.
+func PickRandomDBPhotoFiltered(db *gorm.DB, source, orientationFilter string, excludeIDs []uint, dateFrom, dateTo time.Time, cachedOnly bool) (model.Image, error) {
 	query := db.Order("RANDOM()").Where("source = ?", source)
 	if len(excludeIDs) > 0 {
 		query = query.Where("id NOT IN ?", excludeIDs)
@@ -96,6 +99,9 @@ func PickRandomDBPhotoFiltered(db *gorm.DB, source, orientationFilter string, ex
 	}
 	if !dateTo.IsZero() {
 		query = query.Where("photo_taken_at <= ?", dateTo)
+	}
+	if cachedOnly {
+		query = query.Joins("JOIN immich_caches c ON c.image_id = images.id")
 	}
 	var item model.Image
 	err := query.First(&item).Error

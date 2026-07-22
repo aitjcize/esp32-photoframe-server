@@ -29,18 +29,19 @@ func DeviceAlbumIDs(db *gorm.DB, deviceID uint, source string) []uint {
 func PickRandomDBPhotoForAlbums(
 	db *gorm.DB, source, orientationFilter string, albumIDs, excludeIDs []uint,
 ) (model.Image, error) {
-	return PickRandomDBPhotoForAlbumsFiltered(db, source, orientationFilter, albumIDs, excludeIDs, time.Time{}, time.Time{})
+	return PickRandomDBPhotoForAlbumsFiltered(db, source, orientationFilter, albumIDs, excludeIDs, time.Time{}, time.Time{}, false)
 }
 
 // PickRandomDBPhotoForAlbumsFiltered is like PickRandomDBPhotoForAlbums but
 // additionally filters by a date range on photo_taken_at. Zero times mean no
-// bound.
+// bound. When cachedOnly is true, only images with a local cache entry are
+// returned.
 func PickRandomDBPhotoForAlbumsFiltered(
 	db *gorm.DB, source, orientationFilter string, albumIDs, excludeIDs []uint,
-	dateFrom, dateTo time.Time,
+	dateFrom, dateTo time.Time, cachedOnly bool,
 ) (model.Image, error) {
 	if len(albumIDs) == 0 {
-		return PickRandomDBPhotoFiltered(db, source, orientationFilter, excludeIDs, dateFrom, dateTo)
+		return PickRandomDBPhotoFiltered(db, source, orientationFilter, excludeIDs, dateFrom, dateTo, cachedOnly)
 	}
 
 	query := db.Model(&model.Image{}).
@@ -59,6 +60,9 @@ func PickRandomDBPhotoForAlbumsFiltered(
 	}
 	if !dateTo.IsZero() {
 		query = query.Where("images.photo_taken_at <= ?", dateTo)
+	}
+	if cachedOnly {
+		query = query.Joins("JOIN immich_caches c ON c.image_id = images.id")
 	}
 
 	var item model.Image
