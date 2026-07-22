@@ -39,6 +39,12 @@ dev:
 	else \
 		echo "epaper-image-convert already installed, skipping..."; \
 	fi
+	@if ! npm list -g epdoptimize >/dev/null 2>&1; then \
+		echo "Installing epdoptimize and canvas..."; \
+		npm install -g epdoptimize canvas; \
+	else \
+		echo "epdoptimize already installed, skipping..."; \
+	fi
 	@if [ ! -f bin/fonts/NotoSans-Regular.ttf ]; then \
 		echo "Downloading NotoSans font..."; \
 		mkdir -p bin/fonts; \

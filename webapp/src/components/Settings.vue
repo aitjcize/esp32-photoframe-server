@@ -1708,224 +1708,300 @@
                       <!-- Processing Tab (matches device webapp ProcessingControls) -->
                       <v-tabs-window-item value="processing">
                         <v-row class="mt-1">
-                          <v-col cols="12">
-                            <v-card variant="outlined" class="mb-2">
-                              <v-card-subtitle class="pt-3"
-                                >Processing Preset</v-card-subtitle
-                              >
-                              <v-card-text>
-                                <v-btn-toggle
-                                  v-model="processingPreset"
-                                  mandatory
-                                  color="primary"
-                                  variant="outlined"
-                                  @update:model-value="applyProcessingPreset"
-                                >
-                                  <v-btn
-                                    v-for="p in processingPresetOptions"
-                                    :key="p.value"
-                                    :value="p.value"
-                                  >
-                                    {{ p.title }}
-                                  </v-btn>
-                                </v-btn-toggle>
-                              </v-card-text>
-                            </v-card>
-                          </v-col>
-                        </v-row>
-                        <v-row>
-                          <v-col cols="12" md="4">
+                          <v-col cols="12" md="6">
                             <v-select
-                              v-model="deviceProcessing.ditherAlgorithm"
-                              :items="ditherOptions"
+                              v-model="deviceProcessing.converter"
+                              :items="[
+                                {
+                                  title: 'epaper-image-convert',
+                                  value: 'epaper-image-convert',
+                                },
+                                { title: 'epdoptimize', value: 'epdoptimize' },
+                              ]"
                               item-title="title"
                               item-value="value"
-                              label="Dithering Algorithm"
+                              label="Image Converter"
                               variant="outlined"
                               density="compact"
+                              hint="Engine used to convert images for this device"
+                              persistent-hint
                             />
                           </v-col>
-                          <v-col cols="12" md="4">
-                            <v-select
-                              v-model="deviceProcessing.colorMethod"
-                              :items="[
-                                { title: 'RGB', value: 'rgb' },
-                                { title: 'LAB', value: 'lab' },
-                              ]"
-                              label="Color Matching"
-                              variant="outlined"
-                              density="compact"
-                            />
-                          </v-col>
-                        </v-row>
-
-                        <v-row>
-                          <v-col cols="12" md="4">
-                            <v-slider
-                              v-model="deviceProcessing.exposure"
-                              :min="0.5"
-                              :max="2.0"
-                              :step="0.01"
-                              label="Exposure"
-                              thumb-label
-                              color="primary"
-                            >
-                              <template #append>
-                                <span class="text-body-2">{{
-                                  deviceProcessing.exposure.toFixed(2)
-                                }}</span>
-                              </template>
-                            </v-slider>
-                          </v-col>
-                          <v-col v-if="!isGrayscale" cols="12" md="4">
-                            <v-slider
-                              v-model="deviceProcessing.saturation"
-                              :min="0.5"
-                              :max="2.0"
-                              :step="0.01"
-                              label="Saturation"
-                              thumb-label
-                              color="primary"
-                            >
-                              <template #append>
-                                <span class="text-body-2">{{
-                                  deviceProcessing.saturation.toFixed(2)
-                                }}</span>
-                              </template>
-                            </v-slider>
-                          </v-col>
-                          <v-col cols="12" md="4">
+                          <v-col v-if="isEpdOptimize" cols="12" md="6">
                             <v-checkbox
-                              v-model="deviceProcessing.compressDynamicRange"
-                              label="Compress Dynamic Range"
-                              hint="Map brightness to display's actual white point"
+                              v-model="deviceProcessing.autoMode"
+                              label="Auto Mode"
+                              hint="Automatically analyze each image for optimal processing settings"
                               persistent-hint
                               color="primary"
                             />
                           </v-col>
                         </v-row>
 
-                        <v-row>
-                          <v-col cols="12" md="4">
-                            <v-select
-                              v-model="deviceProcessing.toneMode"
-                              :items="[
-                                { title: 'Contrast', value: 'contrast' },
-                                { title: 'S-Curve', value: 'scurve' },
-                              ]"
-                              label="Tone Mapping"
-                              variant="outlined"
-                              density="compact"
-                            />
-                          </v-col>
-                          <v-col
-                            v-if="deviceProcessing.toneMode !== 'scurve'"
-                            cols="12"
-                            md="4"
-                          >
-                            <v-slider
-                              v-model="deviceProcessing.contrast"
-                              :min="0.5"
-                              :max="2.0"
-                              :step="0.01"
-                              label="Contrast"
-                              thumb-label
-                              color="primary"
-                            >
-                              <template #append>
-                                <span class="text-body-2">{{
-                                  deviceProcessing.contrast.toFixed(2)
-                                }}</span>
-                              </template>
-                            </v-slider>
-                          </v-col>
-                        </v-row>
+                        <template v-if="showManualProcessing">
+                          <v-row v-if="isEpdOptimize" class="mt-1">
+                            <v-col cols="12">
+                              <v-card variant="outlined" class="mb-2">
+                                <v-card-subtitle class="pt-3"
+                                  >Processing Preset</v-card-subtitle
+                                >
+                                <v-card-text>
+                                  <v-btn-toggle
+                                    v-model="deviceProcessing.epdOptimizePreset"
+                                    mandatory
+                                    color="primary"
+                                    variant="outlined"
+                                  >
+                                    <v-btn
+                                      v-for="p in epdOptimizePresetOptions.filter(
+                                        (p) => p.value !== 'custom'
+                                      )"
+                                      :key="p.value"
+                                      :value="p.value"
+                                    >
+                                      {{ p.title }}
+                                    </v-btn>
+                                  </v-btn-toggle>
+                                </v-card-text>
+                              </v-card>
+                            </v-col>
+                          </v-row>
+                          <v-row v-else class="mt-1">
+                            <v-col cols="12">
+                              <v-card variant="outlined" class="mb-2">
+                                <v-card-subtitle class="pt-3"
+                                  >Processing Preset</v-card-subtitle
+                                >
+                                <v-card-text>
+                                  <v-btn-toggle
+                                    v-model="processingPreset"
+                                    mandatory
+                                    color="primary"
+                                    variant="outlined"
+                                    @update:model-value="applyProcessingPreset"
+                                  >
+                                    <v-btn
+                                      v-for="p in activeProcessingPresetOptions"
+                                      :key="p.value"
+                                      :value="p.value"
+                                    >
+                                      {{ p.title }}
+                                    </v-btn>
+                                  </v-btn-toggle>
+                                </v-card-text>
+                              </v-card>
+                            </v-col>
+                          </v-row>
+                          <v-row>
+                            <v-col cols="12" md="4">
+                              <v-select
+                                v-model="deviceProcessing.ditherAlgorithm"
+                                :items="activeDitherOptions"
+                                item-title="title"
+                                item-value="value"
+                                label="Dithering Algorithm"
+                                variant="outlined"
+                                density="compact"
+                              />
+                            </v-col>
+                            <v-col cols="12" md="4">
+                              <v-select
+                                v-model="deviceProcessing.colorMethod"
+                                :items="[
+                                  { title: 'RGB', value: 'rgb' },
+                                  { title: 'LAB', value: 'lab' },
+                                ]"
+                                label="Color Matching"
+                                variant="outlined"
+                                density="compact"
+                              />
+                            </v-col>
+                          </v-row>
 
-                        <v-expand-transition>
-                          <v-card
-                            v-if="deviceProcessing.toneMode === 'scurve'"
-                            variant="tonal"
-                            class="mt-2"
-                          >
-                            <v-card-subtitle class="pt-3"
-                              >S-Curve Parameters</v-card-subtitle
+                          <v-row>
+                            <v-col cols="12" md="4">
+                              <v-slider
+                                v-model="deviceProcessing.exposure"
+                                :min="0.5"
+                                :max="2.0"
+                                :step="0.01"
+                                label="Exposure"
+                                thumb-label
+                                color="primary"
+                              >
+                                <template #append>
+                                  <span class="text-body-2">{{
+                                    deviceProcessing.exposure.toFixed(2)
+                                  }}</span>
+                                </template>
+                              </v-slider>
+                            </v-col>
+                            <v-col v-if="!isGrayscale" cols="12" md="4">
+                              <v-slider
+                                v-model="deviceProcessing.saturation"
+                                :min="0.5"
+                                :max="2.0"
+                                :step="0.01"
+                                label="Saturation"
+                                thumb-label
+                                color="primary"
+                              >
+                                <template #append>
+                                  <span class="text-body-2">{{
+                                    deviceProcessing.saturation.toFixed(2)
+                                  }}</span>
+                                </template>
+                              </v-slider>
+                            </v-col>
+                            <v-col cols="12" md="4">
+                              <v-checkbox
+                                v-model="deviceProcessing.compressDynamicRange"
+                                label="Compress Dynamic Range"
+                                hint="Map brightness to display's actual white point"
+                                persistent-hint
+                                color="primary"
+                              />
+                            </v-col>
+                          </v-row>
+
+                          <v-row>
+                            <v-col cols="12" md="4">
+                              <v-select
+                                v-model="deviceProcessing.toneMode"
+                                :items="[
+                                  { title: 'Contrast', value: 'contrast' },
+                                  { title: 'S-Curve', value: 'scurve' },
+                                ]"
+                                label="Tone Mapping"
+                                variant="outlined"
+                                density="compact"
+                              />
+                            </v-col>
+                            <v-col
+                              v-if="deviceProcessing.toneMode !== 'scurve'"
+                              cols="12"
+                              md="4"
                             >
-                            <v-card-text>
-                              <v-row>
-                                <v-col cols="12" md="6">
-                                  <v-slider
-                                    v-model="deviceProcessing.strength"
-                                    :min="0"
-                                    :max="1"
-                                    :step="0.01"
-                                    label="Strength"
-                                    thumb-label
-                                    color="primary"
-                                  >
-                                    <template #append
-                                      ><span class="text-body-2">{{
-                                        deviceProcessing.strength.toFixed(2)
-                                      }}</span></template
+                              <v-slider
+                                v-model="deviceProcessing.contrast"
+                                :min="0.5"
+                                :max="2.0"
+                                :step="0.01"
+                                label="Contrast"
+                                thumb-label
+                                color="primary"
+                              >
+                                <template #append>
+                                  <span class="text-body-2">{{
+                                    deviceProcessing.contrast.toFixed(2)
+                                  }}</span>
+                                </template>
+                              </v-slider>
+                            </v-col>
+                          </v-row>
+
+                          <v-expand-transition>
+                            <v-card
+                              v-if="deviceProcessing.toneMode === 'scurve'"
+                              variant="tonal"
+                              class="mt-2"
+                            >
+                              <v-card-subtitle class="pt-3"
+                                >S-Curve Parameters</v-card-subtitle
+                              >
+                              <v-card-text>
+                                <v-row>
+                                  <v-col cols="12" md="6">
+                                    <v-slider
+                                      v-model="deviceProcessing.strength"
+                                      :min="0"
+                                      :max="1"
+                                      :step="0.01"
+                                      label="Strength"
+                                      thumb-label
+                                      color="primary"
                                     >
-                                  </v-slider>
-                                </v-col>
-                                <v-col cols="12" md="6">
-                                  <v-slider
-                                    v-model="deviceProcessing.shadowBoost"
-                                    :min="0"
-                                    :max="1"
-                                    :step="0.01"
-                                    label="Shadow Boost"
-                                    thumb-label
-                                    color="primary"
-                                  >
-                                    <template #append
-                                      ><span class="text-body-2">{{
-                                        deviceProcessing.shadowBoost.toFixed(2)
-                                      }}</span></template
+                                      <template #append
+                                        ><span class="text-body-2">{{
+                                          deviceProcessing.strength.toFixed(2)
+                                        }}</span></template
+                                      >
+                                    </v-slider>
+                                  </v-col>
+                                  <v-col cols="12" md="6">
+                                    <v-slider
+                                      v-model="deviceProcessing.shadowBoost"
+                                      :min="0"
+                                      :max="1"
+                                      :step="0.01"
+                                      label="Shadow Boost"
+                                      thumb-label
+                                      color="primary"
                                     >
-                                  </v-slider>
-                                </v-col>
-                                <v-col cols="12" md="6">
-                                  <v-slider
-                                    v-model="deviceProcessing.highlightCompress"
-                                    :min="0.5"
-                                    :max="5"
-                                    :step="0.01"
-                                    label="Highlight Compress"
-                                    thumb-label
-                                    color="primary"
-                                  >
-                                    <template #append
-                                      ><span class="text-body-2">{{
-                                        deviceProcessing.highlightCompress.toFixed(
-                                          2
-                                        )
-                                      }}</span></template
+                                      <template #append
+                                        ><span class="text-body-2">{{
+                                          deviceProcessing.shadowBoost.toFixed(
+                                            2
+                                          )
+                                        }}</span></template
+                                      >
+                                    </v-slider>
+                                  </v-col>
+                                  <v-col cols="12" md="6">
+                                    <v-slider
+                                      v-model="
+                                        deviceProcessing.highlightCompress
+                                      "
+                                      :min="0.5"
+                                      :max="5"
+                                      :step="0.01"
+                                      label="Highlight Compress"
+                                      thumb-label
+                                      color="primary"
                                     >
-                                  </v-slider>
-                                </v-col>
-                                <v-col cols="12" md="6">
-                                  <v-slider
-                                    v-model="deviceProcessing.midpoint"
-                                    :min="0.3"
-                                    :max="0.7"
-                                    :step="0.01"
-                                    label="Midpoint"
-                                    thumb-label
-                                    color="primary"
-                                  >
-                                    <template #append
-                                      ><span class="text-body-2">{{
-                                        deviceProcessing.midpoint.toFixed(2)
-                                      }}</span></template
+                                      <template #append
+                                        ><span class="text-body-2">{{
+                                          deviceProcessing.highlightCompress.toFixed(
+                                            2
+                                          )
+                                        }}</span></template
+                                      >
+                                    </v-slider>
+                                  </v-col>
+                                  <v-col cols="12" md="6">
+                                    <v-slider
+                                      v-model="deviceProcessing.midpoint"
+                                      :min="0.3"
+                                      :max="0.7"
+                                      :step="0.01"
+                                      label="Midpoint"
+                                      thumb-label
+                                      color="primary"
                                     >
-                                  </v-slider>
-                                </v-col>
-                              </v-row>
-                            </v-card-text>
-                          </v-card>
-                        </v-expand-transition>
+                                      <template #append
+                                        ><span class="text-body-2">{{
+                                          deviceProcessing.midpoint.toFixed(2)
+                                        }}</span></template
+                                      >
+                                    </v-slider>
+                                  </v-col>
+                                </v-row>
+                              </v-card-text>
+                            </v-card>
+                          </v-expand-transition>
+                        </template>
+
+                        <v-alert
+                          v-else
+                          type="info"
+                          variant="tonal"
+                          density="compact"
+                          class="mt-4"
+                        >
+                          Processing settings are determined automatically by
+                          analyzing each image. Disable "Auto Mode" above to
+                          configure manually.
+                        </v-alert>
                       </v-tabs-window-item>
 
                       <!-- AI Generation Tab -->
@@ -2463,6 +2539,9 @@ const deviceSupportsCron = ref(true);
 
 // Device processing settings (synced remotely)
 const deviceProcessing = reactive({
+  converter: 'epaper-image-convert',
+  autoMode: true,
+  epdOptimizePreset: 'balanced',
   exposure: 1.0,
   saturation: 1.0,
   toneMode: 'contrast',
@@ -2476,6 +2555,13 @@ const deviceProcessing = reactive({
   compressDynamicRange: true,
 });
 
+const isEpdOptimize = computed(
+  () => deviceProcessing.converter === 'epdoptimize'
+);
+const showManualProcessing = computed(
+  () => !isEpdOptimize.value || !deviceProcessing.autoMode
+);
+
 // Processing presets from epaper-image-convert library
 import {
   getPresetOptions,
@@ -2484,6 +2570,34 @@ import {
 } from '@aitjcize/epaper-image-convert';
 
 const processingPreset = ref('custom');
+
+// epdoptimize processing presets (hardcoded to avoid library dependency in webapp)
+const epdOptimizePresetOptions = [
+  { value: 'balanced', title: 'Balanced' },
+  { value: 'dynamic', title: 'Dynamic' },
+  { value: 'vivid', title: 'Vivid' },
+  { value: 'soft', title: 'Soft' },
+  { value: 'grayscale', title: 'Grayscale' },
+  { value: 'restore', title: 'Restore' },
+  { value: 'posterScan', title: 'Poster Scan' },
+  { value: 'custom', title: 'Custom' },
+];
+
+// epdoptimize dither algorithms
+const epdOptimizeDitherOptions = [
+  { title: 'Floyd-Steinberg', value: 'floydSteinberg' },
+  { title: 'Atkinson', value: 'atkinson' },
+  { title: 'Stucki', value: 'stucki' },
+  { title: 'Burkes', value: 'burkes' },
+  { title: 'Jarvis-Judice-Ninke', value: 'jarvisJudiceNinke' },
+  { title: 'Sierra', value: 'sierra' },
+  { title: 'Sierra-2-4A', value: 'sierra2_4A' },
+  { title: 'Sierra-Lite', value: 'sierraLite' },
+  { title: 'Simple 2D', value: 'simple2D' },
+  { title: 'Blue Noise', value: 'blueNoise' },
+  { title: 'Riemersma', value: 'riemersma' },
+];
+
 const processingPresetOptions = [
   ...getPresetOptions(),
   { value: 'custom', title: 'Custom' },
@@ -2495,7 +2609,22 @@ for (const opt of getPresetOptions()) {
 }
 const ditherOptions = getDitherOptions();
 
+// Active preset/dither options based on selected converter
+const activeProcessingPresetOptions = computed(() =>
+  isEpdOptimize.value ? epdOptimizePresetOptions : processingPresetOptions
+);
+const activeDitherOptions = computed(() =>
+  isEpdOptimize.value ? epdOptimizeDitherOptions : ditherOptions
+);
+
 const applyProcessingPreset = (name: string) => {
+  if (isEpdOptimize.value) {
+    // epdoptimize presets: just store the name; the wrapper applies it server-side
+    if (epdOptimizePresetOptions.some((p) => p.value === name)) {
+      deviceProcessing.epdOptimizePreset = name;
+    }
+    return;
+  }
   const preset = processingPresets[name];
   if (preset) {
     Object.assign(deviceProcessing, preset);
@@ -2744,6 +2873,9 @@ const loadDeviceConfig = async (deviceId: number) => {
     const proc = parse(data.processing_settings);
     if (Object.keys(proc).length > 0) {
       Object.assign(deviceProcessing, {
+        converter: proc.converter ?? 'epaper-image-convert',
+        autoMode: proc.autoMode ?? true,
+        epdOptimizePreset: proc.epdOptimizePreset ?? 'balanced',
         exposure: proc.exposure ?? 1.0,
         saturation: proc.saturation ?? 1.0,
         toneMode: proc.toneMode ?? 'contrast',

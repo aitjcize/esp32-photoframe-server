@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	_ "golang.org/x/image/bmp" // Register BMP decoder
@@ -50,6 +51,16 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		}
 		if settings.CompressDynamicRange {
 			opts["compress-dynamic-range"] = "" // Boolean flag
+		}
+		// Converter selection: "epaper-image-convert" (default) or "epdoptimize"
+		if settings.Converter != "" {
+			opts["converter"] = settings.Converter
+		}
+		if settings.AutoMode {
+			opts["auto-mode"] = ""
+		}
+		if settings.EpdOptimizePreset != "" {
+			opts["epd-optimize-preset"] = settings.EpdOptimizePreset
 		}
 	}
 
@@ -121,14 +132,199 @@ func (s *ProcessorService) ProcessImage(img image.Image, options map[string]stri
 		format = f
 		delete(options, "format")
 	}
+
+	// Determine converter: "epdoptimize" or "epaper-image-convert" (default)
+	converter := "epaper-image-convert"
+	if c, ok := options["converter"]; ok && c != "" {
+		converter = c
+		delete(options, "converter")
+	}
+
+	autoMode := false
+	if _, ok := options["auto-mode"]; ok {
+		autoMode = true
+		delete(options, "auto-mode")
+	}
+
+	thumbPath := filepath.Join(tmpDir, "thumbnail.jpg")
+
+	if converter == "epdoptimize" {
+		return s.processWithEpdOptimize(inputPath, options, format, autoMode, tmpDir, thumbPath)
+	}
+
+	return s.processWithEpaperImageConvert(inputPath, options, format, tmpDir, thumbPath)
+}
+
+// findWrapperScript locates the epdoptimize wrapper script. It looks relative
+// to the current executable first, then falls back to well-known paths.
+func findWrapperScript() string {
+	exe, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "epdoptimize-wrapper.mjs")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	// Fallback: look relative to working directory
+	for _, base := range []string{".", "..", "/app"} {
+		candidate := filepath.Join(base, "epdoptimize-wrapper.mjs")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func (s *ProcessorService) processWithEpdOptimize(inputPath string, options map[string]string, format string, autoMode bool, tmpDir string, thumbPath string) ([]byte, []byte, error) {
+	wrapperScript := findWrapperScript()
+	if wrapperScript == "" {
+		return nil, nil, fmt.Errorf("epdoptimize wrapper script not found")
+	}
+
+	// The wrapper always outputs PNG; we'll convert to EPDGZ later if needed.
+	outputPath := filepath.Join(tmpDir, "output.png")
+
+	// Build settings JSON for the wrapper
+	settings := map[string]interface{}{
+		"autoMode": autoMode,
+	}
+	if preset, ok := options["epd-optimize-preset"]; ok {
+		settings["preset"] = preset
+		delete(options, "epd-optimize-preset")
+	}
+	if !autoMode {
+		// Pass through the processing options from epaper-image-convert
+		// and let the wrapper translate them
+		settings["exposure"] = options["exposure"]
+		settings["saturation"] = options["saturation"]
+		settings["contrast"] = options["contrast"]
+		settings["toneMode"] = options["tone-mode"]
+		settings["ditherAlgorithm"] = options["dither-algorithm"]
+		settings["colorMethod"] = options["color-method"]
+		settings["compressDynamicRange"] = options["compress-dynamic-range"]
+		settings["scurveStrength"] = options["scurve-strength"]
+		settings["scurveShadow"] = options["scurve-shadow"]
+		settings["scurveHighlight"] = options["scurve-highlight"]
+		settings["scurveMidpoint"] = options["scurve-midpoint"]
+	}
+
+	settingsJSON, _ := json.Marshal(settings)
+
+	// Determine palette type for the wrapper
+	paletteType := "spectra6" // default
+	if _, ok := options["palette-preset"]; ok {
+		if options["palette-preset"] == "grayscale16" {
+			paletteType = "grayscale16"
+		}
+		delete(options, "palette-preset")
+	}
+	if _, ok := options["gray-black-y"]; ok {
+		paletteType = "grayscale16"
+	}
+
+	// Build wrapper arguments
+	args := []string{
+		wrapperScript,
+		inputPath,
+		outputPath,
+		"-d", options["dimension"],
+		"-t", thumbPath,
+		"--palette-type", paletteType,
+		"--settings", string(settingsJSON),
+	}
+
+	// Save orientation before deleting it — needed later for EPDGZ encoding.
+	epdgzOrientation := ""
+	if o, ok := options["orientation"]; ok {
+		args = append(args, "--orientation", o)
+		epdgzOrientation = o
+		delete(options, "orientation")
+	}
+
+	// Pass palette data if present (raw palette JSON from epaper-image-convert format)
+	if palette, ok := options["palette"]; ok {
+		args = append(args, "--palette", palette)
+		delete(options, "palette")
+	}
+	// Pass grayscale calibration if present
+	for _, k := range []string{"gray-black-y", "gray-white-y", "gray-gamma"} {
+		if v, ok := options[k]; ok {
+			args = append(args, "--"+k, v)
+			delete(options, k)
+		}
+	}
+
+	log.Printf("Processing image with epdoptimize: node %s", args[1:])
+
+	nodeBin := "node"
+	if runtime.GOOS == "windows" {
+		nodeBin = "node.exe"
+	}
+	cmd := exec.Command(nodeBin, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("epdoptimize execution failed: %s\nOutput: %s\n", err, string(output))
+		return nil, nil, fmt.Errorf("epdoptimize execution failed: %s", err)
+	}
+	log.Printf("epdoptimize Output: %s\n", string(output))
+
+	// Read the PNG output from the wrapper
+	pngBytes, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read epdoptimize output: %s. Output: %s", err, string(output))
+	}
+
+	// If EPDGZ format is needed, convert PNG → EPDGZ via epaper-image-convert
+	var processedBytes []byte
+	if format == "epdgz" {
+		epdgzPath := filepath.Join(tmpDir, "output.epdgz")
+		dim := options["dimension"]
+		convertArgs := []string{outputPath, epdgzPath, "-f", "epdgz"}
+		if dim != "" {
+			convertArgs = append(convertArgs, "-d", dim)
+		}
+		if epdgzOrientation != "" {
+			convertArgs = append(convertArgs, "--orientation", epdgzOrientation)
+		}
+		convertArgs = append(convertArgs, "-v")
+
+		log.Printf("Converting PNG to EPDGZ: epaper-image-convert %s", convertArgs)
+		convertCmd := exec.Command("epaper-image-convert", convertArgs...)
+		convertOutput, err := convertCmd.CombinedOutput()
+		if err != nil {
+			return nil, nil, fmt.Errorf("EPDGZ conversion failed: %s. Output: %s", err, string(convertOutput))
+		}
+		log.Printf("EPDGZ conversion output: %s", string(convertOutput))
+
+		processedBytes, err = os.ReadFile(epdgzPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read EPDGZ output: %s", err)
+		}
+	} else {
+		processedBytes = pngBytes
+	}
+
+	thumbBytes, err := os.ReadFile(thumbPath)
+	if err != nil {
+		fmt.Printf("Warning: Thumbnail not generated by epdoptimize wrapper. Path: %s\n", thumbPath)
+		thumbBytes = nil
+	}
+
+	return processedBytes, thumbBytes, nil
+}
+
+func (s *ProcessorService) processWithEpaperImageConvert(inputPath string, options map[string]string, format string, tmpDir string, thumbPath string) ([]byte, []byte, error) {
+	// Prepare output paths
 	outputExt := format
 	if format == "epdgz" {
 		outputExt = "epdgz"
 	}
 	outputPath := filepath.Join(tmpDir, "output."+outputExt)
-	thumbPath := filepath.Join(tmpDir, "thumbnail.jpg")
 
-	// 4. Prepare CLI arguments for epaper-image-convert
+	// Remove epdoptimize-specific keys that epaper-image-convert doesn't understand
+	delete(options, "epd-optimize-preset")
+
+	// Prepare CLI arguments for epaper-image-convert
 	// epaper-image-convert input.jpg output.{epdgz,png} -d WxH -f {format} -t thumbnail.jpg [options]
 	args := []string{inputPath, outputPath, "-f", format}
 
@@ -168,7 +364,7 @@ func (s *ProcessorService) ProcessImage(img image.Image, options map[string]stri
 	// Log CLI output for debug
 	log.Printf("CLI Output: %s\n", string(output))
 
-	// 5. Read outputs
+	// Read outputs
 	processedBytes, err := os.ReadFile(outputPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read processed image: %s. CLI Output: %s", err, string(output))

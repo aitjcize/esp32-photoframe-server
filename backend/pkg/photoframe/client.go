@@ -317,6 +317,9 @@ type ProcessingSettings struct {
 	ProcessingMode       string  `json:"processingMode"`
 	DitherAlgorithm      string  `json:"ditherAlgorithm"`
 	CompressDynamicRange bool    `json:"compressDynamicRange"`
+	Converter            string  `json:"converter"`
+	AutoMode             bool    `json:"autoMode"`
+	EpdOptimizePreset    string  `json:"epdOptimizePreset"`
 }
 
 type PaletteColor struct {
