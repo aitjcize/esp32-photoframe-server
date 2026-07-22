@@ -19,14 +19,16 @@ type DeviceHandler struct {
 	deviceService   *service.DeviceService
 	synologyService *service.SynologyService
 	immichService   *service.ImmichService
+	immichCache     *service.ImmichCacheService
 	db              *gorm.DB
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, immichService *service.ImmichService, db *gorm.DB) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, immichService *service.ImmichService, immichCache *service.ImmichCacheService, db *gorm.DB) *DeviceHandler {
 	return &DeviceHandler{
 		deviceService:   deviceService,
 		synologyService: synologyService,
 		immichService:   immichService,
+		immichCache:     immichCache,
 		db:              db,
 	}
 }
@@ -201,25 +203,35 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			tmp.Close()
 			imagePath = tempFile
 		} else if img.Source == model.SourceImmich {
-			// Download from Immich to temporary file
-			data, err := h.immichService.DownloadPhoto(img.ExternalID)
-			if err != nil {
-				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download immich photo: %v", err))
+			// Try local cache first — works even when Immich is offline.
+			if h.immichCache != nil && h.immichCache.Enabled() {
+				if cached := h.immichCache.Lookup(img.ID); cached != "" {
+					// Use the cached file directly
+					imagePath = cached
+				}
 			}
 
-			tmp, err := ioutil.TempFile("", "immich_push_*.jpg")
-			if err != nil {
-				return respondError(c, http.StatusInternalServerError, "failed to create temp file")
-			}
-			defer os.Remove(tmp.Name())
-			tempFile = tmp.Name()
+			// Fall back to Immich download if not cached
+			if imagePath == "" {
+				data, err := h.immichService.DownloadPhoto(img.ExternalID)
+				if err != nil {
+					return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download immich photo: %v", err))
+				}
 
-			if _, err := tmp.Write(data); err != nil {
+				tmp, err := ioutil.TempFile("", "immich_push_*.jpg")
+				if err != nil {
+					return respondError(c, http.StatusInternalServerError, "failed to create temp file")
+				}
+				defer os.Remove(tmp.Name())
+				tempFile = tmp.Name()
+
+				if _, err := tmp.Write(data); err != nil {
+					tmp.Close()
+					return respondError(c, http.StatusInternalServerError, "failed to write temp file")
+				}
 				tmp.Close()
-				return respondError(c, http.StatusInternalServerError, "failed to write temp file")
+				imagePath = tempFile
 			}
-			tmp.Close()
-			imagePath = tempFile
 		} else if strings.HasPrefix(img.FilePath, "http://") || strings.HasPrefix(img.FilePath, "https://") {
 			// Topic sources (unsplash, pexels) store a remote image URL in
 			// FilePath rather than a local file — fetch it to a temp file.

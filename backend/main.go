@@ -217,7 +217,7 @@ func main() {
 		Calendar:       calendarClient,
 		CalendarGoogle: googleCalendarClient,
 	})
-	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, immichService, database)
+	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, immichService, immichCacheService, database)
 
 	// Initialize Telegram Service
 	// Pass deviceService as Pusher
