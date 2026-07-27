@@ -1242,18 +1242,100 @@
                             ></v-text-field>
                           </v-col>
                         </v-row>
-                        <v-row>
-                          <v-col cols="12" md="6">
-                            <v-text-field
-                              v-model="deviceConfig.ntp_server"
-                              label="NTP Server"
-                              variant="outlined"
-                              density="compact"
-                              hint="e.g., pool.ntp.org"
-                              persistent-hint
-                            ></v-text-field>
-                          </v-col>
-                        </v-row>
+                        <!-- Advanced network settings (#43), collapsed by
+                             default. Static IP / DNS render only when the
+                             firmware reports ip_mode; NTP exists everywhere. -->
+                        <v-expansion-panels class="mt-2" variant="accordion">
+                          <v-expansion-panel
+                            title="Advanced network settings"
+                            elevation="0"
+                          >
+                            <v-expansion-panel-text>
+                              <v-row>
+                                <v-col cols="12" md="6">
+                                  <v-text-field
+                                    v-model="deviceConfig.ntp_server"
+                                    label="NTP Server"
+                                    variant="outlined"
+                                    density="compact"
+                                    hint="e.g., pool.ntp.org, or a local IP"
+                                    persistent-hint
+                                  ></v-text-field>
+                                </v-col>
+                                <v-col
+                                  v-if="deviceSupportsStaticIp"
+                                  cols="12"
+                                  md="6"
+                                >
+                                  <v-select
+                                    v-model="deviceConfig.ip_mode"
+                                    :items="[
+                                      {
+                                        title: 'Automatic (DHCP)',
+                                        value: 'dhcp',
+                                      },
+                                      { title: 'Static IP', value: 'static' },
+                                    ]"
+                                    label="IP Configuration"
+                                    variant="outlined"
+                                    density="compact"
+                                    hint="Applied on the device's next boot / wake"
+                                    persistent-hint
+                                  ></v-select>
+                                </v-col>
+                              </v-row>
+                              <v-row
+                                v-if="
+                                  deviceSupportsStaticIp &&
+                                  deviceConfig.ip_mode === 'static'
+                                "
+                              >
+                                <v-col cols="12" md="4">
+                                  <v-text-field
+                                    v-model="deviceConfig.static_ip"
+                                    label="IP Address"
+                                    variant="outlined"
+                                    density="compact"
+                                    placeholder="192.168.1.50"
+                                  ></v-text-field>
+                                </v-col>
+                                <v-col cols="12" md="4">
+                                  <v-text-field
+                                    v-model="deviceConfig.static_netmask"
+                                    label="Netmask"
+                                    variant="outlined"
+                                    density="compact"
+                                  ></v-text-field>
+                                </v-col>
+                                <v-col cols="12" md="4">
+                                  <v-text-field
+                                    v-model="deviceConfig.static_gateway"
+                                    label="Gateway"
+                                    variant="outlined"
+                                    density="compact"
+                                    placeholder="192.168.1.1"
+                                  ></v-text-field>
+                                </v-col>
+                              </v-row>
+                              <v-row v-if="deviceSupportsStaticIp">
+                                <v-col cols="12" md="6">
+                                  <v-text-field
+                                    v-model="deviceConfig.dns_server"
+                                    label="DNS Server"
+                                    variant="outlined"
+                                    density="compact"
+                                    :hint="
+                                      deviceConfig.ip_mode === 'static'
+                                        ? 'Leave empty to use the gateway'
+                                        : 'Optional override; leave empty for DHCP-provided DNS'
+                                    "
+                                    persistent-hint
+                                  ></v-text-field>
+                                </v-col>
+                              </v-row>
+                            </v-expansion-panel-text>
+                          </v-expansion-panel>
+                        </v-expansion-panels>
                       </v-tabs-window-item>
 
                       <!-- Auto Rotate Tab -->
@@ -2450,6 +2532,12 @@ const deviceConfig = reactive<Record<string, any>>({
   display_rotation_deg: 180,
   timezone_offset: 0,
   ntp_server: 'pool.ntp.org',
+  // Advanced network settings (firmware #43)
+  ip_mode: 'dhcp',
+  static_ip: '',
+  static_netmask: '255.255.255.0',
+  static_gateway: '',
+  dns_server: '',
   deep_sleep_enabled: true,
   ha_url: '',
   openai_api_key: '',
@@ -2460,6 +2548,11 @@ const deviceConfig = reactive<Record<string, any>>({
 // only rotate_interval and silently ignores a cron schedule. Best-effort:
 // derived from the loaded config, which is the server's stored copy.
 const deviceSupportsCron = ref(true);
+
+// Whether the device firmware supports static IP / DNS override (#43).
+// Detected by key presence in the stored config; old firmware must render
+// (and be sent) exactly what it did before.
+const deviceSupportsStaticIp = ref(false);
 
 // Device processing settings (synced remotely)
 const deviceProcessing = reactive({
@@ -2720,9 +2813,15 @@ const loadDeviceConfig = async (deviceId: number) => {
       deep_sleep_enabled: cfg.deep_sleep_enabled ?? true,
       ha_url: cfg.ha_url ?? '',
       ntp_server: cfg.ntp_server ?? 'pool.ntp.org',
+      ip_mode: cfg.ip_mode ?? 'dhcp',
+      static_ip: cfg.static_ip ?? '',
+      static_netmask: cfg.static_netmask || '255.255.255.0',
+      static_gateway: cfg.static_gateway ?? '',
+      dns_server: cfg.dns_server ?? '',
       openai_api_key: cfg.openai_api_key ?? '',
       google_api_key: cfg.google_api_key ?? '',
     });
+    deviceSupportsStaticIp.value = 'ip_mode' in cfg;
     const startMin = cfg.sleep_schedule_start ?? 1380;
     deviceConfig.sleep_start_time = `${String(Math.floor(startMin / 60)).padStart(2, '0')}:${String(startMin % 60).padStart(2, '0')}`;
     const endMin = cfg.sleep_schedule_end ?? 420;
@@ -3242,6 +3341,18 @@ const saveDevice = async () => {
             sleep_schedule_end: endH * 60 + endM,
           };
 
+      // Static IP / DNS exist only on firmware reporting ip_mode; don't send
+      // the fields to older firmware (#43).
+      const networkFields = deviceSupportsStaticIp.value
+        ? {
+            ip_mode: deviceConfig.ip_mode,
+            static_ip: deviceConfig.static_ip,
+            static_netmask: deviceConfig.static_netmask,
+            static_gateway: deviceConfig.static_gateway,
+            dns_server: deviceConfig.dns_server,
+          }
+        : {};
+
       const result = await updateDeviceConfig(editingDevice.id, {
         config: {
           device_name: editingDevice.name,
@@ -3255,6 +3366,7 @@ const saveDevice = async () => {
           display_rotation_deg: deviceConfig.display_rotation_deg,
           timezone: timezone,
           ntp_server: deviceConfig.ntp_server,
+          ...networkFields,
           deep_sleep_enabled: deviceConfig.deep_sleep_enabled,
           ha_url: deviceConfig.ha_url,
           openai_api_key: deviceConfig.openai_api_key,
