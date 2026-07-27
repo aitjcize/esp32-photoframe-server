@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.14.0
+
+### Added
+
+- **Advanced network settings in the device config.** Edit Device → General
+  now groups the NTP server into a collapsed "Advanced network settings"
+  panel and adds static IP (mode/address/netmask/gateway) and DNS override
+  fields, matching firmware v2.15.0's static IP support. The new fields
+  render — and are sent to the device — only when the device's firmware
+  reports the capability, so devices on older firmware look and behave
+  exactly as before.
+- **Randomized topic sync for Unsplash and Pexels.** Topic syncs always
+  fetched the same top-100 search results, so a topic album never changed
+  after the first sync. A new per-source "Randomize results" option (off by
+  default) samples random pages from the first 1000 results — page 1 is
+  always included to anchor the most relevant photos — so each sync rotates
+  a different set into the album.
+- **Server version in the webapp footer.** The running version (from the
+  release tag; "dev" for local builds) is shown in a footer and exposed on
+  the public `/api/status` health endpoint, so users on the `latest` image
+  tag can see which version they're running. (#6)
+
 ## v1.12.0
 
 ### Added
