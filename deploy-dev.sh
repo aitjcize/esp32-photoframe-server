@@ -19,7 +19,7 @@ ADDON_NAME="esp32-photoframe-server-dev"
 ADDON_SLUG="local_${ADDON_NAME}"
 IMAGE="local/aarch64-addon-${ADDON_NAME}:dev"
 ADDON_PORT="9608"
-BUILD_FROM="ghcr.io/home-assistant/aarch64-base:3.19"
+BUILD_FROM="ghcr.io/home-assistant/aarch64-base:3.21"
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
 REMOTE_DIR="/addons/${ADDON_NAME}"
 
@@ -52,7 +52,7 @@ ssh "${HA_HOST}" "cd ${REMOTE_DIR} && \
 ssh "${HA_HOST}" "cat > ${REMOTE_DIR}/build.yaml" <<EOF
 build_from:
   aarch64: ${BUILD_FROM}
-  amd64: ghcr.io/home-assistant/amd64-base:3.19
+  amd64: ghcr.io/home-assistant/amd64-base:3.21
 args:
   ADDON_PORT: "${ADDON_PORT}"
 EOF
