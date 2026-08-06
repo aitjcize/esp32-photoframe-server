@@ -56,25 +56,30 @@ build_from:
 args:
   ADDON_PORT: "${ADDON_PORT}"
 EOF
-# `ha apps reload` kicks off an ASYNC store rescan and returns immediately. On a
-# fresh/cold instance the scan of /addons isn't done yet, so an immediate
-# install fails with "App ... does not exist in the store". Poll (re-triggering
-# reload) until the supervisor has picked up the local add-on.
-echo "=== Reloading add-on store (waiting for ${ADDON_SLUG} to appear) ==="
-found=""
-for attempt in $(seq 1 15); do
-  ssh "${HA_HOST}" "ha apps reload" >/dev/null 2>&1 || true
-  if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" >/dev/null 2>&1; then
-    found="yes"
-    break
-  fi
-  sleep 2
-done
-if [ -z "${found}" ]; then
-  echo "ERROR: ${ADDON_SLUG} never appeared in the add-on store after reload." >&2
-  echo "Check that files landed under the supervisor's local add-ons dir:" >&2
-  echo "  ssh ${HA_HOST} 'ls -la ${REMOTE_DIR} && ha apps reload && ha su logs | tail'" >&2
-  echo "and that ${REMOTE_DIR}/config.yaml is valid after dev-ification." >&2
+# Get the supervisor to pick up the synced add-on. `ha apps reload` refreshes the
+# git-based store repos but does NOT rescan the LOCAL add-ons folder, so a
+# brand-new local add-on stays invisible ("... does not exist in the store")
+# until the supervisor restarts. Reload first (cheap, enough for updates); if the
+# add-on still isn't in the store, restart the supervisor to force a local
+# rescan.
+in_store() { ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" >/dev/null 2>&1; }
+
+echo "=== Reloading add-on store ==="
+ssh "${HA_HOST}" "ha apps reload" >/dev/null 2>&1 || true
+sleep 2
+if ! in_store; then
+  echo "=== New local add-on: restarting supervisor so it detects ${ADDON_SLUG} ==="
+  ssh "${HA_HOST}" "ha supervisor restart" >/dev/null 2>&1 || true
+  for attempt in $(seq 1 30); do
+    in_store && break
+    sleep 4
+  done
+fi
+if ! in_store; then
+  echo "ERROR: ${ADDON_SLUG} never appeared in the add-on store." >&2
+  echo "Check that files landed under the supervisor's local add-ons dir and that" >&2
+  echo "${REMOTE_DIR}/config.yaml is valid after dev-ification:" >&2
+  echo "  ssh ${HA_HOST} 'ls -la ${REMOTE_DIR} && ha supervisor restart'" >&2
   exit 1
 fi
 
