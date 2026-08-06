@@ -56,10 +56,32 @@ build_from:
 args:
   ADDON_PORT: "${ADDON_PORT}"
 EOF
-ssh "${HA_HOST}" "ha apps reload"
+# `ha apps reload` kicks off an ASYNC store rescan and returns immediately. On a
+# fresh/cold instance the scan of /addons isn't done yet, so an immediate
+# install fails with "App ... does not exist in the store". Poll (re-triggering
+# reload) until the supervisor has picked up the local add-on.
+echo "=== Reloading add-on store (waiting for ${ADDON_SLUG} to appear) ==="
+found=""
+for attempt in $(seq 1 15); do
+  ssh "${HA_HOST}" "ha apps reload" >/dev/null 2>&1 || true
+  if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" >/dev/null 2>&1; then
+    found="yes"
+    break
+  fi
+  sleep 2
+done
+if [ -z "${found}" ]; then
+  echo "ERROR: ${ADDON_SLUG} never appeared in the add-on store after reload." >&2
+  echo "Check that files landed under the supervisor's local add-ons dir:" >&2
+  echo "  ssh ${HA_HOST} 'ls -la ${REMOTE_DIR} && ha apps reload && ha su logs | tail'" >&2
+  echo "and that ${REMOTE_DIR}/config.yaml is valid after dev-ification." >&2
+  exit 1
+fi
 
 # First-time install: the supervisor must build once on-device (no image yet).
-if ! ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" >/dev/null 2>&1; then
+# The add-on is now in the store (poll above), so distinguish "installed" from
+# "store-only" by state: a not-yet-installed add-on reports `state: unknown`.
+if ssh "${HA_HOST}" "ha apps info ${ADDON_SLUG}" 2>/dev/null | grep -qE '^state: *unknown'; then
   echo "=== First-time install (one slow on-device build) ==="
   ssh "${HA_HOST}" "ha apps install ${ADDON_SLUG}"
   ssh "${HA_HOST}" "ha apps start ${ADDON_SLUG}" || true
