@@ -12,9 +12,10 @@ import (
 // server, bypassing the mdns transport used by NewClient.
 func newTestClient(baseURL string) *Client {
 	return &Client{
-		BaseURL:    baseURL,
-		APIKey:     "test-key",
-		httpClient: &http.Client{Timeout: 5 * time.Second},
+		BaseURL:        baseURL,
+		APIKey:         "test-key",
+		httpClient:     &http.Client{Timeout: 5 * time.Second},
+		downloadClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
@@ -117,6 +118,66 @@ func TestGetAlbumAssets_EmptyAlbum(t *testing.T) {
 
 // memoriesServer returns a test server that serves two "on this day" lanes
 // (2022 with one asset, 2024 with two) and records the query params it saw.
+// Asset byte fetches must request the edited rendition (edited=true), so
+// crops/rotations made in the Immich editor reach the frame instead of the
+// untouched original — see issue #46.
+func TestDownloadOriginal_RequestsEditedRendition(t *testing.T) {
+	var gotEdited []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/assets/a1/original" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		gotEdited = append(gotEdited, r.URL.Query().Get("edited"))
+		_, _ = w.Write([]byte("image-bytes"))
+	}))
+	defer srv.Close()
+
+	data, err := newTestClient(srv.URL).DownloadOriginal("a1")
+	if err != nil {
+		t.Fatalf("DownloadOriginal: %v", err)
+	}
+	if string(data) != "image-bytes" {
+		t.Errorf("got body %q, want image-bytes", data)
+	}
+	if len(gotEdited) != 1 || gotEdited[0] != "true" {
+		t.Errorf("edited query params = %v, want [true]", gotEdited)
+	}
+}
+
+// A server that rejects the edited parameter with a 400 must get a retry
+// without it, keeping asset fetches working on Immich versions that predate
+// the editor.
+func TestGetThumbnail_EditedParamRejectedFallsBack(t *testing.T) {
+	var sizes, editeds []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/assets/a1/thumbnail" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		sizes = append(sizes, r.URL.Query().Get("size"))
+		editeds = append(editeds, r.URL.Query().Get("edited"))
+		if r.URL.Query().Get("edited") != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte("thumb-bytes"))
+	}))
+	defer srv.Close()
+
+	data, err := newTestClient(srv.URL).GetThumbnail("a1", "preview")
+	if err != nil {
+		t.Fatalf("GetThumbnail: %v", err)
+	}
+	if string(data) != "thumb-bytes" {
+		t.Errorf("got body %q, want thumb-bytes", data)
+	}
+	if len(editeds) != 2 || editeds[0] != "true" || editeds[1] != "" {
+		t.Errorf("edited query params = %v, want [true, empty]", editeds)
+	}
+	if len(sizes) != 2 || sizes[0] != "preview" || sizes[1] != "preview" {
+		t.Errorf("size query params = %v, want preview on both requests", sizes)
+	}
+}
+
 func memoriesServer(t *testing.T, gotFor, gotType *string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

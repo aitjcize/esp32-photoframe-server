@@ -111,23 +111,48 @@ func (c *Client) GetAlbumAssets(albumID string) ([]Asset, error) {
 // GetThumbnail fetches thumbnail bytes for an asset.
 // size is "thumbnail" (small) or "preview" (large).
 func (c *Client) GetThumbnail(assetID, size string) ([]byte, error) {
-	req, err := http.NewRequest("GET", c.BaseURL+"/api/assets/"+assetID+"/thumbnail?size="+size, nil)
+	return c.fetchAssetBytes(c.httpClient,
+		"/api/assets/"+assetID+"/thumbnail?size="+size, "thumbnail fetch")
+}
+
+// fetchAssetBytes GETs an asset-serving path with edited=true appended, so
+// Immich returns the edited rendition of an asset when one exists (crops etc.
+// made in the Immich editor, v2.5.0+) and the untouched file otherwise — see
+// issue #46. Both /original and /thumbnail default to edited=false, which is
+// why edits never reached the frame. If a server rejects the parameter with a
+// 400 (in case some version validates its query strictly), the request is
+// retried without it.
+func (c *Client) fetchAssetBytes(httpClient *http.Client, path, what string) ([]byte, error) {
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	data, status, err := c.fetchBytes(httpClient, path+sep+"edited=true", what)
+	if status == http.StatusBadRequest {
+		data, _, err = c.fetchBytes(httpClient, path, what)
+	}
+	return data, err
+}
+
+func (c *Client) fetchBytes(httpClient *http.Client, path, what string) ([]byte, int, error) {
+	req, err := http.NewRequest("GET", c.BaseURL+path, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("x-api-key", c.APIKey)
-	req.Header.Set("Accept", "image/jpeg,image/*,*/*")
+	req.Header.Set("Accept", "application/octet-stream,image/*,*/*")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("thumbnail fetch returned status %d: %s", resp.StatusCode, string(body))
+		return nil, resp.StatusCode, fmt.Errorf("%s returned status %d: %s", what, resp.StatusCode, string(body))
 	}
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	return data, resp.StatusCode, err
 }
 
 // doJSON is like do() but for POST bodies with a JSON payload.
@@ -257,23 +282,9 @@ func (c *Client) getMemoryLanes(forDate string) ([]MemoryLane, int, error) {
 	return lanes, resp.StatusCode, nil
 }
 
-// DownloadOriginal fetches the original full-resolution asset.
+// DownloadOriginal fetches the full-resolution asset — the edited rendition
+// when one exists, the untouched original otherwise.
 func (c *Client) DownloadOriginal(assetID string) ([]byte, error) {
-	req, err := http.NewRequest("GET", c.BaseURL+"/api/assets/"+assetID+"/original", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("x-api-key", c.APIKey)
-	req.Header.Set("Accept", "application/octet-stream")
-
-	resp, err := c.downloadClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("original download returned status %d: %s", resp.StatusCode, string(body))
-	}
-	return io.ReadAll(resp.Body)
+	return c.fetchAssetBytes(c.downloadClient,
+		"/api/assets/"+assetID+"/original", "original download")
 }
