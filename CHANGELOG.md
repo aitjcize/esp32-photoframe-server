@@ -1,5 +1,41 @@
 # Changelog
 
+## v1.15.0
+
+### Added
+
+- **Photo scale mode synced from the frame.** The fit/cover layout and the
+  letterbox background color (white or black) are now device-owned
+  processing settings, synced through the same channel as dithering and
+  tone settings. The controls moved to Edit Device → Processing (first
+  row, matching the device web app); saving pushes them to a reachable
+  frame immediately and defers to the next fetch otherwise. Frames on
+  older firmware keep working through the legacy per-device fields.
+  Requires firmware v2.16.0 for device-side sync.
+
+### Changed
+
+- **epaper-image-convert 0.1.19.** Dynamic-range compression now remaps
+  each channel in linear light onto the panel's measured range, so pure
+  white and black letterboxes and backgrounds render clean — the ~1%
+  red/yellow speckle CDR-enabled presets produced on white areas is gone.
+  Server-side rendering now matches on-device processing exactly.
+- **Overlay pushes honor the synced layout.** Gallery/Telegram pushes with
+  an overlay render with the frame's synced scale mode instead of the
+  legacy column, and dashboard edits can no longer be silently shadowed
+  by a stale value from the frame during a pending sync.
+
+### Fixed
+
+- **Dashboard no longer serves a stale UI after updates.** index.html is
+  served with no-cache (hashed assets stay immutable), so the browser
+  picks up a new release without a hard refresh — previously the old
+  bundle could survive for hours behind HA ingress.
+- **Add-on image builds work again.** The Material Symbols font is fetched
+  from the Google Fonts API instead of GitHub raw downloads, which had
+  started rejecting anonymous requests.
+
+
 ## v1.14.0
 
 ### Added
