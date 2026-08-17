@@ -23,6 +23,9 @@ func respondError(c echo.Context, status int, msg string) error {
 type PhotoSyncBackend interface {
 	ClearAndResync() error
 	IsSyncing() bool
+	// LastSyncError is the failure message of the most recent sync run, or ""
+	// if it succeeded. Surfaced via sync-status so failures aren't log-only.
+	LastSyncError() string
 	ClearPhotos() error
 	GetPhotoCount() (int64, error)
 }
@@ -46,9 +49,14 @@ func (h *PhotoSyncHandler) Sync(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "synced"})
 }
 
-// SyncStatus reports whether a sync is currently in progress.
+// SyncStatus reports whether a sync is currently in progress, plus the most
+// recent run's failure message ("" when it succeeded) so the dashboard can
+// show sync errors instead of silently reporting zero new photos.
 func (h *PhotoSyncHandler) SyncStatus(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]bool{"running": h.svc.IsSyncing()})
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"running":    h.svc.IsSyncing(),
+		"last_error": h.svc.LastSyncError(),
+	})
 }
 
 // Clear removes all of the source's photos from the local DB.

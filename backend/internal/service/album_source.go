@@ -1,7 +1,9 @@
 package service
 
 import (
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
@@ -47,6 +49,9 @@ type AlbumSource interface {
 // SyncAlbumSource runs the shared import loop: for each sync-enabled album, fetch
 // its assets, upsert images + memberships (pruning removed ones), refresh the
 // album name, then GC images orphaned from every album. Returns total new images.
+// A failing album doesn't stop the loop (its prior state is left untouched), but
+// the failures are aggregated into the returned error so callers can surface
+// them instead of reporting a silent "0 new photos" success — see issue #44.
 // Generalizes what immich.go/synology.go's ImportPhotos each hand-rolled.
 func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 	source := src.Source()
@@ -76,15 +81,18 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 	}
 
 	total := 0
+	var failures []string
 	for _, album := range albums {
 		assets, err := src.FetchAlbumAssets(album)
 		if err != nil {
 			log.Printf("%s: fetch album %q (%s) failed: %v", source, album.Name, album.ExternalID, err)
+			failures = append(failures, fmt.Sprintf("%s: %v", album.Name, err))
 			continue // leave the album's prior state + count untouched
 		}
 		newCount, _, err := upsertAlbumAssets(db, source, album.ID, assets)
 		if err != nil {
 			log.Printf("%s: import album %q (%s) failed: %v", source, album.Name, album.ExternalID, err)
+			failures = append(failures, fmt.Sprintf("%s: %v", album.Name, err))
 			continue
 		}
 		total += newCount
@@ -102,6 +110,10 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 
 	gcOrphanImagesForSource(db, source)
 	log.Printf("%s sync complete: %d new photos across %d album(s)", source, total, len(albums))
+	if len(failures) > 0 {
+		return total, fmt.Errorf("%d of %d album(s) failed to sync — %s",
+			len(failures), len(albums), strings.Join(failures, "; "))
+	}
 	return total, nil
 }
 

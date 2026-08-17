@@ -55,11 +55,15 @@ func TestSetSyncAlbumsRemovesDeselectedImages(t *testing.T) {
 
 type fakeAlbumSource struct {
 	assets map[string][]RemoteAsset // by album external id
+	errs   map[string]error         // by album external id
 }
 
 func (f *fakeAlbumSource) Source() string                           { return model.SourceImmich }
 func (f *fakeAlbumSource) ListRemoteAlbums() ([]RemoteAlbum, error) { return nil, nil }
 func (f *fakeAlbumSource) FetchAlbumAssets(a model.Album) ([]RemoteAsset, error) {
+	if err := f.errs[a.ExternalID]; err != nil {
+		return nil, err
+	}
 	return f.assets[a.ExternalID], nil
 }
 
@@ -86,6 +90,27 @@ func TestSyncAlbumSourceRemovesDisabledAlbumImages(t *testing.T) {
 	var fresh model.Image
 	require.NoError(t, db.Where("external_id = ?", "fresh").First(&fresh).Error)
 	_ = enabled
+}
+
+// A failing album must not stop the sync of healthy albums, but the failure
+// must show up in the returned error so the UI can surface it instead of
+// silently reporting "0 new photos" — see issue #44.
+func TestSyncAlbumSourceReportsAlbumFailures(t *testing.T) {
+	db := setupAlbumDB(t)
+	mkAlbum(t, db, "good")
+	mkAlbum(t, db, "bad")
+
+	src := &fakeAlbumSource{
+		assets: map[string][]RemoteAsset{
+			"good": {{ExternalID: "fresh", Width: 100, Height: 50}},
+		},
+		errs: map[string]error{"bad": fmt.Errorf("memories returned status 400")},
+	}
+	newCount, err := SyncAlbumSource(db, src)
+	assert.Equal(t, 1, newCount, "healthy album must still be synced")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1 of 2 album(s) failed")
+	assert.Contains(t, err.Error(), "status 400")
 }
 
 // Unchecking every album and resyncing must remove all of the source's images.

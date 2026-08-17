@@ -20,7 +20,17 @@ type AutoSyncScheduler struct {
 	stateMu       sync.Mutex
 	lastSuccessAt time.Time
 	retryAfter    time.Time
+	lastError     string
 	running       int
+}
+
+// LastError returns the failure message of the most recent completed sync run,
+// or "" if it succeeded (or none has run yet). Lets the sync-status endpoint
+// surface failures the dashboard would otherwise never see (issue #44).
+func (s *AutoSyncScheduler) LastError() string {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	return s.lastError
 }
 
 // IsRunning reports whether any sync is currently in flight (queued or
@@ -105,6 +115,7 @@ func (s *AutoSyncScheduler) runSyncNow() error {
 	if err := s.runSync(); err != nil {
 		s.stateMu.Lock()
 		s.retryAfter = time.Now().Add(s.retryInterval)
+		s.lastError = err.Error()
 		s.stateMu.Unlock()
 		return err
 	}
@@ -112,6 +123,7 @@ func (s *AutoSyncScheduler) runSyncNow() error {
 	s.stateMu.Lock()
 	s.lastSuccessAt = time.Now()
 	s.retryAfter = time.Time{}
+	s.lastError = ""
 	s.stateMu.Unlock()
 	s.TriggerReset()
 	return nil

@@ -281,6 +281,11 @@ func (t *topicSource) IsSyncing() bool {
 	return t.syncing || t.autoSync.IsRunning()
 }
 
+// LastSyncError reports the most recent sync run's failure ("" on success).
+func (t *topicSource) LastSyncError() string {
+	return t.autoSync.LastError()
+}
+
 // resyncInternal runs an incremental sync: it upserts current results and lets
 // the shared album-sync engine prune assets that disappeared upstream. It does
 // NOT clear first — a blanket delete before a re-import that can fail (Unsplash

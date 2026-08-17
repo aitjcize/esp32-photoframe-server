@@ -83,6 +83,19 @@
         {{ galleryStore.importMessage }}
       </v-alert>
 
+      <!-- Last sync failure (from the source's sync-status endpoint) -->
+      <v-alert
+        v-if="syncError && syncError !== dismissedSyncError && !syncing"
+        type="error"
+        variant="tonal"
+        class="mb-4"
+        density="compact"
+        closable
+        @click:close="dismissedSyncError = syncError"
+      >
+        Last sync failed: {{ syncError }}
+      </v-alert>
+
       <!-- Album Chips (Immich / Synology) -->
       <div
         v-if="showAlbumChips && albumChips.length > 0"
@@ -422,6 +435,8 @@ watch(
   () => galleryStore.source,
   () => {
     prevSyncing = false;
+    syncError.value = '';
+    dismissedSyncError.value = '';
     fetchAlbumChips();
     checkSyncStatus();
   }
@@ -429,6 +444,11 @@ watch(
 
 // --- Auto-refresh while a background sync is running ---
 const syncing = ref(false);
+// Failure message of the source's most recent sync run ("" on success), from
+// the sync-status endpoint. Without it a failed sync silently looks like
+// "0 new photos" (issue #44). Dismissing hides that message until it changes.
+const syncError = ref('');
+const dismissedSyncError = ref('');
 let syncPollTimer: number | null = null;
 let prevSyncing = false;
 
@@ -446,11 +466,14 @@ const checkSyncStatus = async () => {
   if (!ep) {
     syncing.value = false;
     prevSyncing = false;
+    syncError.value = '';
     return;
   }
   try {
     const res = await api.get(ep);
     const running = !!res.data?.running;
+    syncError.value =
+      typeof res.data?.last_error === 'string' ? res.data.last_error : '';
     // Refresh while syncing (new photos appear) and once more right after it
     // finishes, so the gallery + album counts stay current without a manual reload.
     if (running || prevSyncing) {

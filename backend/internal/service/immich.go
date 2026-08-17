@@ -389,6 +389,11 @@ func (s *ImmichService) IsSyncing() bool {
 	return s.autoSync.IsRunning()
 }
 
+// LastSyncError reports the most recent sync run's failure ("" on success).
+func (s *ImmichService) LastSyncError() string {
+	return s.autoSync.LastError()
+}
+
 // resyncInternal runs an incremental sync (upsert + prune) via ImportPhotos. It
 // deliberately does NOT clear first: the auto-sync scheduler fires this on every
 // startup (lastSuccessAt is in-memory and resets to zero), and a blanket delete
