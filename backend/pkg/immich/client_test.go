@@ -154,12 +154,13 @@ func TestGetMemoryAssets_ScopesToToday(t *testing.T) {
 	if gotFor == "" {
 		t.Fatal("for query param was not sent")
 	}
-	// The `for` value must be today's date so memories are scoped correctly.
-	parsed, err := time.Parse("2006-01-02T15:04:05.000Z", gotFor)
+	// The `for` value must be today's local date, date-only — Immich v3.0.3+
+	// rejects a timestamp with a time component (issue #44).
+	parsed, err := time.Parse(time.DateOnly, gotFor)
 	if err != nil {
 		t.Fatalf("for query param %q not in expected format: %v", gotFor, err)
 	}
-	today := time.Now().UTC()
+	today := time.Now()
 	if parsed.Year() != today.Year() || parsed.YearDay() != today.YearDay() {
 		t.Errorf("for query param date = %v, want today %v", parsed, today)
 	}
@@ -167,6 +168,41 @@ func TestGetMemoryAssets_ScopesToToday(t *testing.T) {
 	// Lanes must be flattened into a single asset slice.
 	if len(assets) != 3 {
 		t.Errorf("got %d assets, want 3 (flattened across lanes)", len(assets))
+	}
+}
+
+// Immich v3.0.0–v3.0.2 validate `for` as a full ISO datetime and reject the
+// date-only form with a 400; the client must retry with the legacy timestamp
+// format so those versions keep working.
+func TestGetMemoryAssets_LegacyDatetimeFallback(t *testing.T) {
+	var forValues []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		forValue := r.URL.Query().Get("for")
+		forValues = append(forValues, forValue)
+		if _, err := time.Parse("2006-01-02T15:04:05.000Z", forValue); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"Validation failed"}`))
+			return
+		}
+		lane := MemoryLane{ID: "lane-2023", Assets: []Asset{{ID: "a1", Type: "IMAGE"}}}
+		lane.Data.Year = 2023
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]MemoryLane{lane})
+	}))
+	defer srv.Close()
+
+	assets, err := newTestClient(srv.URL).GetMemoryAssets(false)
+	if err != nil {
+		t.Fatalf("GetMemoryAssets: %v", err)
+	}
+	if len(forValues) != 2 {
+		t.Fatalf("got %d requests, want 2 (date-only, then legacy retry)", len(forValues))
+	}
+	if _, err := time.Parse(time.DateOnly, forValues[0]); err != nil {
+		t.Errorf("first request for=%q, want date-only format", forValues[0])
+	}
+	if len(assets) != 1 || assets[0].ID != "a1" {
+		t.Errorf("got assets %v, want [a1] from the retried request", assets)
 	}
 }
 
