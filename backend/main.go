@@ -408,19 +408,40 @@ func main() {
 	}
 
 	// 1. Serve specific assets folder
-	// This handles /assets/index-....js|css correctly with proper MIME types
-	e.Static("/assets", filepath.Join(staticDir, "assets"))
+	// This handles /assets/index-....js|css correctly with proper MIME
+	// types. The filenames carry content hashes, so they are immutable and
+	// may be cached forever.
+	assets := e.Group("/assets", func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Only successful responses are immutable -- a cached 404 would
+			// wedge the bundle for a year if the asset ever reappears
+			c.Response().Before(func() {
+				if c.Response().Status < 400 {
+					c.Response().Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				}
+			})
+			return next(c)
+		}
+	})
+	assets.Static("/", filepath.Join(staticDir, "assets"))
+
+	// index.html references the hashed assets, so it must be revalidated on
+	// every load: without an explicit no-cache, browsers heuristically cache
+	// it (10% of time since Last-Modified) and keep loading the previous
+	// deploy's bundle.
+	serveIndex := func(c echo.Context) error {
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		return c.File(filepath.Join(staticDir, "index.html"))
+	}
 
 	// 2. Serve root index.html
-	e.File("/", filepath.Join(staticDir, "index.html"))
+	e.GET("/", serveIndex)
 
 	// 3. Serve favicon from the root of the static dir
 	e.File("/favicon.svg", filepath.Join(staticDir, "favicon.svg"))
 
 	// 4. SPA Fallback: Any other route not matched (api is already handled) goes to index.html
-	e.GET("/*", func(c echo.Context) error {
-		return c.File(filepath.Join(staticDir, "index.html"))
-	})
+	e.GET("/*", serveIndex)
 
 	// Start server
 	listenPort := os.Getenv("PORT")
