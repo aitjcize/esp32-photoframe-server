@@ -197,7 +197,7 @@ func (c *Client) SearchAssets(filter SearchMetadataRequest) ([]Asset, error) {
 // flattened into one pool so the frame shuffles across all years.
 func (c *Client) GetMemoryAssets(latestYearOnly bool) ([]Asset, error) {
 	q := url.Values{}
-	q.Set("for", time.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
+	q.Set("for", time.Now().UTC().Format("2006-01-02"))
 	q.Set("type", "on_this_day")
 	resp, err := c.do("GET", "/api/memories?"+q.Encode())
 	if err != nil {
