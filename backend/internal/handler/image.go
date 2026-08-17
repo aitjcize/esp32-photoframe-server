@@ -188,18 +188,56 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		logicalW, logicalH = logicalH, logicalW
 	}
 
+	// Parse X-Processing-Settings early: the firmware's synced scaleMode
+	// decides the layout for both the overlay renderer and the converter.
+	var settings *photoframe.ProcessingSettings
+	if settingsStr := c.Request().Header.Get("X-Processing-Settings"); settingsStr != "" {
+		settings = &photoframe.ProcessingSettings{}
+		if err := json.Unmarshal([]byte(settingsStr), settings); err != nil {
+			fmt.Printf("Failed to parse X-Processing-Settings header: %v\n", err)
+			settings = nil
+		}
+	}
+
+	// During a pending config sync (the device hasn't pulled the latest
+	// server-side edit yet) the header carries the device's OLD layout;
+	// substitute the newer server-stored values so this render doesn't put a
+	// stale layout on the panel until the next rotation.
+	if deviceFound && settings != nil {
+		deviceTS, tsErr := strconv.ParseInt(c.Request().Header.Get("X-Config-Last-Updated"), 10, 64)
+		if tsErr == nil && deviceTS < device.ConfigLastUpdated {
+			if raw := strings.TrimSpace(device.DeviceProcessingSettings); raw != "" && raw != "{}" {
+				var stored photoframe.ProcessingSettings
+				if err := json.Unmarshal([]byte(raw), &stored); err == nil {
+					settings.ScaleMode = stored.ScaleMode
+					settings.BackgroundColor = stored.BackgroundColor
+				}
+			}
+		}
+	}
+
 	layout := model.LayoutPhotoOverlay
 	displayMode := "cover"
+	backgroundColor := ""
 	showCalendar := false
 
 	if deviceFound {
 		if device.Layout != "" {
 			layout = device.Layout
 		}
+		// Legacy server-side fields double as the fallback for firmware that
+		// predates the device-synced scaleMode
 		if device.DisplayMode != "" {
 			displayMode = device.DisplayMode
 		}
+		backgroundColor = device.BackgroundColor
 		showCalendar = device.ShowCalendar
+	}
+	if settings != nil && settings.ScaleMode != "" {
+		displayMode = settings.ScaleMode
+	}
+	if settings != nil && settings.BackgroundColor != "" {
+		backgroundColor = settings.BackgroundColor
 	}
 
 	var img image.Image
@@ -399,8 +437,8 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// renderer already composed the photo at panel dimensions, so the CLI
 	// scale is a no-op either way.)
 	procOptions["scale-mode"] = displayMode
-	if displayMode == "fit" && deviceFound && device.BackgroundColor != "" {
-		procOptions["background-color"] = device.BackgroundColor
+	if displayMode == "fit" && backgroundColor != "" {
+		procOptions["background-color"] = backgroundColor
 	}
 
 	// Determine output format based on firmware version (epdgz requires >= 2.6.1)
@@ -409,15 +447,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		procOptions["format"] = "png"
 	}
 
-	// 3.5. Parse X-Processing-Settings header if present
-	var settings *photoframe.ProcessingSettings
-	if settingsStr := c.Request().Header.Get("X-Processing-Settings"); settingsStr != "" {
-		settings = &photoframe.ProcessingSettings{}
-		if err := json.Unmarshal([]byte(settingsStr), settings); err != nil {
-			fmt.Printf("Failed to parse X-Processing-Settings header: %v\n", err)
-			settings = nil
-		}
-	}
+	// (X-Processing-Settings was parsed above, before the layout decision)
 
 	// 3.6. Parse X-Color-Palette header if present
 	var palette *photoframe.Palette
@@ -582,10 +612,26 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 		}
 	}
 
-	// Attempt to push config to device directly
+	// Attempt to push directly to the device. Processing settings go FIRST:
+	// the config push advances the device's sync timestamp, and a partial
+	// failure after it would leave the settings undeliverable (the device
+	// would report itself current on its next fetch and applyConfigSync
+	// would skip the payload). When the processing push fails, the config
+	// push is skipped too so the whole edit stays eligible for the deferred
+	// sync path.
 	pushResult := "synced"
 	if device.Host != "" && configMap != nil {
-		if err := photoframe.NewClient(device.Host).PushConfig(configMap); err != nil {
+		client := photoframe.NewClient(device.Host)
+		pushOK := true
+		if len(req.ProcessingSettings) > 0 {
+			if err := client.PushProcessingSettings(req.ProcessingSettings); err != nil {
+				log.Printf("Could not push processing settings to device %s: %v (will sync on next image fetch)", device.Host, err)
+				pushOK = false
+			}
+		}
+		if !pushOK {
+			pushResult = "offline"
+		} else if err := client.PushConfig(configMap); err != nil {
 			log.Printf("Could not push config to device %s: %v (will sync on next image fetch)", device.Host, err)
 			pushResult = "offline"
 		}

@@ -1549,48 +1549,6 @@
                           Display Settings
                         </div>
                         <div class="ml-10">
-                          <v-row dense>
-                            <v-col cols="12" md="6">
-                              <v-select
-                                v-model="editingDevice.display_mode"
-                                :items="[
-                                  {
-                                    title: 'Cover (fill, may crop)',
-                                    value: 'cover',
-                                  },
-                                  {
-                                    title: 'Fit (show entire photo)',
-                                    value: 'fit',
-                                  },
-                                ]"
-                                label="Photo Display Mode"
-                                variant="outlined"
-                                density="compact"
-                                hide-details
-                              ></v-select>
-                            </v-col>
-                            <v-col
-                              v-if="editingDevice.display_mode === 'fit'"
-                              cols="12"
-                              md="6"
-                            >
-                              <v-select
-                                v-model="editingDevice.background_color"
-                                :items="[
-                                  { title: 'White', value: 'white' },
-                                  { title: 'Black', value: 'black' },
-                                  { title: 'Red', value: 'red' },
-                                  { title: 'Green', value: 'green' },
-                                  { title: 'Blue', value: 'blue' },
-                                  { title: 'Yellow', value: 'yellow' },
-                                ]"
-                                label="Fit Background Color"
-                                variant="outlined"
-                                density="compact"
-                                hide-details
-                              ></v-select>
-                            </v-col>
-                          </v-row>
                           <v-checkbox
                             v-model="editingDevice.enable_collage"
                             label="Enable Collage Mode"
@@ -1813,6 +1771,43 @@
                                 </v-btn-toggle>
                               </v-card-text>
                             </v-card>
+                          </v-col>
+                        </v-row>
+                        <!-- Layout first, matching the device web app -->
+                        <v-row>
+                          <v-col cols="12" md="4">
+                            <v-select
+                              v-model="deviceProcessing.scaleMode"
+                              :items="[
+                                {
+                                  title: 'Cover (fill, may crop)',
+                                  value: 'cover',
+                                },
+                                {
+                                  title: 'Fit (show entire photo)',
+                                  value: 'fit',
+                                },
+                              ]"
+                              label="Scale Mode"
+                              variant="outlined"
+                              density="compact"
+                            ></v-select>
+                          </v-col>
+                          <v-col
+                            v-if="deviceProcessing.scaleMode === 'fit'"
+                            cols="12"
+                            md="4"
+                          >
+                            <v-select
+                              v-model="deviceProcessing.backgroundColor"
+                              :items="[
+                                { title: 'White', value: 'white' },
+                                { title: 'Black', value: 'black' },
+                              ]"
+                              label="Background Color"
+                              variant="outlined"
+                              density="compact"
+                            ></v-select>
                           </v-col>
                         </v-row>
                         <v-row>
@@ -2567,6 +2562,8 @@ const deviceProcessing = reactive({
   colorMethod: 'rgb',
   ditherAlgorithm: 'floyd-steinberg',
   compressDynamicRange: true,
+  scaleMode: 'cover',
+  backgroundColor: 'white',
 });
 
 // Processing presets from epaper-image-convert library
@@ -2859,6 +2856,13 @@ const loadDeviceConfig = async (deviceId: number) => {
       // New grayscale frame (no saved settings): default to the grayscale preset.
       applyProcessingPreset('grayscale');
     }
+    // Layout fields are initialized on EVERY load -- even when the device has
+    // no stored processing settings -- falling back to the legacy server-side
+    // fields; otherwise values linger from the previously edited device.
+    deviceProcessing.scaleMode =
+      proc.scaleMode ?? (editingDevice.display_mode || 'cover');
+    deviceProcessing.backgroundColor =
+      proc.backgroundColor ?? (editingDevice.background_color || 'white');
     detectProcessingPreset();
 
     // Color palette
@@ -3114,6 +3118,10 @@ const openAddDeviceDialog = () => {
     display_orientation: 'landscape',
     deep_sleep_enabled: true,
   });
+  // The Display Settings selects bind to deviceProcessing; without a reset
+  // they would carry the previously edited device's layout into the dialog
+  deviceProcessing.scaleMode = 'cover';
+  deviceProcessing.backgroundColor = 'white';
   isAddingDevice.value = true;
   deviceDialogTab.value = 'general';
   showEditDeviceDialog.value = true;
@@ -3213,7 +3221,7 @@ const saveDevice = async () => {
         weather_lat: editingDevice.weather_lat || 0,
         weather_lon: editingDevice.weather_lon || 0,
         layout: editingDevice.layout || 'photo_overlay',
-        display_mode: editingDevice.display_mode || 'cover',
+        display_mode: deviceProcessing.scaleMode || 'cover',
         show_calendar: editingDevice.show_calendar || false,
         calendar_id: editingDevice.calendar_id || '',
         date_format: editingDevice.date_format || '',
@@ -3253,12 +3261,12 @@ const saveDevice = async () => {
         editingDevice.ai_model || '',
         editingDevice.ai_prompt || '',
         editingDevice.layout || 'photo_overlay',
-        editingDevice.display_mode || 'cover',
+        deviceProcessing.scaleMode || 'cover',
         editingDevice.show_calendar || false,
         editingDevice.calendar_id || '',
         editingDevice.date_format || '',
         deviceSource,
-        editingDevice.background_color || ''
+        deviceProcessing.backgroundColor || ''
       );
 
       // Save device remote config (config + processing + palette)

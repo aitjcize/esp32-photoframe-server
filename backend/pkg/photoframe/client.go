@@ -317,6 +317,8 @@ type ProcessingSettings struct {
 	ProcessingMode       string  `json:"processingMode"`
 	DitherAlgorithm      string  `json:"ditherAlgorithm"`
 	CompressDynamicRange bool    `json:"compressDynamicRange"`
+	ScaleMode            string  `json:"scaleMode"`
+	BackgroundColor      string  `json:"backgroundColor"`
 }
 
 type PaletteColor struct {
@@ -448,6 +450,37 @@ func (c *Client) FetchPalette() (string, error) {
 	}
 
 	return string(body), nil
+}
+
+// PushProcessingSettings POSTs a full processing-settings object to the
+// device. The firmware overlays the payload onto defaults, so callers must
+// send the complete object, not a partial update.
+func (c *Client) PushProcessingSettings(settings []byte) error {
+	ip, err := c.resolveHost(c.host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve device %s: %w", c.host, err)
+	}
+
+	url := fmt.Sprintf("http://%s/api/settings/processing", ip)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(settings))
+	if err != nil {
+		return err
+	}
+	req.Host = c.host
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("device returned status: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (c *Client) PushConfig(config map[string]interface{}) error {

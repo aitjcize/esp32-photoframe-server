@@ -338,6 +338,22 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		logicalW, logicalH = logicalH, logicalW
 	}
 
+	// Parse the device's stored processing settings once; nil if absent or
+	// empty. The synced scaleMode decides the overlay layout below, and
+	// MapProcessingSettings later maps the rest onto converter options (it
+	// still emits the grayscale palette for nil settings and leaves
+	// tone/dither to the CLI's defaults, so no zero-valued fallback is
+	// needed -- that would have forced exposure/contrast to 0).
+	var pushSettings *photoframe.ProcessingSettings
+	if raw := strings.TrimSpace(device.DeviceProcessingSettings); raw != "" && raw != "{}" {
+		var ps photoframe.ProcessingSettings
+		if err := json.Unmarshal([]byte(raw), &ps); err == nil {
+			pushSettings = &ps
+		} else {
+			log.Printf("Failed to parse stored processing settings for %s: %v", device.Name, err)
+		}
+	}
+
 	// 5. Render layout (photo + overlay + calendar)
 	needsOverlay := device.ShowDate || device.ShowPhotoDate || device.ShowWeather || device.ShowCalendar
 	var finalImg image.Image
@@ -379,6 +395,10 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 			layout = model.LayoutPhotoOverlay
 		}
 		displayMode := device.DisplayMode
+		if pushSettings != nil && pushSettings.ScaleMode != "" {
+			// The device-synced scale mode wins over the legacy column
+			displayMode = pushSettings.ScaleMode
+		}
 		if displayMode == "" {
 			displayMode = "cover"
 		}
@@ -436,19 +456,9 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		}
 	}
 
-	// Parse the device's stored processing settings; nil if absent or empty.
-	// MapProcessingSettings still emits the (grayscale) palette for nil settings
-	// and leaves tone/dither to the CLI's defaults, so no zero-valued fallback is
-	// needed -- that would have forced exposure/contrast to 0 (a black image).
-	var settings *photoframe.ProcessingSettings
-	if raw := strings.TrimSpace(device.DeviceProcessingSettings); raw != "" && raw != "{}" {
-		var ps photoframe.ProcessingSettings
-		if err := json.Unmarshal([]byte(raw), &ps); err == nil {
-			settings = &ps
-		} else {
-			log.Printf("Failed to parse stored processing settings for %s: %v", device.Name, err)
-		}
-	}
+	// (The stored processing settings were parsed above, before the render,
+	// so the overlay layout and the converter agree on the scale mode.)
+	settings := pushSettings
 
 	// Merge the mapped CLI options (palette, tone-mapping, etc.) without
 	// clobbering dimension/orientation/format already set above.

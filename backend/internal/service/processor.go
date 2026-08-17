@@ -51,6 +51,14 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		if settings.CompressDynamicRange {
 			opts["compress-dynamic-range"] = "" // Boolean flag
 		}
+		// Device-synced layout (firmware >= scaleMode support); overrides the
+		// legacy per-device display_mode the caller may have set
+		if settings.ScaleMode != "" {
+			opts["scale-mode"] = settings.ScaleMode
+		}
+		if settings.BackgroundColor != "" {
+			opts["background-color"] = settings.BackgroundColor
+		}
 	}
 
 	if grayscale {
