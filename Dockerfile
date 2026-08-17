@@ -71,11 +71,21 @@ RUN apk add --no-cache \
     && apk del .build-deps \
     && rm -rf /root/.npm /tmp/*
 
-# Material Symbols font for overlay rendering
-RUN wget -O /tmp/MaterialSymbolsOutlined.ttf https://github.com/google/material-design-icons/raw/master/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf && \
+# Material Symbols font for overlay rendering. Fetched from Google Fonts as a
+# static instance pinned to the axis values the renderer uses (FILL=1 filled
+# icons, GRAD=0, opsz=48, wght=400) — the css2 API serves a plain-TTF
+# @font-face to non-browser user agents, and we grep the versioned
+# fonts.gstatic.com URL out of it. The previous source (GitHub raw) started
+# rejecting anonymous downloads with 404/429. Bonus: the instance is ~1.4MB
+# vs the 10.6MB variable font the renderer base64-embeds per overlay render.
+RUN wget -O /tmp/material.css \
+      "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:FILL,GRAD,opsz,wght@1,0,48,400" && \
+    FONT_URL=$(grep -o 'https://[^)]*\.ttf' /tmp/material.css | head -n1) && \
+    test -n "$FONT_URL" && \
     mkdir -p /usr/share/fonts/material && \
-    mv /tmp/MaterialSymbolsOutlined.ttf /usr/share/fonts/material/ && \
-    fc-cache -f
+    wget -O /usr/share/fonts/material/MaterialSymbolsOutlined.ttf "$FONT_URL" && \
+    fc-cache -f && \
+    rm /tmp/material.css
 
 # Create directories
 RUN mkdir -p /app/bin /app/static /app/data
