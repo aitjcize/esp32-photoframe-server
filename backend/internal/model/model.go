@@ -90,6 +90,9 @@ type Device struct {
 	// image fetches); -1 = never reported
 	BatteryLevel      int        `json:"battery_level" gorm:"default:-1"`
 	BatteryReportedAt *time.Time `json:"battery_reported_at"`
+	// Last firmware version the frame reported (X-Firmware-Version header
+	// on image fetches); empty = never reported
+	FirmwareVersion string `json:"firmware_version" gorm:"default:''"`
 	// Per-device image source (e.g. "immich"), resolved by the unified /image
 	// endpoint. Empty means the device hasn't picked a server-side source.
 	Source       string `json:"source"`

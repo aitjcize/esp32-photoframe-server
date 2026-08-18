@@ -111,17 +111,22 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// 1. Identify the device from its token (the single source of truth).
 	device, deviceFound := h.identifyDevice(c)
 
-	// Record the battery level the frame reports with each fetch, so the
-	// dashboard can show the last known charge even while the frame sleeps.
+	// Record what the frame reports with each fetch (battery level and
+	// firmware version), so the dashboard can show the last known state
+	// even while the frame sleeps.
 	if deviceFound {
+		updates := map[string]interface{}{}
 		if batt, err := strconv.Atoi(c.Request().Header.Get("X-Battery-Percentage")); err == nil &&
 			batt >= 0 && batt <= 100 {
-			now := time.Now()
-			if uerr := h.db.Model(&model.Device{}).Where("id = ?", device.ID).Updates(map[string]interface{}{
-				"battery_level":       batt,
-				"battery_reported_at": now,
-			}).Error; uerr != nil {
-				log.Printf("Failed to store battery level for device %d: %v", device.ID, uerr)
+			updates["battery_level"] = batt
+			updates["battery_reported_at"] = time.Now()
+		}
+		if fw := c.Request().Header.Get("X-Firmware-Version"); fw != "" && len(fw) <= 32 {
+			updates["firmware_version"] = fw
+		}
+		if len(updates) > 0 {
+			if uerr := h.db.Model(&model.Device{}).Where("id = ?", device.ID).Updates(updates).Error; uerr != nil {
+				log.Printf("Failed to store reported state for device %d: %v", device.ID, uerr)
 			}
 		}
 	}

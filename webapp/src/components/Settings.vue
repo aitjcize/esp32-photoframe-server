@@ -997,7 +997,7 @@
                     <tr>
                       <th>Name</th>
                       <th>Model</th>
-                      <th>Host</th>
+                      <th>Version</th>
                       <th>Battery</th>
                       <th class="text-right">Action</th>
                     </tr>
@@ -1019,7 +1019,10 @@
                         </v-chip>
                       </td>
                       <td>
-                        {{ device.host }}
+                        <span v-if="device.firmware_version">
+                          {{ device.firmware_version }}
+                        </span>
+                        <span v-else class="text-medium-emphasis">&mdash;</span>
                       </td>
                       <td>
                         <span
@@ -1104,8 +1107,11 @@
                           Grayscale
                         </v-chip>
                       </v-list-item-subtitle>
-                      <v-list-item-subtitle class="text-truncate">
-                        {{ device.host }}
+                      <v-list-item-subtitle
+                        v-if="device.firmware_version"
+                        class="text-truncate"
+                      >
+                        {{ device.firmware_version }}
                       </v-list-item-subtitle>
                       <v-list-item-subtitle
                         v-if="(device.battery_level ?? -1) >= 0"

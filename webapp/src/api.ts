@@ -74,6 +74,7 @@ export interface Device {
   background_color?: string;
   battery_level?: number;
   battery_reported_at?: string;
+  firmware_version?: string;
   show_calendar?: boolean;
   calendar_id?: string;
   date_format?: string;
