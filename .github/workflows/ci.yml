@@ -53,10 +53,28 @@ jobs:
         cd webapp
         npm run build
 
+  converter-version:
+    name: Resolve converter version
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    outputs:
+      version: ${{ steps.resolve.outputs.CONVERTER_VERSION }}
+    steps:
+      - name: Resolve current npm release
+        id: resolve
+        # Resolved once here (not per matrix leg) so both architecture images
+        # embed the same converter even if a release ships mid-build. The
+        # value busts the Docker install-layer cache when a new converter
+        # ships (see Dockerfile); a failed lookup fails the build instead of
+        # writing an empty (cache-stable) value.
+        run: |
+          CONVERTER_VERSION="$(npm view @aitjcize/epaper-image-convert version)"
+          echo "CONVERTER_VERSION=${CONVERTER_VERSION}" >> $GITHUB_OUTPUT
+
   docker-build:
     name: Build Docker Image (${{ matrix.arch }})
     runs-on: ubuntu-latest
-    needs: [build-go, build-frontend]
+    needs: [build-go, build-frontend, converter-version]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
@@ -95,6 +113,7 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ steps.version.outputs.VERSION }}
+            CONVERTER_VERSION=${{ needs.converter-version.outputs.version }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:latest-${{ matrix.arch }}
             ${{ secrets.DOCKERHUB_USERNAME }}/esp32-photoframe-server:${{ steps.version.outputs.VERSION }}-${{ matrix.arch }}

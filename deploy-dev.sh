@@ -103,11 +103,28 @@ if ! "${HOST_DOCKER_SSH[@]}" "docker version" >/dev/null 2>&1; then
 fi
 
 echo "=== Building ${IMAGE} (linux/arm64) on $(uname -m) ==="
+# Resolve the converter's current npm release so the install layer's cache
+# busts exactly when a new version ships (see Dockerfile). A failed lookup
+# aborts the deploy: falling back to a stable string like "latest" would let
+# Docker reuse the cached layer and silently ship an old converter.
+if ! command -v npm >/dev/null 2>&1; then
+  echo "ERROR: npm is required on this machine to resolve the current" >&2
+  echo "@aitjcize/epaper-image-convert release (install Node.js/npm)" >&2
+  exit 1
+fi
+CONVERTER_VERSION="$(npm view @aitjcize/epaper-image-convert version)"
+if [ -z "${CONVERTER_VERSION}" ]; then
+  echo "ERROR: could not resolve @aitjcize/epaper-image-convert version from npm" >&2
+  exit 1
+fi
+echo "=== Using epaper-image-convert ${CONVERTER_VERSION} ==="
+
 docker buildx build "${LOCAL_DIR}" \
   --tag "${IMAGE}" \
   --file "${LOCAL_DIR}/Dockerfile" \
   --platform linux/arm64 \
   --build-arg BUILD_VERSION=dev \
+  --build-arg CONVERTER_VERSION="${CONVERTER_VERSION}" \
   --build-arg BUILD_ARCH=aarch64 \
   --build-arg ADDON_PORT="${ADDON_PORT}" \
   --build-arg BUILD_FROM="${BUILD_FROM}" \

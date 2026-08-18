@@ -33,6 +33,13 @@ RUN VITE_ADDON_PORT=${ADDON_PORT} npm run build
 # Final Stage
 FROM $BUILD_FROM
 
+# Resolved to the current npm release by CI and deploy-dev.sh so the install
+# layer's cache key changes when a new converter ships -- an unpinned install
+# inside a cached layer silently keeps the old version. Defaults to "latest"
+# for builds that pass no args (e.g. the supervisor's on-device build, which
+# starts cacheless anyway). ARGs are per-stage: this must live in THIS stage.
+ARG CONVERTER_VERSION=latest
+
 WORKDIR /app
 
 # Runtime dependencies. The native `canvas` module (epaper-image-convert) is
@@ -67,7 +74,7 @@ RUN apk add --no-cache \
         jpeg-dev \
         giflib-dev \
         librsvg-dev \
-    && npm install -g @aitjcize/epaper-image-convert \
+    && npm install -g "@aitjcize/epaper-image-convert@${CONVERTER_VERSION}" \
     && apk del .build-deps \
     && rm -rf /root/.npm /tmp/*
 
