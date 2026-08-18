@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.16.0
+
+### Added
+
+- **Battery column in the device list.** Frames report their charge with
+  every image fetch (X-Battery-Percentage); Settings → Devices now shows
+  the last reported level with a battery icon (red at 20% and below) and
+  the report time on hover, in both the desktop table and the phone
+  list. Frames that never fetch show a dash.
+- **Firmware version column.** The Host column (already available via the
+  Open Device button and the edit dialog) is replaced by the frame's last
+  reported firmware version, so outdated frames stand out at a glance.
+
+### Changed
+
+- **epaper-image-convert 0.1.20.** Reverts 0.1.19's per-channel
+  dynamic-range compression, which washed out midtone chroma by roughly
+  7% and skewed hues toward cyan. Server-rendered photos are back to the
+  vibrant CIELAB lightness-only compression.
+
+
 ## v1.15.0
 
 ### Added
