@@ -111,6 +111,21 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	// 1. Identify the device from its token (the single source of truth).
 	device, deviceFound := h.identifyDevice(c)
 
+	// Record the battery level the frame reports with each fetch, so the
+	// dashboard can show the last known charge even while the frame sleeps.
+	if deviceFound {
+		if batt, err := strconv.Atoi(c.Request().Header.Get("X-Battery-Percentage")); err == nil &&
+			batt >= 0 && batt <= 100 {
+			now := time.Now()
+			if uerr := h.db.Model(&model.Device{}).Where("id = ?", device.ID).Updates(map[string]interface{}{
+				"battery_level":       batt,
+				"battery_reported_at": now,
+			}).Error; uerr != nil {
+				log.Printf("Failed to store battery level for device %d: %v", device.ID, uerr)
+			}
+		}
+	}
+
 	// The image source is ALWAYS the device's server-side assignment. The
 	// /image/<source> path param is deliberately IGNORED so a device can never
 	// be served a source that isn't assigned to it. (Legacy /image/<source>

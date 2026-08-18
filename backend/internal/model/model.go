@@ -86,6 +86,10 @@ type Device struct {
 	// Palette color name used to letterbox photos in fit mode (passed to
 	// epaper-image-convert --background-color). Empty = CLI default (white).
 	BackgroundColor string `json:"background_color" gorm:"default:''"`
+	// Last battery level the frame reported (X-Battery-Percentage header on
+	// image fetches); -1 = never reported
+	BatteryLevel      int        `json:"battery_level" gorm:"default:-1"`
+	BatteryReportedAt *time.Time `json:"battery_reported_at"`
 	// Per-device image source (e.g. "immich"), resolved by the unified /image
 	// endpoint. Empty means the device hasn't picked a server-side source.
 	Source       string `json:"source"`

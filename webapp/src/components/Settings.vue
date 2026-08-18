@@ -998,6 +998,7 @@
                       <th>Name</th>
                       <th>Model</th>
                       <th>Host</th>
+                      <th>Battery</th>
                       <th class="text-right">Action</th>
                     </tr>
                   </thead>
@@ -1019,6 +1020,25 @@
                       </td>
                       <td>
                         {{ device.host }}
+                      </td>
+                      <td>
+                        <span
+                          v-if="(device.battery_level ?? -1) >= 0"
+                          :title="
+                            'Last reported ' +
+                            formatReportedAt(device.battery_reported_at)
+                          "
+                        >
+                          <v-icon
+                            size="small"
+                            :color="
+                              device.battery_level! <= 20 ? 'error' : undefined
+                            "
+                            :icon="batteryIcon(device.battery_level!)"
+                          ></v-icon>
+                          {{ device.battery_level }}%
+                        </span>
+                        <span v-else class="text-medium-emphasis">&mdash;</span>
                       </td>
                       <td class="text-right">
                         <v-btn
@@ -1049,7 +1069,7 @@
                       </td>
                     </tr>
                     <tr v-if="availableDevices.length === 0">
-                      <td colspan="4" class="text-center text-grey py-4">
+                      <td colspan="5" class="text-center text-grey py-4">
                         No devices added.
                       </td>
                     </tr>
@@ -1086,6 +1106,22 @@
                       </v-list-item-subtitle>
                       <v-list-item-subtitle class="text-truncate">
                         {{ device.host }}
+                      </v-list-item-subtitle>
+                      <v-list-item-subtitle
+                        v-if="(device.battery_level ?? -1) >= 0"
+                        :title="
+                          'Last reported ' +
+                          formatReportedAt(device.battery_reported_at)
+                        "
+                      >
+                        <v-icon
+                          size="x-small"
+                          :color="
+                            device.battery_level! <= 20 ? 'error' : undefined
+                          "
+                          :icon="batteryIcon(device.battery_level!)"
+                        ></v-icon>
+                        {{ device.battery_level }}%
                       </v-list-item-subtitle>
                       <template #append>
                         <v-btn
@@ -3125,6 +3161,18 @@ const openAddDeviceDialog = () => {
   isAddingDevice.value = true;
   deviceDialogTab.value = 'general';
   showEditDeviceDialog.value = true;
+};
+
+const batteryIcon = (level: number) => {
+  if (level >= 95) return 'mdi-battery';
+  if (level <= 5) return 'mdi-battery-outline';
+  return `mdi-battery-${Math.max(1, Math.round(level / 10)) * 10}`;
+};
+
+const formatReportedAt = (iso?: string) => {
+  if (!iso) return 'unknown';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? 'unknown' : d.toLocaleString();
 };
 
 const deviceURL = (device: Device) => {
