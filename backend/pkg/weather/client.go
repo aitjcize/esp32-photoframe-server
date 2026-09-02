@@ -36,7 +36,8 @@ func NewClient() *Client {
 
 func (c *Client) GetWeather(lat, lon string) (*CurrentWeather, error) {
 	// Request hourly data for precise humidity and weather matching
-	url := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&current_weather=true&hourly=temperature_2m,relativehumidity_2m,weathercode&forecast_days=1", lat, lon)
+	// Request `timezone=auto` so the API returns the correct IANA timezone
+	url := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&current_weather=true&hourly=temperature_2m,relativehumidity_2m,weathercode&forecast_days=1&timezone=auto", lat, lon)
 
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
