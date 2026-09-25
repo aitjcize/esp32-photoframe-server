@@ -188,7 +188,9 @@ func (c *Client) ListSharedWithMeAlbums(offset, limit int) ([]Album, error) {
 	params := url.Values{}
 	params.Set("api", "SYNO.Foto.Sharing.Misc")
 	params.Set("version", "1")
-	params.Set("method", "list_shared_with_me")
+	// DSM 7.4 names the album listing list_shared_with_me_album;
+	// list_shared_with_me does not exist and returns error 103.
+	params.Set("method", "list_shared_with_me_album")
 	params.Set("offset", fmt.Sprintf("%d", offset))
 	params.Set("limit", fmt.Sprintf("%d", limit))
 	if c.SynoToken != "" {
@@ -232,12 +234,13 @@ func (c *Client) ListPhotos(offset, limit int, album AlbumRef) ([]Item, error) {
 	params.Set("offset", fmt.Sprintf("%d", offset))
 	params.Set("limit", fmt.Sprintf("%d", limit))
 	params.Set("additional", `["thumbnail","resolution"]`)
-	if album.ID != 0 {
-		params.Set("album_id", fmt.Sprintf("%d", album.ID))
-	}
 	// Shared albums are browsed through the passphrase DSM issued for them.
+	// DSM rejects album_id and passphrase together (error 120), so the
+	// passphrase replaces the album id rather than accompanying it.
 	if album.Passphrase != "" {
 		params.Set("passphrase", album.Passphrase)
+	} else if album.ID != 0 {
+		params.Set("album_id", fmt.Sprintf("%d", album.ID))
 	}
 	if c.SynoToken != "" {
 		params.Set("SynoToken", c.SynoToken)
@@ -301,12 +304,13 @@ func (c *Client) GetPhoto(id int, cacheKey string, size string, album AlbumRef, 
 		"type=%22item%22",
 		fmt.Sprintf("size=%s", url.QueryEscape(fmt.Sprintf("\"%s\"", sz))),
 	}
-	if album.ID != 0 {
-		parts = append(parts, fmt.Sprintf("album_id=%d", album.ID))
-	}
+	// As in ListPhotos: the passphrase replaces album_id; with both set DSM
+	// answers 404.
 	if album.Passphrase != "" {
 		parts = append(parts, fmt.Sprintf("passphrase=%s",
 			url.QueryEscape(fmt.Sprintf("\"%s\"", album.Passphrase))))
+	} else if album.ID != 0 {
+		parts = append(parts, fmt.Sprintf("album_id=%d", album.ID))
 	}
 	parts = append(parts,
 		fmt.Sprintf("api=%s", url.QueryEscape(fmt.Sprintf("\"%s\"", api))),

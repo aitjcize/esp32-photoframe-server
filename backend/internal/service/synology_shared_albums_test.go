@@ -48,6 +48,11 @@ func newFakeNAS() *fakeNAS {
 			fmt.Fprint(w, f.ownedJSON)
 		case "SYNO.Foto.Sharing.Misc":
 			f.sharedCalls++
+			// Like DSM 7.4: only the _album method exists; others are 103.
+			if r.URL.Query().Get("method") != "list_shared_with_me_album" {
+				fmt.Fprint(w, `{"success":false,"error":{"code":103}}`)
+				return
+			}
 			fmt.Fprint(w, f.sharedJSON)
 		case "SYNO.Foto.Browse.Item":
 			f.itemQueries = append(f.itemQueries, r.URL.RawQuery)
@@ -162,17 +167,19 @@ func TestSynologySharedAlbumSyncUsesPassphrase(t *testing.T) {
 	require.Len(t, assets, 1)
 	assert.Equal(t, "900", assets[0].ExternalID)
 
+	// DSM rejects album_id alongside a passphrase (error 120).
 	q := nas.lastItemQuery()
-	assert.Contains(t, q, "album_id=7")
+	assert.NotContains(t, q, "album_id")
 	assert.Contains(t, q, "passphrase=pass7")
 }
 
-// Owned albums must not gain a passphrase parameter — DSM rejects a browse
-// that carries one for an album the caller owns outright.
+// Owned albums must not gain a passphrase parameter, even when shared out by
+// link: DSM then lists the link's passphrase with the owned album, and a
+// browse carrying album_id and passphrase together fails with error 120.
 func TestSynologyOwnedAlbumSyncSendsNoPassphrase(t *testing.T) {
 	nas := newFakeNAS()
 	defer nas.Close()
-	nas.ownedJSON = `{"success":true,"data":{"list":[{"id":3,"name":"Mine","type":"album"}]}}`
+	nas.ownedJSON = `{"success":true,"data":{"list":[{"id":3,"name":"Mine","type":"album","shared":true,"passphrase":"link3"}]}}`
 	nas.itemsJSON = `{"success":true,"data":{"list":[]}}`
 
 	svc, db := newSharedAlbumService(t, nas.URL)
