@@ -331,6 +331,12 @@ func (s *SynologyService) ListAlbums() ([]synology.Album, error) {
 	if err != nil {
 		return nil, err
 	}
+	// An owned album shared out by link carries that link's passphrase. The
+	// account reaches its own albums by id, so drop it: only albums shared
+	// with this account need a passphrase.
+	for i := range albums {
+		albums[i].Passphrase = ""
+	}
 
 	albums = append(albums, s.listSharedAlbums(albums)...)
 
