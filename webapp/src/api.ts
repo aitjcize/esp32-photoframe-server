@@ -76,6 +76,12 @@ export interface Device {
   // Whether a password is stored for a frame whose own HTTP API is
   // protected. The password itself is never returned.
   http_password_set?: boolean;
+  // The frame refused the server's last request for want of the right
+  // password, so nothing the server does with it works until the user
+  // enters the frame's password. auth_failed_at is when the refusals
+  // started; it stays put while they last.
+  auth_required?: boolean;
+  auth_failed_at?: string | null;
   battery_reported_at?: string;
   firmware_version?: string;
   show_calendar?: boolean;
@@ -116,12 +122,27 @@ export const addDevice = async (params: {
   return response.data;
 };
 
+// What the server reports after storing (or forgetting) a frame password.
+// verified: the frame confirmed it. When it could not -- asleep, locked out,
+// not asking for a password right now -- the password is stored anyway and
+// warning says why; it is checked on the frame's next wake. A password the
+// frame rejects is not stored: the request fails with a 409 carrying
+// FRAME_AUTH_REQUIRED_CODE (see utils/frameAuth.ts).
+export interface StoredFramePassword {
+  http_password_set: boolean;
+  verified: boolean;
+  auth_required: boolean;
+  auth_failed_at: string | null;
+  warning?: string;
+}
+
 // Stores (or clears, with "") the password a frame requires on its own HTTP
-// API. Write-only: the server reports only http_password_set.
+// API, after the server checks it against the frame. Write-only: the server
+// reports only http_password_set.
 export const setDeviceHttpPassword = async (
   id: number,
   httpPassword: string
-) => {
+): Promise<StoredFramePassword> => {
   const response = await api.put(`/devices/${id}/http-password`, {
     http_password: httpPassword,
   });
@@ -141,6 +162,10 @@ export const changeFramePassword = async (
 ): Promise<{
   http_password_set: boolean;
   verified: boolean;
+  // The refusal flag after the change: cleared, the old password being
+  // gone with whatever it was refused for.
+  auth_required: boolean;
+  auth_failed_at: string | null;
   warning?: string;
 }> => {
   const response = await api.post(`/devices/${id}/frame-password`, {

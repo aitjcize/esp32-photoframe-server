@@ -663,7 +663,10 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 }
 
 // pushDeviceConfig pushes an edit straight to the device and reports
-// "synced", or "offline" when it has to wait for the next image fetch.
+// "synced", "offline" when it has to wait for the next image fetch, or
+// "auth_required" when the frame refused the stored password: the edit still
+// reaches the frame with its next image fetch (that channel is the frame's
+// own, not password-gated), but the webapp should ask for the password.
 func (h *ImageHandler) pushDeviceConfig(device model.Device, processingSettings json.RawMessage, configMap map[string]interface{}) string {
 	// Holds the stored password in place until the push is done, so a
 	// concurrent frame password change cannot slip in between.
@@ -678,14 +681,23 @@ func (h *ImageHandler) pushDeviceConfig(device model.Device, processingSettings 
 	if len(processingSettings) > 0 {
 		if err := client.PushProcessingSettings(processingSettings); err != nil {
 			log.Printf("Could not push processing settings to device %s: %v (will sync on next image fetch)", device.Host, err)
-			return "offline"
+			return configPushFailure(err)
 		}
 	}
 	if err := client.PushConfig(configMap); err != nil {
 		log.Printf("Could not push config to device %s: %v (will sync on next image fetch)", device.Host, err)
-		return "offline"
+		return configPushFailure(err)
 	}
 	return "synced"
+}
+
+// configPushFailure is the push_result for a failed direct push.
+func configPushFailure(err error) string {
+	var se *photoframe.StatusError
+	if errors.As(err, &se) && se.StatusCode == http.StatusUnauthorized {
+		return "auth_required"
+	}
+	return "offline"
 }
 
 // GetDeviceConfig returns the server-side device config.

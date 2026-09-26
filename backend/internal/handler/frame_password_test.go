@@ -145,7 +145,7 @@ func TestChangeFramePasswordSuccessResponse(t *testing.T) {
 
 	rec := changeFramePassword(t, db, id, `{"password":""}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.JSONEq(t, `{"http_password_set":false,"verified":true}`, rec.Body.String())
+	assert.JSONEq(t, `{"http_password_set":false,"verified":true,"auth_required":false,"auth_failed_at":null}`, rec.Body.String())
 	assert.Equal(t, "", storedFramePassword(t, db, id))
 }
 

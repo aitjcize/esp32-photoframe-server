@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
@@ -19,6 +20,12 @@ import (
 // pull that loaded the old password just before a change keeps retrying with
 // it, and each 401 spends one of the frame's free wrong guesses before it
 // locks this server out.
+//
+// The writers of the stored password and the host (SetHTTPPassword, and
+// UpdateDevice when it changes the host) take it exclusively too, since
+// both reset the device's auth_required flag: the requests in flight must
+// record the frame's answer to the old password or host first, or a late
+// 401 lands on the new one.
 var frameCredLocks sync.Map // uint -> *sync.RWMutex
 
 func frameCredLock(id uint) *sync.RWMutex {
@@ -26,12 +33,11 @@ func frameCredLock(id uint) *sync.RWMutex {
 	return l.(*sync.RWMutex)
 }
 
-// holdFrameCreds keeps a frame password change from running until the
-// returned release is called. Writers of the device's connection details
-// (host, stored password) take it too: shared, since they only need to stay
-// out of a change's way, not each other's. A change that ran alongside would
-// store its password over theirs, or next to a host that is no longer the
-// frame it changed.
+// holdFrameCreds keeps a frame password change, or a store of the password
+// or host, from running until the returned release is called. Requests to
+// the frame take it, and so does deleting the device: shared, since they
+// only need to stay out of a change's way, not each other's. A change that
+// ran alongside a delete would have nowhere to store its result.
 func holdFrameCreds(id uint) (release func()) {
 	l := frameCredLock(id)
 	l.RLock()
@@ -43,6 +49,10 @@ func holdFrameCreds(id uint) (release func()) {
 // release is called: a password change waits for the release, so the client
 // never goes out with a password the frame has just stopped accepting. Keep
 // the hold to the requests themselves, since a change waits on it.
+//
+// Every answer the frame gives is recorded on the device's auth_required
+// flag (see recordFrameAuth), so a frame that starts refusing the stored
+// password is noticed by whichever request hits it first.
 func FrameClient(db *gorm.DB, id uint) (client *photoframe.Client, release func(), err error) {
 	release = holdFrameCreds(id)
 	var device model.Device
@@ -50,7 +60,9 @@ func FrameClient(db *gorm.DB, id uint) (client *photoframe.Client, release func(
 		release()
 		return nil, nil, err
 	}
-	return photoframe.NewClientWithPassword(device.Host, device.HTTPPassword), release, nil
+	client = photoframe.NewClientWithPassword(device.Host, device.HTTPPassword).
+		WithStatusObserver(frameAuthObserver(db, id))
+	return client, release, nil
 }
 
 // FrameClientAt is FrameClient for a caller that has already committed to a
@@ -74,9 +86,8 @@ func FrameClientAt(db *gorm.DB, id uint, host string) (client *photoframe.Client
 // password (401) or refusing to check it for now (429). Retrying either with
 // the same password gains nothing and, for a 401, counts as another guess.
 func IsFrameAuthError(err error) bool {
-	var se *photoframe.StatusError
-	return errors.As(err, &se) &&
-		(se.StatusCode == 401 || se.StatusCode == 429)
+	status := frameStatus(err)
+	return status == 401 || status == 429
 }
 
 // ErrFrameHostChanged: the device's saved host is not the one the caller
@@ -104,6 +115,10 @@ const (
 	// the check afterwards, so whether the frame took the new password is
 	// unknown. The stored password is unchanged, but may no longer work.
 	FrameOutcomeUnknown
+	// FrameOpen: the frame does not require a password at the moment, so it
+	// could not confirm the one given (it takes any). Only from
+	// checkFramePassword.
+	FrameOpen
 )
 
 // FramePasswordError is returned by ChangeFramePassword when the frame did
@@ -133,6 +148,8 @@ func (e *FramePasswordError) Error() string {
 		return "the frame's firmware does not support a password; update it first"
 	case FrameOutcomeUnknown:
 		return fmt.Sprintf("the frame did not answer, so whether it took the new password is unknown: %v", e.Err)
+	case FrameOpen:
+		return "the frame does not require a password at the moment"
 	default:
 		return fmt.Sprintf("could not reach the frame: %v", e.Err)
 	}
@@ -195,7 +212,10 @@ func (s *DeviceService) ChangeFramePassword(id uint, newPassword, expectedHost s
 		return false, ErrFrameHostChanged
 	}
 
-	client := photoframe.NewClientWithPassword(device.Host, device.HTTPPassword)
+	// The pre-check and the PATCH go out with the stored password, so their
+	// answers say whether it still works: recorded like any other request's.
+	client := photoframe.NewClientWithPassword(device.Host, device.HTTPPassword).
+		WithStatusObserver(frameAuthObserver(s.db, id))
 
 	// Read the config first, with the stored password: it shows that password
 	// still works, so a wrong one fails here and not halfway, and that the
@@ -245,8 +265,12 @@ func (s *DeviceService) ChangeFramePassword(id uint, newPassword, expectedHost s
 		log.Printf("Frame %s accepted the new password, but reading it back failed: %v", device.Host, verr)
 	}
 
+	// The frame took the new password, so whatever it refused before is
+	// history: the flag goes with the old password.
 	res := s.db.Model(&model.Device{}).Where("id = ?", id).
-		Update("http_password", newPassword)
+		Updates(map[string]interface{}{
+			"http_password": newPassword, "auth_required": false, "auth_failed_at": nil,
+		})
 	if res.Error != nil {
 		return false, &FramePasswordStoreError{Err: res.Error}
 	}
@@ -302,6 +326,41 @@ func httpAuthEnabled(raw string) (bool, error) {
 		return false, errors.New("the frame's firmware does not support a password")
 	}
 	return *cfg.HTTPAuthEnabled, nil
+}
+
+// frameCheckTimeout bounds the one request checkFramePassword makes. It is
+// made under the device's exclusive lock, which every request to the frame
+// waits on, so a frame that takes the connection and then says nothing must
+// not hold them for the shared client's two minutes: a config pull has a
+// 20-second window. The frame answers /api/config at once.
+var frameCheckTimeout = 10 * time.Second
+
+// checkFramePassword asks the frame whether it takes password: a GET
+// /api/config with it, or with no credential at all for "". nil means the
+// frame confirmed it -- it answered, and reports a password in use; for ""
+// an answer to a request with no credential is confirmation enough,
+// whatever the firmware. Otherwise the error says why it could not: the
+// frame rejected it (FrameWrongPassword), could not be reached
+// (FrameUnreachable), is refusing checks for now (FrameLockedOut), does not
+// use a password now (FrameOpen), or runs firmware from before passwords
+// (FrameUnsupported).
+func checkFramePassword(host, password string) *FramePasswordError {
+	raw, err := photoframe.NewClientWithPassword(host, password).
+		WithTimeout(frameCheckTimeout).FetchConfig()
+	if err != nil {
+		return framePasswordError(err)
+	}
+	if password == "" {
+		return nil
+	}
+	enabled, err := httpAuthEnabled(raw)
+	if err != nil {
+		return &FramePasswordError{Kind: FrameUnsupported, Err: err}
+	}
+	if !enabled {
+		return &FramePasswordError{Kind: FrameOpen}
+	}
+	return nil
 }
 
 // frameUsesPassword reports whether the frame accepts password (no

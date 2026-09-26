@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
@@ -59,21 +61,81 @@ func (s *DeviceService) ListDevices() ([]model.Device, error) {
 	return devices, nil
 }
 
-// SetHTTPPassword stores (or clears, with "") the password the frame requires
-// on its own HTTP API. Kept off UpdateDevice deliberately: that signature is
-// already long, and a write-only secret does not belong in a payload the UI
-// round-trips.
-func (s *DeviceService) SetHTTPPassword(id uint, password string) error {
-	defer holdFrameCreds(id)()
-	res := s.db.Model(&model.Device{}).Where("id = ?", id).
-		Update("http_password", password)
+// SetHTTPPassword stores the password the frame requires on its own HTTP
+// API, or forgets it with "", after checking it against the frame: a GET
+// /api/config with the new password (with no credential at all for ""), so
+// the check never spends one of the frame's guesses on the stored one. Kept
+// off UpdateDevice deliberately: that signature is already long, and a
+// write-only secret does not belong in a payload the UI round-trips.
+//
+// A password the frame rejects is not stored, and the error is a
+// *FramePasswordError of kind FrameWrongPassword: stored, it would only
+// spend the frame's guesses. When the frame cannot confirm the password --
+// asleep or unreachable, refusing checks for now (429), open, or on firmware
+// without passwords -- it is stored anyway, since the user may be entering
+// it ahead of the frame's next wake, and unverified says why it could not be
+// confirmed. unverified is nil when the frame confirmed it.
+//
+// Storing resets auth_required: the flag was about the password this one
+// replaces. The exception is forgetting the password of a frame that still
+// asks for one, which leaves the server locked out of it -- so the flag is
+// set, which is the state the server is then in.
+func (s *DeviceService) SetHTTPPassword(id uint, password string) (unverified *FramePasswordError, err error) {
+	if err := photoframe.ValidateHTTPPassword(password); err != nil {
+		return nil, err
+	}
+
+	// Exclusive, like a change on the frame: requests in flight with the old
+	// password finish, and record what the frame made of it, before the new
+	// one is stored -- else a 401 to the old one could land after the store
+	// and flag the new one. The check below goes to the frame directly, not
+	// through FrameClient, which would wait on this very lock.
+	l := frameCredLock(id)
+	l.Lock()
+	defer l.Unlock()
+
+	var device model.Device
+	if err := s.db.Select("id", "host").First(&device, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDeviceNotFound
+		}
+		return nil, err
+	}
+
+	authRequired := false
+	if device.Host == "" {
+		unverified = &FramePasswordError{Kind: FrameNoHost}
+	} else if check := checkFramePassword(device.Host, password); check != nil {
+		if check.Kind == FrameWrongPassword {
+			if password != "" {
+				return nil, check
+			}
+			// Forgotten as asked, but the frame still wants one.
+			check.NoneStored = true
+			authRequired = true
+		}
+		unverified = check
+	}
+
+	updates := map[string]interface{}{"http_password": password}
+	if !authRequired {
+		updates["auth_required"] = false
+		updates["auth_failed_at"] = nil
+	}
+	res := s.db.Model(&model.Device{}).Where("id = ?", id).Updates(updates)
 	if res.Error != nil {
-		return res.Error
+		return nil, res.Error
 	}
 	if res.RowsAffected == 0 {
-		return ErrDeviceNotFound
+		return nil, ErrDeviceNotFound
 	}
-	return nil
+	if authRequired {
+		// The check that was refused went out just now, under this hold, so
+		// nothing sent before it is still out to clear the flag it sets.
+		now := time.Now()
+		recordFrameAuth(s.db, id, photoframe.Answer{Status: http.StatusUnauthorized, SentAt: now, ReceivedAt: now})
+	}
+	return unverified, nil
 }
 
 // ErrDeviceNotFound is returned when an id names no device.
@@ -86,13 +148,25 @@ func (s *DeviceService) AddDevice(host, httpPassword string, enableCollage, show
 	var orientation, boardName, displayType string
 
 	var deviceConfig, deviceProc, devicePalette string
+	var authRequired bool
+	var authFailedAt *time.Time
 
 	// A frame with its own HTTP API password must be probed with it, or every
 	// fetch below 401s and the device lands with placeholder defaults.
 	pfClient := photoframe.NewClientWithPassword(host, httpPassword)
 	sysInfo, err := pfClient.FetchSystemInfo()
 	if err != nil {
-		log.Printf("Could not reach device at %s (may be remote): %v", host, err)
+		if frameStatus(err) == http.StatusUnauthorized {
+			// The frame wants a password this server does not have, or not
+			// the one given. Noted on the device, so the webapp asks for it
+			// right away instead of the device just looking unreachable.
+			log.Printf("Device at %s refused the password it was added with (%v); adding it without its settings", host, err)
+			authRequired = true
+			now := time.Now()
+			authFailedAt = &now
+		} else {
+			log.Printf("Could not reach device at %s (may be remote): %v", host, err)
+		}
 		// Use defaults for unreachable devices; dimensions will be updated on first image request
 		name = host
 		width = 800
@@ -141,6 +215,8 @@ func (s *DeviceService) AddDevice(host, httpPassword string, enableCollage, show
 
 	device := &model.Device{
 		HTTPPassword:             httpPassword,
+		AuthRequired:             authRequired,
+		AuthFailedAt:             authFailedAt,
 		Name:                     name,
 		Host:                     host,
 		Width:                    width,
@@ -181,12 +257,44 @@ func (s *DeviceService) AddDevice(host, httpPassword string, enableCollage, show
 // DeviceProcessingSettings, DeviceColorPalette) are only written by
 // AddDevice and RefreshDeviceFromHardware.
 func (s *DeviceService) UpdateDevice(id uint, name, host, orientation string, enableCollage, showDate, showPhotoDate, showWeather bool, weatherLat, weatherLon float64, aiProvider, aiModel, aiPrompt string, layout string, displayMode string, showCalendar bool, calendarID string, dateFormat string) (*model.Device, error) {
-	// It may change the host: not in the middle of a frame password change.
-	defer holdFrameCreds(id)()
+	// It may change the host, and with it reset the frame's refusal (below).
+	// That needs the lock held exclusively, like a password change, so a
+	// request already on its way to the old host finishes, and records that
+	// frame's answer, before the new host is stored -- else a late 401 from
+	// the old frame would land on the new one. Any other edit takes it
+	// shared, as before: a new name must not wait two minutes behind a push
+	// to a frame that has stopped answering. The host is peeked at under the
+	// shared lock to choose, and checked again under the exclusive one.
+	l := frameCredLock(id)
+	exclusive := false
 	var device model.Device
-	if err := s.db.First(&device, id).Error; err != nil {
-		return nil, errors.New("device not found")
+	for {
+		if exclusive {
+			l.Lock()
+		} else {
+			l.RLock()
+		}
+		if err := s.db.First(&device, id).Error; err != nil {
+			if exclusive {
+				l.Unlock()
+			} else {
+				l.RUnlock()
+			}
+			return nil, errors.New("device not found")
+		}
+		if exclusive || host == device.Host {
+			break
+		}
+		l.RUnlock()
+		exclusive = true
 	}
+	defer func() {
+		if exclusive {
+			l.Unlock()
+		} else {
+			l.RUnlock()
+		}
+	}()
 
 	if name == "" {
 		name = device.Name // Keep existing if blank
@@ -201,6 +309,7 @@ func (s *DeviceService) UpdateDevice(id uint, name, host, orientation string, en
 		displayMode = "cover"
 	}
 
+	hostChanged := host != device.Host
 	device.Name = name
 	device.Host = host
 	device.Orientation = orientation
@@ -219,9 +328,19 @@ func (s *DeviceService) UpdateDevice(id uint, name, host, orientation string, en
 	device.CalendarID = calendarID
 	device.DateFormat = dateFormat
 
-	// The password is only written by SetHTTPPassword and ChangeFramePassword;
-	// saving the copy loaded above could undo a change made meanwhile.
-	if err := s.db.Omit("http_password").Save(&device).Error; err != nil {
+	// The password is only written by SetHTTPPassword and ChangeFramePassword,
+	// and the auth flag by the frame's answers as they come in; saving the
+	// copies loaded above could undo a change made meanwhile. A new host is
+	// the exception for the flag: the refusal was the old host's frame's,
+	// and the frame at the new one has not answered anything yet.
+	omit := []string{"http_password"}
+	if hostChanged {
+		device.AuthRequired = false
+		device.AuthFailedAt = nil
+	} else {
+		omit = append(omit, "auth_required", "auth_failed_at")
+	}
+	if err := s.db.Omit(omit...).Save(&device).Error; err != nil {
 		return nil, err
 	}
 	return &device, nil
@@ -285,11 +404,24 @@ func (s *DeviceService) RefreshDeviceFromHardware(id uint) (*model.Device, error
 		device.DeviceColorPalette = paletteRaw
 	}
 
-	// Refresh writes neither the password nor the host; saving the copies
-	// loaded above could undo an edit made meanwhile.
-	if err := s.db.Omit("http_password", "host").Save(&device).Error; err != nil {
+	// Refresh writes neither the password nor the host, nor the auth flag:
+	// saving the copies loaded above could undo an edit made meanwhile -- or,
+	// for the flag, what the frame's answers to these very fetches recorded.
+	if err := s.db.Omit("http_password", "host", "auth_required", "auth_failed_at").Save(&device).Error; err != nil {
 		return nil, err
 	}
+
+	// The copy returned reports the flag as those answers left it on the row
+	// -- cleared by the fetches that went through, set again should the
+	// frame have refused one of the optional ones -- rather than the state
+	// loaded before them, or one assumed from the required fetches alone.
+	// Still under the hold above, so nothing else has changed it since.
+	var recorded model.Device
+	if err := s.db.Select("auth_required", "auth_failed_at").First(&recorded, id).Error; err != nil {
+		return nil, err
+	}
+	device.AuthRequired = recorded.AuthRequired
+	device.AuthFailedAt = recorded.AuthFailedAt
 	return &device, nil
 }
 
@@ -346,6 +478,13 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		release()
 	}
 	if sysInfoErr != nil {
+		// A refused password (401) stays refused and a locked-out frame
+		// (429) refuses everything: the push would fail the same way after
+		// all the rendering, and a 401 would spend another of the frame's
+		// guesses.
+		if IsFrameAuthError(sysInfoErr) {
+			return fmt.Errorf("failed to push to device: %w", sysInfoErr)
+		}
 		log.Printf("Failed to fetch system info for %s: %v", device.Name, sysInfoErr)
 	}
 

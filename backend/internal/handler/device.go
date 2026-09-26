@@ -85,11 +85,61 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 	return c.JSON(http.StatusCreated, device)
 }
 
+// frameAuthRequiredCode marks a 409 that stands for the frame's 401 -- the
+// frame refused the password this server has for it -- so the webapp can
+// tell it from other conflicts and ask for the frame's password. It is a 409
+// rather than the frame's 401 because the webapp reads a 401 as its own
+// session expiring and logs the user out.
+const frameAuthRequiredCode = "frame_auth_required"
+
+// respondFrameAuthRequired answers that the frame refused the stored
+// password, as {"error": msg, "code": "frame_auth_required"} with a 409.
+func respondFrameAuthRequired(c echo.Context, msg string) error {
+	if err := c.JSON(http.StatusConflict, map[string]string{"error": msg, "code": frameAuthRequiredCode}); err != nil {
+		return err
+	}
+	return errors.New(msg)
+}
+
+// respondFrameAuthError answers for an err that is the frame refusing the
+// stored password (401 -> 409 with frameAuthRequiredCode) or refusing to
+// check it for now (429, with its Retry-After), and reports whether it did.
+// Any other error is left to the caller. what names the action, for the
+// message ("push the image").
+func respondFrameAuthError(c echo.Context, err error, what string) (bool, error) {
+	var se *photoframe.StatusError
+	if !errors.As(err, &se) {
+		return false, nil
+	}
+	switch se.StatusCode {
+	case http.StatusUnauthorized:
+		return true, respondFrameAuthRequired(c,
+			"The frame refused the password this server has for it, so it could not "+what+". "+
+				"Enter the frame's current password for this device and try again.")
+	case http.StatusTooManyRequests:
+		msg := "The frame is refusing password attempts from this server after too many wrong ones, so it could not " + what + "."
+		if se.RetryAfter != "" {
+			c.Response().Header().Set("Retry-After", se.RetryAfter)
+			msg += " Try again in " + se.RetryAfter + " seconds."
+		} else {
+			msg += " Try again later."
+		}
+		return true, respondError(c, http.StatusTooManyRequests, msg)
+	}
+	return false, nil
+}
+
 // SetHTTPPassword stores the password for a frame whose own HTTP API is
-// password-protected (esp32-photoframe #130). Write-only on purpose: the value
-// is never returned, only the http_password_set flag on the device. Send an
-// empty string to forget it, which is what you do after turning the frame's
-// authentication back off.
+// password-protected (esp32-photoframe #130), after checking it against the
+// frame. Write-only on purpose: the value is never returned, only the
+// http_password_set flag on the device. Send an empty string to forget it,
+// which is what you do after turning the frame's authentication back off.
+//
+// A password the frame rejects is answered 409 (frameAuthRequiredCode) and
+// not stored. One the frame cannot confirm -- it is asleep, locked out, or
+// not asking for a password right now -- is stored anyway, with verified
+// false and a warning saying why, since the user may be entering it ahead
+// of the frame's next wake.
 //
 // PUT /api/devices/:id/http-password
 func (h *DeviceHandler) SetHTTPPassword(c echo.Context) error {
@@ -103,16 +153,67 @@ func (h *DeviceHandler) SetHTTPPassword(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
-	if len(req.HTTPPassword) > photoframe.MaxHTTPPasswordLen {
-		return respondError(c, http.StatusBadRequest, fmt.Sprintf("frame password must be at most %d bytes", photoframe.MaxHTTPPasswordLen))
+	if err := photoframe.ValidateHTTPPassword(req.HTTPPassword); err != nil {
+		return respondError(c, http.StatusBadRequest, err.Error())
 	}
-	if err := h.deviceService.SetHTTPPassword(uint(id), req.HTTPPassword); err != nil {
-		if errors.Is(err, service.ErrDeviceNotFound) {
+	unverified, err := h.deviceService.SetHTTPPassword(uint(id), req.HTTPPassword)
+	if err != nil {
+		var fpe *service.FramePasswordError
+		switch {
+		case errors.Is(err, service.ErrDeviceNotFound):
 			return respondError(c, http.StatusNotFound, "device not found")
+		case errors.As(err, &fpe) && fpe.Kind == service.FrameWrongPassword:
+			return respondFrameAuthRequired(c,
+				"The frame rejected this password, so it was not stored. "+
+					"Check the password on the frame's own web page and try again.")
 		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, map[string]bool{"http_password_set": req.HTTPPassword != ""})
+
+	var device model.Device
+	if err := h.db.Select("id", "auth_required", "auth_failed_at").First(&device, id).Error; err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	resp := map[string]interface{}{
+		"http_password_set": req.HTTPPassword != "",
+		"verified":          unverified == nil,
+		"auth_required":     device.AuthRequired,
+		"auth_failed_at":    device.AuthFailedAt,
+	}
+	if unverified != nil {
+		resp["warning"] = httpPasswordUnverifiedMessage(unverified, req.HTTPPassword != "")
+	}
+	return c.JSON(http.StatusOK, resp)
+}
+
+// httpPasswordUnverifiedMessage says why the frame could not confirm a
+// password that was stored anyway, and what happens next.
+func httpPasswordUnverifiedMessage(e *service.FramePasswordError, set bool) string {
+	stored := "The password was stored and will be used on the frame's next wake."
+	if !set {
+		stored = "The stored password was forgotten."
+	}
+	switch e.Kind {
+	case service.FrameNoHost:
+		return "This device has no host, so the frame could not be asked. " + stored
+	case service.FrameWrongPassword:
+		// Only for a forgotten password: a rejected one is not stored.
+		return "The frame still requires a password, and this server now has none for it. " + stored
+	case service.FrameLockedOut:
+		msg := "The frame is refusing password checks from this server after too many wrong ones"
+		if e.RetryAfter != "" {
+			msg += " (for another " + e.RetryAfter + " seconds)"
+		}
+		return msg + ", so this one could not be checked. " + stored
+	case service.FrameOpen:
+		return "The frame does not require a password at the moment, so it could not confirm this one. " + stored
+	case service.FrameUnsupported:
+		return "The frame's firmware does not support a password, so it could not confirm this one. " + stored
+	case service.FrameRefused:
+		return "The frame answered, but did not confirm the password: " + e.Err.Error() + ". " + stored
+	default:
+		return "The frame could not be reached, so the password could not be checked. " + stored
+	}
 }
 
 // ChangeFramePassword changes the password on the frame itself -- unlike
@@ -166,9 +267,18 @@ func (h *DeviceHandler) ChangeFramePassword(c echo.Context) error {
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
+	// The store cleared the refusal flag along with the old password (see
+	// service.ChangeFramePassword); reported as SetHTTPPassword reports it,
+	// so the webapp can drop its badge without reloading the list.
+	var device model.Device
+	if err := h.db.Select("id", "auth_required", "auth_failed_at").First(&device, id).Error; err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
 	resp := map[string]interface{}{
 		"http_password_set": *req.Password != "",
 		"verified":          verified,
+		"auth_required":     device.AuthRequired,
+		"auth_failed_at":    device.AuthFailedAt,
 	}
 	if !verified {
 		resp["warning"] = "The frame accepted the change, but reading its settings back with the new password did not confirm it. " +
@@ -273,6 +383,9 @@ func (h *DeviceHandler) RefreshDevice(c echo.Context) error {
 	id, _ := strconv.Atoi(c.Param("id"))
 	device, err := h.deviceService.RefreshDeviceFromHardware(uint(id))
 	if err != nil {
+		if done, rerr := respondFrameAuthError(c, err, "read the device's settings"); done {
+			return rerr
+		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "failed to fetch") {
 			return respondError(c, http.StatusServiceUnavailable, errMsg)
@@ -401,6 +514,9 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 
 	// Push
 	if err := h.deviceService.PushToDevice(uint(deviceID), imagePath); err != nil {
+		if done, rerr := respondFrameAuthError(c, err, "push the image"); done {
+			return rerr
+		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "not reachable") || strings.Contains(errMsg, "failed to resolve") {
 			return respondError(c, http.StatusServiceUnavailable,

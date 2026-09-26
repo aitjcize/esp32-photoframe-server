@@ -54,6 +54,11 @@
       </span>
     </v-footer>
 
+    <!-- The one prompt for a frame's password, shared via
+         useFramePasswordPrompt() the way the snackbar is. Only while logged
+         in: it names a device and may hold a password typed for it. -->
+    <FramePasswordPrompt v-if="authStore.isLoggedIn" />
+
     <!-- Global snackbar shared via useSnackbar() -->
     <v-snackbar
       v-model="snackbar.show"
@@ -70,17 +75,30 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import Settings from './components/Settings.vue';
 import Login from './components/Login.vue';
 import Setup from './components/Setup.vue';
+import FramePasswordPrompt from './components/FramePasswordPrompt.vue';
 import { useAuthStore } from './stores/auth';
 import { useSnackbar } from './composables/useSnackbar';
+import { useFramePasswordPrompt } from './composables/useFramePasswordPrompt';
 import { getStatus } from './api';
 
 const authStore = useAuthStore();
 const { snackbar } = useSnackbar();
+const { reset: resetFramePasswordPrompt } = useFramePasswordPrompt();
 const serverVersion = ref('');
+
+// A logout drops the prompt with whatever it held. Its state outlives the
+// components (it is shared like the snackbar's), so unmounting it above is
+// not enough: it would come back, as it was, at the next login.
+watch(
+  () => authStore.isLoggedIn,
+  (loggedIn) => {
+    if (!loggedIn) resetFramePasswordPrompt();
+  }
+);
 
 onMounted(async () => {
   try {

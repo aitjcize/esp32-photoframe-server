@@ -1007,7 +1007,21 @@
                   </thead>
                   <tbody>
                     <tr v-for="device in availableDevices" :key="device.id">
-                      <td>{{ device.name }}</td>
+                      <td>
+                        {{ device.name }}
+                        <v-chip
+                          v-if="device.auth_required"
+                          size="x-small"
+                          color="warning"
+                          variant="flat"
+                          class="ml-2"
+                          prepend-icon="mdi-lock-alert"
+                          title="The frame refuses the server's password. Click to enter it."
+                          @click="promptFramePassword(device)"
+                        >
+                          Password required
+                        </v-chip>
+                      </td>
                       <td>
                         {{
                           device.board_name ||
@@ -1110,6 +1124,17 @@
                           Grayscale
                         </v-chip>
                       </v-list-item-subtitle>
+                      <v-list-item-subtitle v-if="device.auth_required">
+                        <v-chip
+                          size="x-small"
+                          color="warning"
+                          variant="flat"
+                          prepend-icon="mdi-lock-alert"
+                          @click="promptFramePassword(device)"
+                        >
+                          Password required
+                        </v-chip>
+                      </v-list-item-subtitle>
                       <v-list-item-subtitle
                         v-if="device.firmware_version"
                         class="text-truncate"
@@ -1204,6 +1229,30 @@
                         : 'height: 455px; overflow-y: auto'
                     "
                   >
+                    <!-- The frame refuses the server: say so up front, since
+                         nothing saved here reaches it until its password is
+                         entered (the field is under Advanced network settings). -->
+                    <v-alert
+                      v-if="!isAddingDevice && editingDevice.auth_required"
+                      type="warning"
+                      variant="tonal"
+                      density="compact"
+                      class="mb-3"
+                    >
+                      <div class="d-flex flex-wrap align-center ga-2">
+                        <span
+                          >This frame refuses the password the server has for
+                          it, so settings saved here reach it only with its next
+                          image fetch.</span
+                        >
+                        <v-btn
+                          size="small"
+                          variant="tonal"
+                          @click="promptForEditingDevice"
+                          >Enter password</v-btn
+                        >
+                      </div>
+                    </v-alert>
                     <!-- Add Device: host, plus a password if the frame needs one -->
                     <div v-if="isAddingDevice" class="mt-2">
                       <v-text-field
@@ -2570,7 +2619,10 @@ import { useSynologyStore } from '../stores/synology';
 import { useImmichStore } from '../stores/immich';
 import { useUnsplashStore, usePexelsStore } from '../stores/createSourceStore';
 import { useGalleryStore } from '../stores/gallery';
+import { useAuthStore } from '../stores/auth';
 import { useSnackbar } from '../composables/useSnackbar';
+import { useFramePasswordPrompt } from '../composables/useFramePasswordPrompt';
+import { isFrameAuthRefusal } from '../utils/frameAuth';
 import {
   api,
   listDevices,
@@ -2661,6 +2713,9 @@ const deviceSynologyAlbumIds = ref<number[]>([]);
 const deviceUnsplashAlbumIds = ref<number[]>([]);
 const devicePexelsAlbumIds = ref<number[]>([]);
 const galleryStore = useGalleryStore();
+// Only to know whether the session is still on when a load finishes: a
+// list requested before a logout must not open the password prompt after.
+const authStore = useAuthStore();
 const activeMainTab = ref('devices');
 // Unified source selector for the top card (per-source gallery + settings).
 const sourceTab = ref('gallery');
@@ -2688,20 +2743,79 @@ watch(deviceNeedsPassword, (needs) => {
   if (!needs) deviceHttpPassword.value = '';
 });
 
+// The prompt for the frame's password, shared with the device list and the
+// gallery. promptIfNeeded asks on its own when the list loads with a
+// refusing frame; promptFramePassword asks for one device on request.
+const { promptFramePassword, promptIfNeeded } = useFramePasswordPrompt();
+
+// mirrorFramePasswordState copies what the server reports after a password
+// was stored or forgotten onto both copies of the device: the list item
+// (the badge) and the dialog's (its notice and field labels).
+function mirrorFramePasswordState(
+  id: number,
+  res: {
+    http_password_set: boolean;
+    auth_required: boolean;
+    auth_failed_at: string | null;
+  }
+) {
+  for (const target of [
+    availableDevices.value.find((d: Device) => d.id === id),
+    editingDevice.id === id ? editingDevice : undefined,
+  ]) {
+    if (!target) continue;
+    target.http_password_set = res.http_password_set;
+    target.auth_required = res.auth_required;
+    target.auth_failed_at = res.auth_failed_at;
+  }
+}
+
+// promptForEditingDevice asks for the password of the device in the dialog.
+// The list item is what the prompt updates, so the dialog's copy is brought
+// in step afterwards.
+async function promptForEditingDevice() {
+  const id = editingDevice.id;
+  if (!id) return { saved: false as const };
+  const listed = availableDevices.value.find((d: Device) => d.id === id);
+  const result = await promptFramePassword(listed ?? (editingDevice as Device));
+  if (listed && editingDevice.id === id) {
+    editingDevice.http_password_set = listed.http_password_set;
+    editingDevice.auth_required = listed.auth_required;
+    editingDevice.auth_failed_at = listed.auth_failed_at;
+  }
+  return result;
+}
+
+// reflectFrameRefusal shows a refusal the server has just recorded -- after
+// a sync or push it refused -- in the list and in the dialog's copy of the
+// device, before the user is asked for the password: the chip and the
+// notice then stay up if the answer is "Not now".
+async function reflectFrameRefusal(id: number) {
+  await loadDevices();
+  const listed = availableDevices.value.find((d: Device) => d.id === id);
+  if (listed && editingDevice.id === id) {
+    editingDevice.http_password_set = listed.http_password_set;
+    editingDevice.auth_required = listed.auth_required;
+    editingDevice.auth_failed_at = listed.auth_failed_at;
+  }
+}
+
 async function clearDeviceHttpPassword() {
   if (!editingDevice.id) return;
-  await setDeviceHttpPassword(editingDevice.id, '');
-  editingDevice.http_password_set = false;
-  // Keep the list in sync too, or reopening the device without saving
-  // would still show a stored password.
-  const listed = availableDevices.value.find(
-    (d: Device) => d.id === editingDevice.id
-  );
-  if (listed) listed.http_password_set = false;
-  deviceHttpPassword.value = '';
-  showMessage(
-    'Forgot the stored frame password. The frame itself still has it.'
-  );
+  try {
+    const res = await setDeviceHttpPassword(editingDevice.id, '');
+    // Keep the list in sync too, or reopening the device without saving
+    // would still show a stored password.
+    mirrorFramePasswordState(editingDevice.id, res);
+    deviceHttpPassword.value = '';
+    showMessage(
+      res.verified
+        ? 'Forgot the stored frame password. The frame does not ask for one.'
+        : `Forgot the stored frame password. ${res.warning ?? ''}`.trim()
+    );
+  } catch (e: unknown) {
+    showMessage(getApiError(e, 'Could not forget the password.'), true);
+  }
 }
 
 // "Password on the frame": changes the frame itself, through the server.
@@ -2796,11 +2910,9 @@ async function sendFramePassword(password: string) {
       }
       return false;
     }
-    const listed = availableDevices.value.find(
-      (d: Device) => d.id === deviceId
-    );
-    if (listed) listed.http_password_set = res.http_password_set;
-    editingDevice.http_password_set = res.http_password_set;
+    // The change also cleared the refusal flag, the old password being
+    // gone with whatever it was refused for: the badge goes with it.
+    mirrorFramePasswordState(deviceId, res);
     const others =
       password === ''
         ? 'The frame no longer requires a password. The Home Assistant integration and the mobile app keep working; you can remove the password from them.'
@@ -3450,6 +3562,14 @@ const syncFromDevice = async () => {
     await loadDeviceConfig(editingDevice.id!);
     showMessage('Settings synced from device');
   } catch (e: any) {
+    if (isFrameAuthRefusal(e)) {
+      // The frame wants its password: show the refusal, ask, and sync again
+      // once the password is in.
+      syncingFromDevice.value = false;
+      await reflectFrameRefusal(editingDevice.id);
+      if ((await promptForEditingDevice()).saved) await syncFromDevice();
+      return;
+    }
     showMessage(
       'Failed to sync: ' + (e.response?.data?.error || e.message),
       true
@@ -3775,6 +3895,10 @@ const saveDevice = async () => {
     }
   }
   savingDeviceConfig.value = true;
+  // Set when the frame refused the direct config push: the prompt for its
+  // password waits until the dialog is closed.
+  let pushRefused = false;
+  const savedId = editingDevice.id;
   try {
     if (isAddingDevice.value) {
       const newDevice = await addDevice({
@@ -3812,29 +3936,6 @@ const saveDevice = async () => {
         useThisServer.value && deviceConfig.rotation_mode === 'url'
           ? selectedSource.value
           : '';
-      // Save server-side device fields
-      await updateDevice(
-        editingDevice.id,
-        editingDevice.name!,
-        editingDevice.host!,
-        deviceConfig.display_orientation || editingDevice.orientation!,
-        editingDevice.enable_collage!,
-        editingDevice.show_date!,
-        editingDevice.show_photo_date || false,
-        editingDevice.show_weather!,
-        editingDevice.weather_lat || 0,
-        editingDevice.weather_lon || 0,
-        editingDevice.ai_provider || '',
-        editingDevice.ai_model || '',
-        editingDevice.ai_prompt || '',
-        editingDevice.layout || 'photo_overlay',
-        deviceProcessing.scaleMode || 'cover',
-        editingDevice.show_calendar || false,
-        editingDevice.calendar_id || '',
-        editingDevice.date_format || '',
-        deviceSource,
-        deviceProcessing.backgroundColor || ''
-      );
 
       // Save device remote config (config + processing + palette)
       const [startH, startM] = deviceConfig.sleep_start_time
@@ -3914,16 +4015,65 @@ const saveDevice = async () => {
           }
         : {};
 
+      // Save server-side device fields, the host among them, before the
+      // password: the server checks that against the saved host, so a host
+      // typed alongside it is the one it is checked at.
+      await updateDevice(
+        editingDevice.id,
+        editingDevice.name!,
+        editingDevice.host!,
+        deviceConfig.display_orientation || editingDevice.orientation!,
+        editingDevice.enable_collage!,
+        editingDevice.show_date!,
+        editingDevice.show_photo_date || false,
+        editingDevice.show_weather!,
+        editingDevice.weather_lat || 0,
+        editingDevice.weather_lon || 0,
+        editingDevice.ai_provider || '',
+        editingDevice.ai_model || '',
+        editingDevice.ai_prompt || '',
+        editingDevice.layout || 'photo_overlay',
+        deviceProcessing.scaleMode || 'cover',
+        editingDevice.show_calendar || false,
+        editingDevice.calendar_id || '',
+        editingDevice.date_format || '',
+        deviceSource,
+        deviceProcessing.backgroundColor || ''
+      );
+
       // Write-only: only send when the field was filled in. Blank leaves any
       // stored password alone, matching how the frame treats a null. Done
       // after validation, so a rejected save does not change the credential,
-      // and before the config push, which has to authenticate with it.
+      // after the host is saved, so it is checked at that host, and before
+      // the config push, which has to authenticate with it. The server checks
+      // it with the frame first: one the frame rejects stops the save here,
+      // to be corrected, with the fields above saved and said so; one the
+      // frame cannot confirm is kept, and noted with the outcome.
+      let passwordNote = '';
       if (deviceHttpPassword.value !== '') {
-        await setDeviceHttpPassword(
-          editingDevice.id!,
-          deviceHttpPassword.value
-        );
+        let stored;
+        try {
+          stored = await setDeviceHttpPassword(
+            editingDevice.id!,
+            deviceHttpPassword.value
+          );
+        } catch (e: unknown) {
+          if (!isFrameAuthRefusal(e)) throw e;
+          showMessage(
+            'Frame password: ' +
+              getApiError(e, 'the frame rejected it.') +
+              " The device's other settings were saved; the frame's settings were not sent. Fix the password and save again.",
+            true
+          );
+          // The list shows the fields just saved, whatever the dialog does next.
+          await loadDevices();
+          return;
+        }
         deviceHttpPassword.value = '';
+        mirrorFramePasswordState(editingDevice.id!, stored);
+        if (!stored.verified && stored.warning) {
+          passwordNote = ' ' + stored.warning;
+        }
       }
 
       const result = await updateDeviceConfig(editingDevice.id, {
@@ -4011,15 +4161,33 @@ const saveDevice = async () => {
       }
 
       if (result.push_result === 'synced') {
-        showMessage('Device saved and config pushed to device.');
+        showMessage('Device saved and config pushed to device.' + passwordNote);
+      } else if (result.push_result === 'auth_required') {
+        // Saved server-side and delivered with the frame's next image fetch
+        // (the frame's own channel, not password-gated); only the direct
+        // push was refused. Asked for the password once the dialog is away.
+        showMessage(
+          "Device saved. The frame refused the server's password, so the config will sync on its next image fetch." +
+            passwordNote
+        );
+        pushRefused = true;
       } else {
         showMessage(
-          'Device saved. Device is offline — config will sync on next image fetch.'
+          'Device saved. Device is offline — config will sync on next image fetch.' +
+            passwordNote
         );
       }
     }
     await loadDevices();
     showEditDeviceDialog.value = false;
+    if (pushRefused && savedId) {
+      const refused = availableDevices.value.find(
+        (d: Device) => d.id === savedId
+      );
+      if (refused?.auth_required && authStore.isLoggedIn) {
+        void promptFramePassword(refused);
+      }
+    }
   } catch (e: any) {
     showMessage(
       'Failed to save device: ' + (e.response?.data?.error || e.message),
@@ -4044,6 +4212,13 @@ const loadDevices = async () => {
   deviceListLoading.value = true;
   try {
     availableDevices.value = await listDevices();
+    // A frame refusing the server gets asked about as soon as the list
+    // shows it -- but not over the device dialog, where the field for it
+    // is, not again once put off (see useFramePasswordPrompt), and not for
+    // a session that ended while the list was loading.
+    if (authStore.isLoggedIn && !showEditDeviceDialog.value) {
+      promptIfNeeded(availableDevices.value);
+    }
   } catch (e) {
     console.error('Failed to list devices', e);
   } finally {

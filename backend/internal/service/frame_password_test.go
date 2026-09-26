@@ -153,6 +153,8 @@ func setupFramePasswordTest(t *testing.T, frame *fakeFrame, storedPassword strin
 
 	d := model.Device{Name: "Frame", Host: strings.TrimPrefix(srv.URL, "http://"), HTTPPassword: storedPassword}
 	require.NoError(t, db.Create(&d).Error)
+	// A fresh device gets a fresh answer clock (see setupAuthFrameTest).
+	frameAuthClocks.Delete(d.ID)
 	return NewDeviceService(DeviceServiceDeps{DB: db}), db, d.ID
 }
 
@@ -263,14 +265,20 @@ func TestChangeFramePasswordPatchFailuresLeaveItUnchanged(t *testing.T) {
 	}
 }
 
+// deadHost returns a host:port on the loopback that nothing listens on, so
+// a connection to it is refused at once.
+func deadHost(t *testing.T) string {
+	t.Helper()
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	return strings.TrimPrefix(dead.URL, "http://")
+}
+
 func TestChangeFramePasswordUnreachableLeavesItUnchanged(t *testing.T) {
 	frame := &fakeFrame{password: "old"}
 	svc, db, id := setupFramePasswordTest(t, frame, "old")
 	// Point the device at a port nothing listens on.
-	dead := httptest.NewServer(http.NotFoundHandler())
-	deadHost := strings.TrimPrefix(dead.URL, "http://")
-	dead.Close()
-	require.NoError(t, db.Model(&model.Device{}).Where("id = ?", id).Update("host", deadHost).Error)
+	require.NoError(t, db.Model(&model.Device{}).Where("id = ?", id).Update("host", deadHost(t)).Error)
 
 	_, err := svc.ChangeFramePassword(id, "new", "")
 	var fpe *FramePasswordError
@@ -436,14 +444,17 @@ func TestUpdateDeviceKeepsStoredPassword(t *testing.T) {
 // change cannot store its password over theirs.
 func TestConnectionWritesWaitForFramePasswordChange(t *testing.T) {
 	svc, _, id := setupFramePasswordTest(t, &fakeFrame{}, "")
+	// A host nothing answers at, refused at once: SetHTTPPassword checks the
+	// password against whatever host it finds, and a name would be resolved.
+	elsewhere := deadHost(t)
 
 	l := frameCredLock(id)
 	l.Lock() // stands in for a change in progress
 	done := make(chan struct{}, 3)
-	go func() { _ = svc.SetHTTPPassword(id, "typed"); done <- struct{}{} }()
+	go func() { _, _ = svc.SetHTTPPassword(id, "typed"); done <- struct{}{} }()
 	go func() { _ = svc.DeleteDevice(id); done <- struct{}{} }()
 	go func() {
-		_, _ = svc.UpdateDevice(id, "Frame", "elsewhere.local", "", false, false, false, false, 0, 0, "", "", "", "", "", false, "", "")
+		_, _ = svc.UpdateDevice(id, "Frame", elsewhere, "", false, false, false, false, 0, 0, "", "", "", "", "", false, "", "")
 		done <- struct{}{}
 	}()
 	select {

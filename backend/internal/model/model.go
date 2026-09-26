@@ -107,6 +107,15 @@ type Device struct {
 	// Reported instead of the password itself, so the UI can show whether one
 	// is configured without the value ever leaving the server.
 	HTTPPasswordSet bool `json:"http_password_set" gorm:"-"`
+	// AuthRequired: the frame refused this server's last request for want of
+	// the right password (401), so nothing the server does with the frame
+	// works until the user enters the frame's password. Cleared by the next
+	// request the frame answers, and when a new password is stored.
+	// AuthFailedAt is when the refusals started; it stays put while they
+	// last, so the webapp can tell a new refusal from the one it already
+	// asked about.
+	AuthRequired bool       `json:"auth_required" gorm:"default:false"`
+	AuthFailedAt *time.Time `json:"auth_failed_at"`
 	// Remote config sync fields (JSON blobs synced from/to device)
 	DeviceConfig             string    `json:"device_config" gorm:"default:'{}'"`
 	DeviceProcessingSettings string    `json:"device_processing_settings" gorm:"default:'{}'"`

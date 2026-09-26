@@ -220,12 +220,21 @@
             </div>
             <div v-else>
               <v-radio-group v-model="pushDialog.selectedDevice" hide-details>
-                <v-radio
-                  v-for="dev in devices"
-                  :key="dev.id"
-                  :label="`${dev.name} (${dev.host})`"
-                  :value="dev.id"
-                ></v-radio>
+                <v-radio v-for="dev in devices" :key="dev.id" :value="dev.id">
+                  <template #label>
+                    {{ dev.name }} ({{ dev.host }})
+                    <v-chip
+                      v-if="dev.auth_required"
+                      size="x-small"
+                      color="warning"
+                      variant="flat"
+                      class="ml-2"
+                      prepend-icon="mdi-lock-alert"
+                    >
+                      Password required
+                    </v-chip>
+                  </template>
+                </v-radio>
               </v-radio-group>
 
               <v-checkbox
@@ -390,9 +399,13 @@ import { onMounted, onUnmounted, ref, reactive, computed, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
 import { api, listDevices, pushToDevice, type Device } from '../api';
+import { useFramePasswordPrompt } from '../composables/useFramePasswordPrompt';
+import { isFrameAuthRefusal } from '../utils/frameAuth';
+import { getApiError } from '../utils/errors';
 
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
+const { promptFramePassword } = useFramePasswordPrompt();
 
 // Album chips (only shown for Immich / Synology sources).
 const albumChips = ref<any[]>([]);
@@ -612,14 +625,25 @@ const confirmPush = async () => {
     galleryStore.importMessage = 'Image pushed to device successfully';
     pushDialog.show = false;
   } catch (e: any) {
-    // Extract error message
-    let msg = 'Failed to push image';
-    if (e.response && e.response.data && e.response.data.error) {
-      msg = e.response.data.error;
-    } else if (e.message) {
-      msg = e.message;
+    if (isFrameAuthRefusal(e)) {
+      // The frame wants its password. The server has just recorded the
+      // refusal: reload the list so its chip shows -- and stays, on "Not
+      // now" -- then ask, and push again once the password is in.
+      pushDialog.loading = false;
+      try {
+        devices.value = await listDevices();
+      } catch {
+        // The chip can wait for the next load; the prompt cannot.
+      }
+      const refused = devices.value.find(
+        (d) => d.id === pushDialog.selectedDevice
+      );
+      if (refused && (await promptFramePassword(refused)).saved) {
+        await confirmPush();
+        return;
+      }
     }
-    pushDialog.error = msg;
+    pushDialog.error = getApiError(e, 'Failed to push image');
     // Keep dialog open to show error
   } finally {
     pushDialog.loading = false;

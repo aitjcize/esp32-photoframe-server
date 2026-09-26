@@ -105,10 +105,65 @@ func (t *basicAuthTransport) RoundTrip(req *http.Request) (*http.Response, error
 	return t.base.RoundTrip(r)
 }
 
+// Answer is what a status observer sees of each request the frame answered:
+// the status, and when the request went out and the answer came in. Two
+// requests can be out at once, and an observer that orders their answers
+// needs both times.
+type Answer struct {
+	Status     int
+	SentAt     time.Time
+	ReceivedAt time.Time
+}
+
+// statusObserverTransport reports every answer to fn. Like
+// basicAuthTransport it sits at the transport, so every request the client
+// makes is seen, including ones added later.
+type statusObserverTransport struct {
+	base http.RoundTripper
+	fn   func(Answer)
+}
+
+func (t *statusObserverTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	sentAt := time.Now()
+	resp, err := t.base.RoundTrip(req)
+	if err == nil {
+		t.fn(Answer{Status: resp.StatusCode, SentAt: sentAt, ReceivedAt: time.Now()})
+	}
+	return resp, err
+}
+
 type Client struct {
 	host       string
 	resolvedIP string // Cached resolved IP
 	httpClient *http.Client
+}
+
+// WithStatusObserver has the client call fn with every answer the frame
+// gives, whatever the request. The device service uses it to keep a
+// device's auth_required flag in step with the frame: a 401 sets it, an
+// answer to the same password clears it. Doing it under every request means
+// no call site can forget it. Returns c for chaining.
+func (c *Client) WithStatusObserver(fn func(Answer)) *Client {
+	base := c.httpClient
+	c.httpClient = &http.Client{
+		Transport:     &statusObserverTransport{base: base.Transport, fn: fn},
+		Timeout:       base.Timeout,
+		CheckRedirect: base.CheckRedirect,
+	}
+	return c
+}
+
+// WithTimeout bounds every request this client makes to d, in place of the
+// shared client's two minutes, which are sized for an image upload. For a
+// request made while others wait on it. Returns c for chaining.
+func (c *Client) WithTimeout(d time.Duration) *Client {
+	base := c.httpClient
+	c.httpClient = &http.Client{
+		Transport:     base.Transport,
+		Timeout:       d,
+		CheckRedirect: base.CheckRedirect,
+	}
+	return c
 }
 
 // MaxHTTPPasswordLen is the longest password the firmware stores
@@ -215,7 +270,7 @@ func (c *Client) PushImage(imageBytes []byte, thumbBytes []byte) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("device returned status: %d", resp.StatusCode)
+		return newStatusError(resp)
 	}
 
 	return nil
@@ -364,7 +419,7 @@ func (c *Client) FetchSystemInfo() (*SystemInfo, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("device returned status: %d", resp.StatusCode)
+		return nil, newStatusError(resp)
 	}
 
 	var info SystemInfo
@@ -480,7 +535,7 @@ func (c *Client) FetchProcessingSettings() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("device returned status: %d", resp.StatusCode)
+		return "", newStatusError(resp)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -512,7 +567,7 @@ func (c *Client) FetchPalette() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("device returned status: %d", resp.StatusCode)
+		return "", newStatusError(resp)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -548,7 +603,7 @@ func (c *Client) PushProcessingSettings(settings []byte) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("device returned status: %d", resp.StatusCode)
+		return newStatusError(resp)
 	}
 
 	return nil
@@ -581,15 +636,16 @@ func (c *Client) PushConfig(config map[string]interface{}) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("device returned status: %d", resp.StatusCode)
+		return newStatusError(resp)
 	}
 
 	return nil
 }
 
-// StatusError is a non-200 answer from the frame. Error() keeps the
-// "device returned status: N" wording the other calls use; callers that need
-// to tell a rejected password (401) or a lockout (429) apart use errors.As.
+// StatusError is a non-200 answer from the frame, returned by every request
+// in this file. Error() keeps the "device returned status: N" wording;
+// callers that need to tell a rejected password (401) or a lockout (429)
+// apart use errors.As.
 type StatusError struct {
 	StatusCode int
 	// RetryAfter is the frame's Retry-After header on a 429, in seconds.
