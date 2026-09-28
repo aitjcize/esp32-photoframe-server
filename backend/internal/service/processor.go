@@ -48,8 +48,12 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		if settings.DitherAlgorithm != "" {
 			opts["dither-algorithm"] = settings.DitherAlgorithm
 		}
+		// Both branches are needed: the CLI's default preset (balanced) has
+		// compression on, so omitting the flag does not turn it off.
 		if settings.CompressDynamicRange {
 			opts["compress-dynamic-range"] = "" // Boolean flag
+		} else {
+			opts["no-compress-dynamic-range"] = ""
 		}
 		// Device-synced layout (firmware >= scaleMode support); overrides the
 		// legacy per-device display_mode the caller may have set
