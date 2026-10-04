@@ -1,5 +1,90 @@
 # Changelog
 
+## v1.17.0
+
+### Added
+
+- **Frames protected by a password.** The firmware can require a password
+  on the frame's own HTTP API (esp32-photoframe #130). Enter it when
+  adding the frame ("This frame requires a password") or later under Edit
+  Device → Advanced network settings → Frame password; the server checks
+  it against the frame before storing it and uses it for config sync,
+  image pushes and Sync from Device. Write-only: the API only ever
+  reports `http_password_set`. Requires the firmware release after
+  v2.18.0; older firmware is detected and refused with a clear message.
+- **Change or remove the frame's password from the dashboard.** "Password
+  on the frame" sets a new password on the frame itself, signed in with
+  the stored one, so the server keeps working after the change; "Turn off
+  password on the frame" removes it. Update the Home Assistant
+  integration and the mobile app afterwards.
+- **"Password required" prompt.** When a frame starts refusing the
+  server's password, its row gets a warning chip and the dashboard asks
+  for the password — on load, from the chip, from the device dialog, and
+  after a push, sync or config save the frame refused — then retries the
+  action. "Not now" is remembered per device until the frame refuses
+  again. The frame's 401 is reported as a 409 with code
+  `frame_auth_required` (`push_result: "auth_required"` on a config
+  save), never as a 401, which the dashboard treats as its own session
+  expiring.
+- **Time zone picker.** Edit Device → General offers a searchable list of
+  464 IANA zones mapped to the POSIX TZ rule the frame's tzset() takes,
+  "Use this browser's time zone", and an advanced field for a custom
+  rule. The rule is loaded and saved verbatim: a DST rule set on the
+  frame used to load as 0 and be written back as "UTC0" on the next Save,
+  putting a rotation schedule hours off. (esp32-photoframe #128)
+- **Synology albums shared with the account.** The album picker lists
+  albums other DSM users shared with the login (badged "Shared"), browsed
+  through the passphrase DSM issues for them. (#52; #63 by
+  @aashishvanand)
+
+### Changed
+
+- **Synology listings are paged.** Album lists were capped at 100 and
+  each album at 5,000 photos; both now page until DSM runs out (bounded
+  at 10,000 albums and 100,000 photos per album, with a log line when a
+  bound is hit). (#56, reported by @aashishvanand)
+- **Another photo is tried when the picked one fails to load.** A photo
+  deleted upstream, a NAS 404 or a corrupt file no longer fails the
+  frame's image fetch with a 500: the failure is logged with the photo's
+  id and up to three photos are tried per request, in collage mode too.
+  (#61, reported by @aashishvanand)
+- **Auto-sync follows the album picker.** Immich and Synology auto-sync
+  gated on the legacy single-album settings and silently never ran for
+  setups configured through the multi-album picker. Album rows now gate
+  it, a picker change re-arms the scheduler, and an enabled-but-
+  unconfigured source logs one warning instead of nothing. (#54)
+- **Weather uses the location's time zone.** Open-Meteo is asked for
+  `timezone=auto`, so the overlay's date and calendar day follow the
+  device's latitude/longitude instead of rendering in UTC (the default
+  "GMT" answer silently satisfied `time.LoadLocation`). Thanks @andysiu.
+- **Docker images build on native runners** and pin the converter to the
+  current npm release, so a new epaper-image-convert is picked up instead
+  of a cached layer silently keeping the old one. The converter is now
+  0.1.21, whose `--device-config` reads a frame's exported config.
+
+### Fixed
+
+- **Synology thumbnails 404 (endless spinner) on newer DSM items.**
+  Thumbnails were requested with the item id but `type=unit`; DSM 7.4.1
+  gives newer items a different unit id, so whole albums failed to show
+  or push. Requested by item now; existing rows need no resync. (#59;
+  #60 by @aashishvanand)
+- **Shared Synology albums failed with DSM error 120 / 404.** The
+  passphrase is sent instead of `album_id` (DSM rejects the pair), the
+  listing uses `list_shared_with_me_album`, and owned albums shared out
+  by link no longer carry their link passphrase into syncs — a stale one
+  stored by an earlier build is cleared on the next sync. (#63 by
+  @aashishvanand)
+- **Immich "latest" memory year with only videos synced nothing.** The
+  newest "on this day" lane that still has a servable image is used, so
+  a video-only year falls back to an older one. (#48)
+- **Weather humidity/icon fell back to midnight in half-hour zones.**
+  With `timezone=auto` the current time lands on :30 in Asia/Kolkata and
+  :45 in Pacific/Chatham; the hourly match now compares on the hour.
+- A frame that accepts a connection but never answers could hold a
+  device's lock for minutes during a password change; every request the
+  change makes is now bounded to 10 s.
+
 ## v1.16.0
 
 ### Added
