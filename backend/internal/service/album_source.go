@@ -74,8 +74,13 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 	}
 
 	// Best-effort metadata refresh for real albums: the name for display, and
-	// the Synology share passphrase, which DSM can rotate — a stale one would
-	// otherwise fail every future fetch of that album with no way back.
+	// the Synology share passphrase, which follows what the NAS reports now.
+	// DSM can rotate the passphrase of a shared album, and a stale one would
+	// fail every future fetch of that album with no way back. An owned album
+	// may still hold the passphrase of a link it was shared out by (stored
+	// before ListAlbums dropped those): the account reaches its own albums by
+	// id, and DSM refuses album_id and passphrase together (error 120), so
+	// that one has to go.
 	remoteByExternalID := map[string]RemoteAlbum{}
 	if list, e := src.ListRemoteAlbums(); e == nil {
 		for _, a := range list {
@@ -86,8 +91,11 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 	total := 0
 	var failures []string
 	for _, album := range albums {
-		remote := remoteByExternalID[album.ExternalID]
-		if album.Kind == model.AlbumKindReal && remote.Passphrase != "" &&
+		// Only an album the listing returned says anything about its
+		// passphrase. A listing that failed (NAS unreachable) or no longer
+		// carries the album leaves the stored one alone.
+		remote, listed := remoteByExternalID[album.ExternalID]
+		if listed && album.Kind == model.AlbumKindReal &&
 			remote.Passphrase != album.SharePassphrase {
 			album.SharePassphrase = remote.Passphrase
 			if e := db.Model(&model.Album{}).Where("id = ?", album.ID).

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -223,12 +224,17 @@ func TestSynologyAlbumRefForImageCarriesPassphrase(t *testing.T) {
 // passphrase the engine handed it, and can advertise a rotated one.
 type recordingAlbumSource struct {
 	remote []RemoteAlbum
+	// listErr, when set, fails the listing: the NAS could not be asked.
+	listErr error
 	// sawPassphrase is the SharePassphrase on the album the engine fetched.
 	sawPassphrase string
 }
 
 func (f *recordingAlbumSource) Source() string { return model.SourceSynologyPhotos }
 func (f *recordingAlbumSource) ListRemoteAlbums() ([]RemoteAlbum, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return f.remote, nil
 }
 func (f *recordingAlbumSource) FetchAlbumAssets(a model.Album) ([]RemoteAsset, error) {
@@ -258,6 +264,63 @@ func TestSyncAlbumSourceRefreshesRotatedPassphrase(t *testing.T) {
 	var stored model.Album
 	require.NoError(t, db.First(&stored, album.ID).Error)
 	assert.Equal(t, "new", stored.SharePassphrase)
+}
+
+// An owned album that is shared out by link was stored with the link's
+// passphrase by servers before ListAlbums dropped it. DSM refuses album_id
+// and passphrase together (error 120), so the stale passphrase must be
+// cleared on the next sync, and the fetch then reach the album by id.
+func TestSyncAlbumSourceClearsStaleLinkPassphraseOnOwnedAlbum(t *testing.T) {
+	nas := newFakeNAS()
+	defer nas.Close()
+	// DSM lists the link's passphrase with the owned album.
+	nas.ownedJSON = `{"success":true,"data":{"list":[{"id":3,"name":"Mine","type":"album","shared":true,"passphrase":"link3"}]}}`
+
+	svc, db := newSharedAlbumService(t, nas.URL)
+	album := model.Album{
+		Source: model.SourceSynologyPhotos, ExternalID: "3", Kind: model.AlbumKindReal,
+		Name: "Mine", SyncEnabled: true, SharePassphrase: "link3",
+	}
+	require.NoError(t, db.Create(&album).Error)
+
+	_, err := SyncAlbumSource(db, svc)
+	require.NoError(t, err)
+
+	q := nas.lastItemQuery()
+	assert.Contains(t, q, "album_id=3")
+	assert.NotContains(t, q, "passphrase")
+
+	var stored model.Album
+	require.NoError(t, db.First(&stored, album.ID).Error)
+	assert.Empty(t, stored.SharePassphrase)
+}
+
+// A passphrase is only cleared on the word of a listing that has the album.
+// When the NAS cannot be asked, or the album is missing from the listing
+// (e.g. the sharing API failed while owned albums still listed), the stored
+// one stays: blanking it would break a shared album that still needs it.
+func TestSyncAlbumSourceKeepsPassphraseWhenAlbumNotListed(t *testing.T) {
+	for name, src := range map[string]*recordingAlbumSource{
+		"listing failed":   {listErr: errors.New("NAS unreachable")},
+		"album not listed": {remote: []RemoteAlbum{{ExternalID: "8", Name: "Other"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := setupAlbumDB(t)
+			album := model.Album{
+				Source: model.SourceSynologyPhotos, ExternalID: "7", Kind: model.AlbumKindReal,
+				Name: "Theirs", SyncEnabled: true, SharePassphrase: "keep",
+			}
+			require.NoError(t, db.Create(&album).Error)
+
+			_, err := SyncAlbumSource(db, src)
+			require.NoError(t, err)
+			assert.Equal(t, "keep", src.sawPassphrase)
+
+			var stored model.Album
+			require.NoError(t, db.First(&stored, album.ID).Error)
+			assert.Equal(t, "keep", stored.SharePassphrase)
+		})
+	}
 }
 
 // Saving a selection while the NAS is unreachable resolves no passphrases;
