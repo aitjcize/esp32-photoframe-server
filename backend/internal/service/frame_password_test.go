@@ -37,6 +37,13 @@ type fakeFrame struct {
 	// goneAfterPatch drops every request once a PATCH has come in: the
 	// frame went away mid-change.
 	goneAfterPatch bool
+	// hangGets takes every GET (hangGetsAfterPatch: every GET once a PATCH
+	// has come in) and never answers it: a frame that accepts the
+	// connection and then says nothing. The handler returns when the client
+	// gives up on the request, or hangRelease is closed.
+	hangGets           bool
+	hangGetsAfterPatch bool
+	hangRelease        chan struct{}
 
 	patches      []string // Authorization password of each PATCH
 	patchBodies  []string
@@ -46,6 +53,13 @@ type fakeFrame struct {
 
 func (f *fakeFrame) handler(t *testing.T) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f.hangsGet(r) {
+			select {
+			case <-r.Context().Done():
+			case <-f.hangRelease:
+			}
+			return
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if f.goneAfterPatch && len(f.patches) > 0 {
@@ -110,6 +124,15 @@ func (f *fakeFrame) handler(t *testing.T) http.Handler {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
+}
+
+func (f *fakeFrame) hangsGet(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hangGets || (f.hangGetsAfterPatch && len(f.patches) > 0)
 }
 
 func (f *fakeFrame) current() string {
@@ -359,6 +382,47 @@ func TestChangeFramePasswordUnansweredReadBackIsUnverified(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, verified)
 	assert.Equal(t, "new", storedPassword(t, db, id))
+}
+
+// A frame that takes the connection and never answers must not hold the
+// change -- and with it the device's lock, which every request to the frame
+// waits on -- for the shared client's two minutes. Each request is bounded by
+// frameCheckTimeout: the pre-check and the PATCH, and the read-back after.
+func TestChangeFramePasswordBoundsAFrameThatNeverAnswers(t *testing.T) {
+	prev := frameCheckTimeout
+	frameCheckTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { frameCheckTimeout = prev })
+	// Well under the shared client's two minutes, well over the bound.
+	const limit = 5 * time.Second
+
+	t.Run("pre-check", func(t *testing.T) {
+		frame := &fakeFrame{password: "old", hangGets: true, hangRelease: make(chan struct{})}
+		svc, db, id := setupFramePasswordTest(t, frame, "old")
+		t.Cleanup(func() { close(frame.hangRelease) })
+
+		start := time.Now()
+		_, err := svc.ChangeFramePassword(id, "new", "")
+		assert.Less(t, time.Since(start), limit)
+		var fpe *FramePasswordError
+		require.ErrorAs(t, err, &fpe)
+		assert.Equal(t, FrameUnreachable, fpe.Kind)
+		assert.Empty(t, frame.patchCreds())
+		assert.Equal(t, "old", storedPassword(t, db, id))
+	})
+	t.Run("read-back", func(t *testing.T) {
+		frame := &fakeFrame{password: "old", hangGetsAfterPatch: true, hangRelease: make(chan struct{})}
+		svc, db, id := setupFramePasswordTest(t, frame, "old")
+		t.Cleanup(func() { close(frame.hangRelease) })
+
+		start := time.Now()
+		verified, err := svc.ChangeFramePassword(id, "new", "")
+		assert.Less(t, time.Since(start), limit)
+		// The frame accepted the PATCH; only the read-back went unanswered.
+		require.NoError(t, err)
+		assert.False(t, verified)
+		assert.Equal(t, "new", frame.current())
+		assert.Equal(t, "new", storedPassword(t, db, id))
+	})
 }
 
 func TestChangeFramePasswordOldFirmwareIsRefusedUpFront(t *testing.T) {

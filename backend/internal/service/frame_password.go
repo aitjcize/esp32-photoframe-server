@@ -214,7 +214,10 @@ func (s *DeviceService) ChangeFramePassword(id uint, newPassword, expectedHost s
 
 	// The pre-check and the PATCH go out with the stored password, so their
 	// answers say whether it still works: recorded like any other request's.
+	// Bounded like checkFramePassword's request, for the same reason: the
+	// lock held here is the one every request to the frame waits on.
 	client := photoframe.NewClientWithPassword(device.Host, device.HTTPPassword).
+		WithTimeout(frameCheckTimeout).
 		WithStatusObserver(frameAuthObserver(s.db, id))
 
 	// Read the config first, with the stored password: it shows that password
@@ -328,11 +331,13 @@ func httpAuthEnabled(raw string) (bool, error) {
 	return *cfg.HTTPAuthEnabled, nil
 }
 
-// frameCheckTimeout bounds the one request checkFramePassword makes. It is
-// made under the device's exclusive lock, which every request to the frame
-// waits on, so a frame that takes the connection and then says nothing must
-// not hold them for the shared client's two minutes: a config pull has a
-// 20-second window. The frame answers /api/config at once.
+// frameCheckTimeout bounds each request checkFramePassword and
+// ChangeFramePassword make. They are made under the device's exclusive lock,
+// which every request to the frame waits on, so a frame that takes the
+// connection and then says nothing must not hold them for the shared client's
+// two minutes: a config pull has a 20-second window. All of them are small
+// JSON exchanges on /api/config, which the frame answers at once; the PATCH
+// of a new password is one NVS write.
 var frameCheckTimeout = 10 * time.Second
 
 // checkFramePassword asks the frame whether it takes password: a GET
@@ -369,7 +374,8 @@ func checkFramePassword(host, password string) *FramePasswordError {
 // password; and when the password is "", no credential is sent, so asking
 // never counts against the frame's wrong-guess limit.
 func frameUsesPassword(host, password string) (bool, error) {
-	raw, err := photoframe.NewClientWithPassword(host, password).FetchConfig()
+	raw, err := photoframe.NewClientWithPassword(host, password).
+		WithTimeout(frameCheckTimeout).FetchConfig()
 	if err != nil {
 		return false, err
 	}
