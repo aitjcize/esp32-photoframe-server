@@ -13,7 +13,7 @@ Mix and match photo sources per device:
 | Gallery | Photos you upload from the dashboard, or send in via a [Telegram bot](https://core.telegram.org/bots). |
 | [Google Photos](https://photos.google.com/) | Pick albums & photos securely via the Picker API. |
 | [Immich](https://immich.app/) | Self-hosted photo server — sync selected albums or the All / Favorites / Memories views. |
-| [Synology Photos](https://www.synology.com/en-us/dsm/feature/photos) | Your Synology NAS (DSM 7 Personal & Shared spaces). |
+| [Synology Photos](https://www.synology.com/en-us/dsm/feature/photos) | Your Synology NAS (DSM 7) — sync albums, including ones other users shared with your account. Shared Space (FotoTeam) folders are not supported yet ([#55](https://github.com/aitjcize/esp32-photoframe-server/issues/55)); Shared Space photos do sync when they are in an album. |
 | [Unsplash](https://unsplash.com/) · [Pexels](https://www.pexels.com/) | Free stock-photo search — add topics (e.g. `black and white`, `landscape`) and each becomes a synced album. |
 | URL Proxy | Display images from any image URL. |
 | AI Generation | Generate images with [OpenAI](https://platform.openai.com/) (GPT Image, DALL·E) or [Google Gemini](https://ai.google.dev/). |
@@ -139,12 +139,14 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
 
 ### Synology Setup
 
-1. Go to **Settings** → **Data Sources** in the dashboard.
-2. Enable **Synology Photos**.
-3. Enter your **NAS URL** (e.g., `https://192.168.1.10:5001`), **Account**, and **Password**.
-4. If using 2FA, enter the **OTP Code** when testing the connection.
-5. Select the **Photo Space** (Personal or Shared) and optionally a specific **Album**.
-6. Click **Sync Now** to import metadata.
+1. Go to **Settings** → **Data Sources** and open the **Synology** tab.
+2. Enter your **NAS URL** (e.g., `https://192.168.1.10:5001`), **Account**, and **Password**.
+3. If using 2FA, enter the **OTP Code**, then click **Connect**.
+4. Click **Refresh albums** and pick the albums to sync. Albums other DSM users shared with your account are listed too, badged **Shared with me**. Album and photo listings are paged, so large libraries (hundreds of albums, thousands of photos per album) sync in full.
+5. Click **Sync Now** to import metadata, or enable **Auto Sync Album** to keep it current.
+
+> [!NOTE]
+> Shared Space (FotoTeam) folders can't be picked as a source yet — see [#55](https://github.com/aitjcize/esp32-photoframe-server/issues/55). Photos from the Shared Space do sync when they are in an album.
 
 ### Immich Setup
 
@@ -209,6 +211,20 @@ Frames are configured from the dashboard — the server issues the access token 
 1. Open **Settings** → **Devices** and select your frame.
 2. In the **Auto Rotate** tab, enable **"Use this server"** and pick a **Source** (and, for album/topic sources, which albums or topics to rotate through).
 3. Save. The server generates the device's token and pushes the image URL and settings to the frame — no manual token or URL copying required.
+
+### Frame Password
+
+A frame can require a password on its own web interface and API (firmware newer than v2.18.0; set under the frame's **Advanced network settings**). The server needs that password to reach the frame:
+
+- **Adding a protected frame**: in **Add Device**, tick **This frame requires a password** and enter it next to the host. Without it the frame can't be read, and the device is added with placeholder settings until you supply the password.
+- **Recording a password the frame already has**: **Edit Device** → **General** → **Advanced network settings** → **Frame password**. Saving it only tells the server what the frame has; **Forget password** drops it again.
+- **Changing it from the dashboard**: under **Password on the frame**, **Set a password on the frame** / **Change password on the frame** signs in to the frame with the stored password, sets the new one (typed twice), and stores it; **Turn off password on the frame** removes it. If the frame doesn't accept the change, nothing changes on either side. Give the new password to the Home Assistant integration and the mobile app too.
+
+When a frame starts refusing the server's password — it was turned on or changed from the frame itself — the device row shows a **Password required** chip and the dashboard asks for the password. Enter it (or choose **Not now**) and syncing and pushing resume; until then, settings saved in the dashboard reach the frame only with its next image fetch.
+
+### Time Zone
+
+The frame keeps its clock with a POSIX TZ rule, so a zone with daylight-saving time stays right all year, and the rotation schedule runs in that zone. In **Edit Device** → **General**, pick the zone by name from the **Time zone** list (IANA names such as `Europe/Berlin`; the POSIX rule the frame will get is shown beneath), or click **Use this browser's time zone**. For a rule the list can't name, tick **Advanced: POSIX TZ rule** and type any rule the frame's `tzset()` accepts, e.g. `EST5EDT,M3.2.0,M11.1.0` (fixed offsets count hours west: `UTC-8` is UTC+8).
 
 ## API Endpoints (For ESP32)
 
