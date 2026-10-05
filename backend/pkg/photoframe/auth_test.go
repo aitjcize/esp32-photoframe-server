@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewClientWithPasswordSendsBasicAuth(t *testing.T) {
@@ -120,12 +121,78 @@ func TestResolveHostKeepsPort(t *testing.T) {
 		"127.0.0.1":      "127.0.0.1",
 		"127.0.0.1:8080": "127.0.0.1:8080",
 		"[::1]:8080":     "[::1]:8080",
-		"::1":            "::1",
+		"::1":            "[::1]:80",
 	} {
 		got, err := NewClient(host).resolveHost(host)
 		if err != nil || got != want {
 			t.Errorf("resolveHost(%q) = %q, %v; want %q", host, got, err, want)
 		}
+	}
+}
+
+// The Supervisor's mDNS resolver can answer a .local name with only the
+// frame's IPv6 addresses; an IPv4 is retried for, a routable IPv6 is used
+// bracketed, and a link-local one is refused with a usable message.
+func TestLookupIPRetriesForIPv4(t *testing.T) {
+	lookupRetryDelay = 0
+	defer func() { lookupHost, lookupRetryDelay = net.LookupHost, 500*time.Millisecond }()
+
+	const ula, linkLocal = "fdb6:1af3:9acd:d71c:9270:69ff:fe11:5790", "fe80::9270:69ff:fe11:5790"
+	for name, tc := range map[string]struct {
+		answers [][]string
+		want    string
+		calls   int
+		errHint string
+	}{
+		"ipv4 on the third try": {
+			answers: [][]string{{linkLocal, ula}, {ula}, {ula, "192.168.0.160"}},
+			want:    "192.168.0.160", calls: 3,
+		},
+		"ipv4 first try": {
+			answers: [][]string{{"192.168.0.160", ula}},
+			want:    "192.168.0.160", calls: 1,
+		},
+		"routable ipv6 only": {
+			answers: [][]string{{linkLocal, ula}, {linkLocal, ula}, {linkLocal, ula}},
+			want:    "[" + ula + "]:80", calls: 3,
+		},
+		"link-local only": {
+			answers: [][]string{{linkLocal}, {linkLocal}, {linkLocal}},
+			calls:   3, errHint: "IPv4 address",
+		},
+		"error then ipv4": {
+			answers: [][]string{nil, {"192.168.0.160"}},
+			want:    "192.168.0.160", calls: 2,
+		},
+		"error every time": {
+			answers: [][]string{nil, nil, nil},
+			calls:   3, errHint: "no such host",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			lookupHost = func(string) ([]string, error) {
+				a := tc.answers[calls]
+				calls++
+				if a == nil {
+					return nil, errors.New("lookup frame.local: no such host")
+				}
+				return a, nil
+			}
+			got, err := NewClient("frame.local").resolveHost("frame.local")
+			if calls != tc.calls {
+				t.Errorf("lookups = %d, want %d", calls, tc.calls)
+			}
+			if tc.errHint != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.errHint) {
+					t.Fatalf("resolveHost = %q, %v; want error containing %q", got, err, tc.errHint)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("resolveHost = %q, %v; want %q", got, err, tc.want)
+			}
+		})
 	}
 }
 

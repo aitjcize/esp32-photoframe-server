@@ -297,12 +297,27 @@ func (c *Client) resolveHost(host string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The result goes straight into "http://%s/...", so an IPv6 literal
+	// needs its brackets; JoinHostPort adds them.
+	if port == "" && strings.Contains(ip, ":") {
+		port = "80"
+	}
 	if port != "" {
 		ip = net.JoinHostPort(ip, port)
 	}
 	c.resolvedIP = ip
 	return ip, nil
 }
+
+// Inside Home Assistant a .local name is answered by the Supervisor's mDNS
+// resolver, which intermittently returns only the frame's IPv6 addresses
+// (pkg/mdns retries for the same reason). The add-on network has no IPv6
+// route to a frame, so an IPv4 answer is worth a few more tries.
+var (
+	lookupHost       = net.LookupHost
+	lookupAttempts   = 3
+	lookupRetryDelay = 500 * time.Millisecond
+)
 
 func lookupIP(host string) (string, error) {
 	// If it's already an IP, return it
@@ -319,24 +334,41 @@ func lookupIP(host string) (string, error) {
 		// Fall through to standard resolver
 	}
 
-	ips, err := net.LookupHost(host)
-	if err != nil {
-		return "", err
+	var ips []string
+	var lastErr error
+	for attempt := 0; attempt < lookupAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(lookupRetryDelay)
+		}
+		got, err := lookupHost(host)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		ips = got
+		for _, ip := range ips {
+			if strings.Contains(ip, ".") {
+				return ip, nil
+			}
+		}
+	}
+	if len(ips) == 0 {
+		if lastErr != nil {
+			return "", lastErr
+		}
+		return "", fmt.Errorf("no address for %s", host)
 	}
 
-	// Prefer IPv4
+	// No IPv4 after every try: a routable IPv6 address is still worth a
+	// dial, a link-local one is not (it needs a zone the URL can't carry).
 	for _, ip := range ips {
-		if strings.Contains(ip, ".") {
+		if parsed := net.ParseIP(ip); parsed != nil && !parsed.IsLinkLocalUnicast() {
+			log.Printf("photoframe: %s resolved to IPv6 only (%s); frames are normally reached over IPv4", host, ip)
 			return ip, nil
 		}
 	}
-
-	// Fallback to first (likely IPv6)
-	if len(ips) > 0 {
-		return ips[0], nil
-	}
-
-	return "", fmt.Errorf("no IP found for host %s", host)
+	return "", fmt.Errorf("%s resolved only to link-local IPv6 (%s); use the frame's IPv4 address",
+		host, strings.Join(ips, ", "))
 }
 
 // resolveMDNSDarwin uses macOS dns-sd for fast mDNS resolution (~10ms vs 5s).
