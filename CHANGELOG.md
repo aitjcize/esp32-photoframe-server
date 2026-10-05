@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.17.1
+
+### Fixed
+
+- **Syncing a frame stored by its `.local` name failed with `lookup fdb6:…: no
+  such host`.** Inside Home Assistant the Supervisor's mDNS resolver now and
+  then answers a `.local` name with only the frame's IPv6 addresses; the
+  server took the first one and built a URL without brackets. The lookup is
+  retried for an IPv4 address, a routable IPv6 answer is used bracketed, and a
+  link-local-only answer is refused with a message that says to use the
+  frame's IPv4 address.
+
 ## v1.17.0
 
 ### Added
