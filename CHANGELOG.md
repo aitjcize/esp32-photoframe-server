@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.17.2
+
+### Fixed
+
+- **Frames on the Dynamic or Vivid preset were still rendered with dynamic
+  range compression.** The server passed `--compress-dynamic-range` to
+  `epaper-image-convert` only when the setting was on and nothing otherwise,
+  so the CLI's default preset (balanced, compression on) applied to the frame
+  while the dashboard preview honoured the setting. Off now passes
+  `--no-compress-dynamic-range`. (#64 by @manuel-schmied)
+
 ## v1.17.1
 
 ### Fixed
