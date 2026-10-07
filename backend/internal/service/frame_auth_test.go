@@ -34,6 +34,18 @@ type authFrame struct {
 	hits        []string
 }
 
+// serialiseTestDB gives the shared-cache in-memory database the single
+// connection production runs on (internal/db). With a pool, a write from a
+// goroutine and a read from the test land on different connections, and
+// shared-cache SQLite answers the collision with "table is locked" rather
+// than waiting.
+func serialiseTestDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+}
+
 func (f *authFrame) handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -87,6 +99,7 @@ func setupAuthFrameTest(t *testing.T, frame *authFrame, storedPassword string) (
 	db, err := gorm.Open(sqlite.Open(
 		fmt.Sprintf("file:frame_auth_test_%d?mode=memory&cache=shared", n)), &gorm.Config{})
 	require.NoError(t, err)
+	serialiseTestDB(t, db)
 	require.NoError(t, db.AutoMigrate(&model.Device{}))
 
 	srv := httptest.NewServer(frame.handler())

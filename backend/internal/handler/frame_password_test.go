@@ -24,12 +24,25 @@ import (
 var handlerFrameDBCounter atomic.Int64
 
 // frameAt stores a device pointing at srv with the given stored password.
+// serialiseTestDB gives the shared-cache in-memory database the single
+// connection production runs on (internal/db). With a pool, a write from a
+// goroutine and a read from the test land on different connections, and
+// shared-cache SQLite answers the collision with "table is locked" rather
+// than waiting.
+func serialiseTestDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+}
+
 func frameAt(t *testing.T, srv *httptest.Server, stored string) (*gorm.DB, uint) {
 	t.Helper()
 	n := handlerFrameDBCounter.Add(1)
 	db, err := gorm.Open(sqlite.Open(
 		fmt.Sprintf("file:handler_frame_test_%d?mode=memory&cache=shared", n)), &gorm.Config{})
 	require.NoError(t, err)
+	serialiseTestDB(t, db)
 	require.NoError(t, db.AutoMigrate(&model.Device{}))
 	d := model.Device{Name: "Frame", Host: strings.TrimPrefix(srv.URL, "http://"), HTTPPassword: stored}
 	require.NoError(t, db.Create(&d).Error)

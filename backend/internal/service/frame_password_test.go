@@ -169,6 +169,7 @@ func setupFramePasswordTest(t *testing.T, frame *fakeFrame, storedPassword strin
 	db, err := gorm.Open(sqlite.Open(
 		fmt.Sprintf("file:frame_pw_test_%d?mode=memory&cache=shared", n)), &gorm.Config{})
 	require.NoError(t, err)
+	serialiseTestDB(t, db)
 	require.NoError(t, db.AutoMigrate(&model.Device{}))
 
 	srv := httptest.NewServer(frame.handler(t))
