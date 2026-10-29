@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.17.3
+
+### Fixed
+
+- **The gallery's delete button was all but invisible.** It only appeared
+  while the mouse hovered a 48 px corner of the thumbnail, and never on a touch
+  screen. It now appears whenever the thumbnail is hovered or focused, stays
+  visible on touch screens, and has an accessible label. The same fix landed
+  in the frame's own web UI as esp32-photoframe#126; the server's copy of the
+  gallery had never received it. (reported by @marvlabs)
+
 ## v1.17.2
 
 ### Fixed
