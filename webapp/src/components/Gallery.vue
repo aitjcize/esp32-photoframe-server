@@ -167,6 +167,8 @@
                 size="x-small"
                 color="error"
                 class="delete-overlay"
+                title="Delete photo"
+                aria-label="Delete photo"
                 @click.stop="requestDeletePhoto(photo)"
               />
             </div>
@@ -376,8 +378,21 @@
   transition: opacity 0.2s;
 }
 
-.delete-hotspot:hover .delete-overlay {
+/* Reveal the button as soon as the thumbnail itself is hovered or focused,
+   not only its top-right corner (which nobody found). */
+.photo-card:hover .delete-overlay,
+.photo-card:focus-within .delete-overlay,
+.delete-overlay:focus-visible {
   opacity: 1;
+}
+
+/* Touch screens have no hover: keep the button visible, with a larger target. */
+@media (hover: none) {
+  .photo-card .delete-overlay {
+    opacity: 0.92;
+    width: 36px;
+    height: 36px;
+  }
 }
 
 .confirm-thumb {
