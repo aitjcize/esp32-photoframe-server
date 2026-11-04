@@ -70,7 +70,8 @@ type Device struct {
 	Orientation string `json:"orientation"`
 	BoardName   string `json:"board_name"`
 	// Display color model reported by the device: "spectra6" (6-color ACeP),
-	// "gc16" (16-level grayscale / IT8951), or "" (legacy, treated as spectra6).
+	// "gc16" (16-level grayscale / IT8951), "rgb" (dithers on-device; see
+	// DisplayTypeRGB), or "" (legacy, treated as spectra6).
 	DisplayType   string  `json:"display_type" gorm:"default:''"`
 	EnableCollage bool    `json:"enable_collage"` // Per-device collage setting
 	ShowDate      bool    `json:"show_date"`
@@ -133,7 +134,22 @@ func (d *Device) AfterFind(tx *gorm.DB) error {
 
 // IsGrayscale reports whether this device drives a grayscale (GC16) panel.
 func (d *Device) IsGrayscale() bool {
+	// A panel that dithers on its own gets full color, whatever the board
+	if d.DithersOnDevice() {
+		return false
+	}
 	return strings.HasPrefix(d.DisplayType, "gc") || d.BoardName == "seeedstudio_reterminal_e1003"
+}
+
+// DisplayTypeRGB is reported by a panel that takes plain full-color images
+// and quantizes/dithers them itself, with no way to turn that off (e.g. a
+// Samsung EMDX e-paper display).
+const DisplayTypeRGB = "rgb"
+
+// DithersOnDevice reports whether the panel does its own quantization and
+// dithering, so the server must send it tone-mapped full-color pixels.
+func (d *Device) DithersOnDevice() bool {
+	return d.DisplayType == DisplayTypeRGB
 }
 
 const (

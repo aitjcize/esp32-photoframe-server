@@ -1217,7 +1217,11 @@
                     <v-tab value="homeAssistant">Home Assistant</v-tab>
                     <v-tab value="processing">Processing</v-tab>
                     <v-tab value="ai">AI Generation</v-tab>
-                    <v-tab v-if="!isGrayscale" value="palette">Palette</v-tab>
+                    <v-tab
+                      v-if="!isGrayscale && !dithersOnDevice"
+                      value="palette"
+                      >Palette</v-tab
+                    >
                     <v-tab v-if="isGrayscale" value="grayscale"
                       >Grayscale</v-tab
                     >
@@ -2142,7 +2146,7 @@
                             ></v-select>
                           </v-col>
                         </v-row>
-                        <v-row>
+                        <v-row v-if="!dithersOnDevice">
                           <v-col cols="12" md="4">
                             <v-select
                               v-model="deviceProcessing.ditherAlgorithm"
@@ -2203,7 +2207,7 @@
                               </template>
                             </v-slider>
                           </v-col>
-                          <v-col cols="12" md="4">
+                          <v-col v-if="!dithersOnDevice" cols="12" md="4">
                             <v-checkbox
                               v-model="deviceProcessing.compressDynamicRange"
                               label="Compress Dynamic Range"
@@ -3079,10 +3083,14 @@ const deviceDialogTab = ref('general');
 const isGrayscale = computed(() =>
   (editingDevice.display_type ?? '').startsWith('gc')
 );
+// Panels that dither on-device ("rgb", e.g. a Samsung EMDX) get full-color
+// images: dithering, color matching, dynamic-range compression and the
+// palette calibration don't apply.
+const dithersOnDevice = computed(() => editingDevice.display_type === 'rgb');
 // Don't strand the user on a tab that's hidden for the current device type:
 // the Palette tab is color-only; the Grayscale tab is grayscale-only.
-watch(isGrayscale, (gray) => {
-  if (gray && deviceDialogTab.value === 'palette') {
+watch([isGrayscale, dithersOnDevice], ([gray, rgb]) => {
+  if ((gray || rgb) && deviceDialogTab.value === 'palette') {
     deviceDialogTab.value = 'general';
   } else if (!gray && deviceDialogTab.value === 'grayscale') {
     deviceDialogTab.value = 'general';
@@ -3239,10 +3247,26 @@ for (const opt of getPresetOptions()) {
 }
 const ditherOptions = getDitherOptions();
 
+// Controls hidden for panels that dither on-device: presets neither match
+// on them nor change them, or the preset shows "Custom" for no visible
+// reason and applying one edits settings nobody can see
+const onDeviceDitherKeys = [
+  'colorMethod',
+  'ditherAlgorithm',
+  'compressDynamicRange',
+];
+const presetKeyApplies = (k: string) =>
+  !(dithersOnDevice.value && onDeviceDitherKeys.includes(k));
+
 const applyProcessingPreset = (name: string) => {
   const preset = processingPresets[name];
   if (preset) {
-    Object.assign(deviceProcessing, preset);
+    Object.assign(
+      deviceProcessing,
+      Object.fromEntries(
+        Object.entries(preset).filter(([k]) => presetKeyApplies(k))
+      )
+    );
   }
   // 'custom' just keeps current values
 };
@@ -3267,6 +3291,7 @@ const detectProcessingPreset = () => {
   for (const [name, preset] of Object.entries(processingPresets)) {
     const matches = presetKeys.every((k) => {
       if (!(k in preset)) return true; // Skip keys not in this preset
+      if (!presetKeyApplies(k)) return true;
       const pv = (preset as any)[k];
       const dv = (deviceProcessing as any)[k];
       // Tolerant number compare: the device persists floats as 32-bit, so e.g.
@@ -4099,13 +4124,16 @@ const saveDevice = async () => {
         // Grayscale (GC16) panels are calibrated by two luminance endpoints;
         // color panels by the 6 named colors. Both ride the same color_palette
         // field, which the server stores and the device pulls via X-Config-Payload.
-        color_palette: isGrayscale.value
-          ? {
-              black_y: grayscaleCal.black_y,
-              white_y: grayscaleCal.white_y,
-              gamma: grayscaleCal.gamma,
-            }
-          : { ...devicePalette },
+        // Panels that dither on-device have no palette: left out, it's not stored.
+        color_palette: dithersOnDevice.value
+          ? undefined
+          : isGrayscale.value
+            ? {
+                black_y: grayscaleCal.black_y,
+                white_y: grayscaleCal.white_y,
+                gamma: grayscaleCal.gamma,
+              }
+            : { ...devicePalette },
       });
 
       // Persist per-device Immich album bindings (best-effort).
