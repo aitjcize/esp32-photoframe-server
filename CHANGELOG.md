@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.18.0
+
+### Added
+
+- **Low battery badge settings in the device dialog.** Firmware v2.20.0 can
+  draw an empty-battery icon on the picture when the charge is at or below a
+  threshold. The device dialog's Power tab gains the same toggle and 5–50 %
+  threshold as the frame's own Settings page, and the values ride along with
+  the rest of the device config. (esp32-photoframe#160)
+
 ## v1.17.3
 
 ### Fixed
