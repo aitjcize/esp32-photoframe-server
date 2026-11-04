@@ -2061,6 +2061,31 @@
                           image rotations to save power. WiFi is only active
                           during image fetch.
                         </v-alert>
+
+                        <v-divider class="my-4" />
+
+                        <v-switch
+                          v-model="deviceConfig.low_battery_indicator"
+                          label="Show a low battery badge on the picture"
+                          color="primary"
+                          hint="A small empty-battery icon in the top-right corner of the picture, drawn when the battery is at or below the threshold. Never shown on USB power or while charging."
+                          persistent-hint
+                        />
+                        <v-slider
+                          v-model="deviceConfig.low_battery_threshold"
+                          :disabled="!deviceConfig.low_battery_indicator"
+                          label="Low battery threshold"
+                          :min="5"
+                          :max="50"
+                          :step="5"
+                          thumb-label="always"
+                          color="primary"
+                          class="mt-6"
+                        >
+                          <template #thumb-label="{ modelValue }">
+                            {{ modelValue }}%
+                          </template>
+                        </v-slider>
                       </v-tabs-window-item>
 
                       <!-- Home Assistant Tab -->
@@ -3114,6 +3139,8 @@ const deviceConfig = reactive<Record<string, any>>({
   static_gateway: '',
   dns_server: '',
   deep_sleep_enabled: true,
+  low_battery_indicator: true,
+  low_battery_threshold: 10,
   ha_url: '',
   openai_api_key: '',
   google_api_key: '',
@@ -3462,6 +3489,8 @@ const loadDeviceConfig = async (deviceId: number) => {
         cfg.display_orientation ?? deviceConfig.display_orientation,
       display_rotation_deg: cfg.display_rotation_deg ?? 180,
       deep_sleep_enabled: cfg.deep_sleep_enabled ?? true,
+      low_battery_indicator: cfg.low_battery_indicator ?? true,
+      low_battery_threshold: cfg.low_battery_threshold ?? 10,
       ha_url: cfg.ha_url ?? '',
       ntp_server: cfg.ntp_server ?? 'pool.ntp.org',
       ip_mode: cfg.ip_mode ?? 'dhcp',
@@ -3777,6 +3806,8 @@ const openAddDeviceDialog = () => {
     display_orientation: 'landscape',
     timezone: DEFAULT_TZ_RULE,
     deep_sleep_enabled: true,
+    low_battery_indicator: true,
+    low_battery_threshold: 10,
   });
   tzPicked.value = null;
   tzRuleOpened.value = false;
@@ -4091,6 +4122,8 @@ const saveDevice = async () => {
           ntp_server: deviceConfig.ntp_server,
           ...networkFields,
           deep_sleep_enabled: deviceConfig.deep_sleep_enabled,
+          low_battery_indicator: deviceConfig.low_battery_indicator,
+          low_battery_threshold: deviceConfig.low_battery_threshold,
           ha_url: deviceConfig.ha_url,
           openai_api_key: deviceConfig.openai_api_key,
           google_api_key: deviceConfig.google_api_key,
