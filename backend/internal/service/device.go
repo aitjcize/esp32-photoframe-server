@@ -488,8 +488,18 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		log.Printf("Failed to fetch system info for %s: %v", device.Name, sysInfoErr)
 	}
 
-	// Use PNG for older firmware that doesn't support epdgz
-	if sysInfoErr != nil || !photoframe.SupportsEPDGZ(sysInfo.Version) {
+	// Pick up a display type that was unknown when the device was added
+	// (unreachable then) or has changed since
+	if sysInfoErr == nil && sysInfo.DisplayType != "" && sysInfo.DisplayType != device.DisplayType {
+		device.DisplayType = sysInfo.DisplayType
+		if err := s.db.Model(&model.Device{}).Where("id = ?", device.ID).Update("display_type", sysInfo.DisplayType).Error; err != nil {
+			log.Printf("Failed to store display type for %s: %v", device.Name, err)
+		}
+	}
+
+	// Use PNG for older firmware that doesn't support epdgz, and for panels
+	// that dither on-device (full color)
+	if device.DithersOnDevice() || sysInfoErr != nil || !photoframe.SupportsEPDGZ(sysInfo.Version) {
 		processingOpts["format"] = "png"
 	}
 
@@ -624,7 +634,7 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 	// Merge processing settings + palette so the CLI quantizes to the right
 	// color model. Without this a grayscale (GC16) panel would fall back to
 	// Spectra-6 color quantization. Mirrors what the /image handler does.
-	grayscale := device.IsGrayscale()
+	colors := ColorModelFor(device)
 
 	// Parse the device's stored color palette (JSON string column); nil if
 	// absent or empty ("{}"). For grayscale panels this supplies a calibrated
@@ -645,7 +655,7 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 
 	// Merge the mapped CLI options (palette, tone-mapping, etc.) without
 	// clobbering dimension/orientation/format already set above.
-	mapped := s.processor.MapProcessingSettings(settings, palette, grayscale)
+	mapped := s.processor.MapProcessingSettings(settings, palette, colors)
 	for k, v := range mapped {
 		if k == "dimension" || k == "orientation" || k == "format" {
 			continue

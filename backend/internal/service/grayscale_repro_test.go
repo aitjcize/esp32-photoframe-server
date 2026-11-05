@@ -41,7 +41,7 @@ func TestGrayscale_AutoRotate_FirmwarePalette(t *testing.T) {
 	}
 
 	opts := map[string]string{"dimension": "64x48", "format": "png"}
-	for k, v := range proc.MapProcessingSettings(nil, &pal, true) {
+	for k, v := range proc.MapProcessingSettings(nil, &pal, ColorGrayscale) {
 		opts[k] = v
 	}
 	t.Logf("opts: %+v", opts)
@@ -56,7 +56,7 @@ func TestGrayscale_AutoRotate_NoPalette(t *testing.T) {
 	haveCLI(t)
 	proc := NewProcessorService()
 	opts := map[string]string{"dimension": "64x48", "format": "png"}
-	for k, v := range proc.MapProcessingSettings(nil, nil, true) {
+	for k, v := range proc.MapProcessingSettings(nil, nil, ColorGrayscale) {
 		opts[k] = v
 	}
 	t.Logf("opts: %+v", opts)
@@ -77,7 +77,7 @@ func TestGrayscale_AutoRotate_ColorPalette(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	opts := map[string]string{"dimension": "64x48", "format": "png"}
-	for k, v := range proc.MapProcessingSettings(nil, &pal, true) {
+	for k, v := range proc.MapProcessingSettings(nil, &pal, ColorGrayscale) {
 		opts[k] = v
 	}
 	t.Logf("opts: %+v", opts)
@@ -94,7 +94,7 @@ func TestGrayscale_OptsUsePresetOrEndpoints(t *testing.T) {
 	proc := NewProcessorService()
 
 	// No device palette -> built-in preset, no hardcoded palette JSON.
-	opts := proc.MapProcessingSettings(nil, nil, true)
+	opts := proc.MapProcessingSettings(nil, nil, ColorGrayscale)
 	if got := opts["palette-preset"]; got != "grayscale16" {
 		t.Errorf("no-palette grayscale: palette-preset = %q, want grayscale16", got)
 	}
@@ -105,7 +105,7 @@ func TestGrayscale_OptsUsePresetOrEndpoints(t *testing.T) {
 	// Device-reported luminance endpoints -> passed to the CLI for derivation.
 	black, white := 0.02, 0.90
 	pal := &photoframe.Palette{BlackY: &black, WhiteY: &white}
-	opts = proc.MapProcessingSettings(nil, pal, true)
+	opts = proc.MapProcessingSettings(nil, pal, ColorGrayscale)
 	if opts["gray-black-y"] != "0.02" || opts["gray-white-y"] != "0.9" {
 		t.Errorf("endpoints: gray-black-y=%q gray-white-y=%q, want 0.02/0.9",
 			opts["gray-black-y"], opts["gray-white-y"])
@@ -123,7 +123,7 @@ func TestGrayscale_AutoRotate_CalibratedEndpoints(t *testing.T) {
 	black, white := 0.03, 0.85
 	pal := &photoframe.Palette{BlackY: &black, WhiteY: &white}
 	opts := map[string]string{"dimension": "64x48", "format": "png"}
-	for k, v := range proc.MapProcessingSettings(nil, pal, true) {
+	for k, v := range proc.MapProcessingSettings(nil, pal, ColorGrayscale) {
 		opts[k] = v
 	}
 	t.Logf("opts: %+v", opts)
@@ -145,7 +145,7 @@ func TestGrayscale_AutoRotate_WithSettings(t *testing.T) {
 	var pal photoframe.Palette
 	_ = json.Unmarshal([]byte(fwPalette), &pal)
 	opts := map[string]string{"dimension": "64x48", "format": "png"}
-	for k, v := range proc.MapProcessingSettings(settings, &pal, true) {
+	for k, v := range proc.MapProcessingSettings(settings, &pal, ColorGrayscale) {
 		opts[k] = v
 	}
 	t.Logf("opts: %+v", opts)

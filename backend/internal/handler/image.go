@@ -124,6 +124,12 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		if fw := c.Request().Header.Get("X-Firmware-Version"); fw != "" && len(fw) <= 32 {
 			updates["firmware_version"] = fw
 		}
+		// The display type is otherwise only read when the device is added or
+		// refreshed from hardware, and stays unknown if it was unreachable then
+		if dt := c.Request().Header.Get("X-Display-Type"); dt != "" && len(dt) <= 32 && dt != device.DisplayType {
+			updates["display_type"] = dt
+			device.DisplayType = dt
+		}
 		if len(updates) > 0 {
 			if uerr := h.db.Model(&model.Device{}).Where("id = ?", device.ID).Updates(updates).Error; uerr != nil {
 				log.Printf("Failed to store reported state for device %d: %v", device.ID, uerr)
@@ -461,9 +467,10 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		procOptions["background-color"] = backgroundColor
 	}
 
-	// Determine output format based on firmware version (epdgz requires >= 2.6.1)
+	// Determine output format based on firmware version (epdgz requires >= 2.6.1).
+	// A panel that dithers on-device takes full-color PNG.
 	firmwareVersion := c.Request().Header.Get("X-Firmware-Version")
-	if firmwareVersion == "" || !photoframe.SupportsEPDGZ(firmwareVersion) {
+	if firmwareVersion == "" || !photoframe.SupportsEPDGZ(firmwareVersion) || (deviceFound && device.DithersOnDevice()) {
 		procOptions["format"] = "png"
 	}
 
@@ -479,15 +486,20 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		}
 	}
 
-	// GC16 grayscale mode: prefer the device-reported display type, falling back
-	// to the board name for firmware that predates the display_type field.
-	// Only treat as grayscale when the device is known.
-	grayscale := deviceFound && device.IsGrayscale()
+	// Color model (GC16 grayscale, on-device dithering): prefer the
+	// device-reported display type, falling back to the board name for
+	// firmware that predates the display_type field. Only for a known device.
+	colors := service.ColorPalette
+	if deviceFound {
+		colors = service.ColorModelFor(&device)
+	}
 
-	headerOpts := h.processor.MapProcessingSettings(settings, palette, grayscale)
+	headerOpts := h.processor.MapProcessingSettings(settings, palette, colors)
 	for k, v := range headerOpts {
 		procOptions[k] = v
 	}
+	// ProcessImage consumes the "format" option, so read it first.
+	pngOutput := procOptions["format"] == "png"
 
 	log.Println("Processing image with options: ", procOptions)
 	processedBytes, thumbBytes, err := h.processor.ProcessImage(imgWithOverlay, procOptions)
@@ -516,7 +528,7 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 	c.Response().Header().Set("Content-Length", fmt.Sprintf("%d", len(processedBytes)))
 
 	contentType := "application/octet-stream"
-	if firmwareVersion == "" || !photoframe.SupportsEPDGZ(firmwareVersion) {
+	if pngOutput {
 		contentType = "image/png"
 	}
 	return c.Blob(http.StatusOK, contentType, processedBytes)
