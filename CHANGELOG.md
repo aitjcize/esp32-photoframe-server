@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Several connections per provider.** Two Immich servers, or two Synology
+  NAS accounts, can now be connected at once. **Data Sources → Immich** and
+  **→ Synology** show one card per connection, each with its own
+  credentials, album selection, auto-sync schedule, photo count and Sync /
+  Clear buttons; **Add another** creates a new one, the pencil renames it,
+  the bin deletes it together with its photos. A frame on the Immich source
+  can draw from albums of any Immich connection: the per-frame album picker
+  lists every connection's albums, prefixed with the connection name when
+  there is more than one, and so do the gallery's album chips. Existing
+  installs are migrated on first start: the old Immich and Synology settings
+  become one connection each, named "Immich" and "Synology Photos", with
+  their albums, photos and session carried over; nothing needs re-entering.
+  (The Google Photos account is still a single connection; that follows.)
+
+### Changed
+
+- **Provider credentials no longer leave the server.** The Immich API key and
+  the Synology password used to be returned by `GET /api/settings` in plain
+  text to the dashboard. They now live in the connections table, the
+  `/api/connections` responses only say whether a secret is stored, and an
+  update that sends an empty secret keeps the stored one.
+- **API: `/api/immich/*` and `/api/synology/*` are replaced by
+  `/api/connections`** (list, create, get, update, delete) and
+  `/api/connections/:id/{test,remote-albums,sync-albums,sync,sync-status,clear,count,logout}`.
+  `GET /api/albums` and `GET /api/gallery/photos` take a `connection_id`
+  filter, albums carry `connection_id` and `connection_name`, and
+  `DELETE /api/gallery/photos?connection_id=` clears one connection. The
+  `immich_*` and `synology_*` settings keys are gone.
+
 ## v1.18.0
 
 ### Added

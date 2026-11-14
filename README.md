@@ -139,21 +139,23 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
 
 ### Synology Setup
 
-1. Go to **Settings** → **Data Sources** and open the **Synology** tab.
+1. Go to **Settings** → **Data Sources** and open the **Synology** tab, then click **Add Synology Photos**.
 2. Enter your **NAS URL** (e.g., `https://192.168.1.10:5001`), **Account**, and **Password**.
 3. If using 2FA, enter the **OTP Code**, then click **Connect**.
 4. Click **Refresh albums** and pick the albums to sync. Albums other DSM users shared with your account are listed too, badged **Shared with me**. Album and photo listings are paged, so large libraries (hundreds of albums, thousands of photos per album) sync in full.
 5. Click **Sync Now** to import metadata, or enable **Auto Sync Album** to keep it current.
+6. **Add another** connects a second NAS or account; each connection has its own albums and schedule, and a frame can show albums from any of them.
 
 > [!NOTE]
 > Shared Space (FotoTeam) folders can't be picked as a source yet — see [#55](https://github.com/aitjcize/esp32-photoframe-server/issues/55). Photos from the Shared Space do sync when they are in an album.
 
 ### Immich Setup
 
-1. Go to **Settings** → **Data Sources** and open the **Immich** tab.
+1. Go to **Settings** → **Data Sources** and open the **Immich** tab, then click **Add Immich**.
 2. Enter your **Server URL** (e.g., `https://immich.example.com`) and an **API Key** (in Immich: **Account Settings** → **API Keys**).
 3. Click **Connect** to validate, then choose the albums to sync — or the **All Photos**, **Favorites**, or **Memories** views.
 4. Click **Sync Now** to import.
+5. **Add another** connects a second Immich server. Each connection keeps its own albums and schedule; the per-frame album picker lists them all, prefixed with the connection name.
 
 ### Telegram Bot (Gallery)
 
