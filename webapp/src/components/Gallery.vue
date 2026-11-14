@@ -445,9 +445,23 @@ const fetchAlbumChips = async () => {
       `/albums?source=${galleryStore.source}&synced=true`
     );
     // Only show albums that currently have photos — hide ones emptied upstream.
-    albumChips.value = (res.data || []).filter(
+    const albums = (res.data || []).filter(
       (a: any) => (a.asset_count ?? 0) > 0
     );
+    // Albums of a source may come from several connections (two Immich
+    // servers); say which one when that is the case.
+    const connectionIDs = new Set(
+      albums.map((a: any) => a.connection_id).filter((id: any) => id != null)
+    );
+    albumChips.value =
+      connectionIDs.size > 1
+        ? albums.map((a: any) => ({
+            ...a,
+            name: a.connection_name
+              ? `${a.connection_name} · ${a.name}`
+              : a.name,
+          }))
+        : albums;
   } catch (e) {
     console.error('Failed to fetch album chips', e);
     albumChips.value = [];
@@ -480,28 +494,58 @@ const dismissedSyncError = ref('');
 let syncPollTimer: number | null = null;
 let prevSyncing = false;
 
-const syncStatusEndpoint = (): string | null => {
-  if (galleryStore.source === 'immich') return '/immich/sync-status';
-  if (galleryStore.source === 'synology_photos') return '/synology/sync-status';
-  if (TOPIC_SOURCES.includes(galleryStore.source)) {
-    return `/${galleryStore.source}/sync-status`;
+const CONNECTION_SOURCES = ['immich', 'synology_photos'];
+
+// Sync state of the current source: for a connection-backed source the
+// status of every connection of that type, folded into one (any running;
+// errors joined, named by connection when there is more than one).
+const fetchSyncStatus = async (): Promise<{
+  running: boolean;
+  last_error: string;
+} | null> => {
+  const source = galleryStore.source;
+  if (TOPIC_SOURCES.includes(source)) {
+    const res = await api.get(`/${source}/sync-status`);
+    return {
+      running: !!res.data?.running,
+      last_error:
+        typeof res.data?.last_error === 'string' ? res.data.last_error : '',
+    };
   }
-  return null;
+  if (!CONNECTION_SOURCES.includes(source)) return null;
+  const conns = (await api.get(`/connections?source=${source}`)).data || [];
+  const statuses = await Promise.all(
+    conns.map(async (c: any) => {
+      const res = await api.get(`/connections/${c.id}/sync-status`);
+      return { name: c.name, ...res.data };
+    })
+  );
+  const errors = statuses
+    .filter((st: any) => typeof st.last_error === 'string' && st.last_error)
+    .map((st: any) =>
+      statuses.length > 1 ? `${st.name}: ${st.last_error}` : st.last_error
+    );
+  return {
+    running: statuses.some((st: any) => !!st.running),
+    last_error: errors.join('; '),
+  };
 };
 
 const checkSyncStatus = async () => {
-  const ep = syncStatusEndpoint();
-  if (!ep) {
+  if (
+    !TOPIC_SOURCES.includes(galleryStore.source) &&
+    !CONNECTION_SOURCES.includes(galleryStore.source)
+  ) {
     syncing.value = false;
     prevSyncing = false;
     syncError.value = '';
     return;
   }
   try {
-    const res = await api.get(ep);
-    const running = !!res.data?.running;
-    syncError.value =
-      typeof res.data?.last_error === 'string' ? res.data.last_error : '';
+    const status = await fetchSyncStatus();
+    if (!status) return;
+    const running = status.running;
+    syncError.value = status.last_error;
     // Refresh while syncing (new photos appear) and once more right after it
     // finishes, so the gallery + album counts stay current without a manual reload.
     if (running || prevSyncing) {

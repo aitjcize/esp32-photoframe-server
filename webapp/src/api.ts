@@ -16,8 +16,16 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Ignore Synology endpoints as they use 401 for 2FA challenges
-      if (error.config.url && error.config.url.includes('synology/')) {
+      // The connection endpoints also answer 401 for an expired NAS session,
+      // which says nothing about the dashboard login. The dashboard's own
+      // token failures are the auth middleware's, and only those log out.
+      const message = String(error.response.data?.error || '');
+      const dashboardToken = /authentication token/i.test(message);
+      if (
+        !dashboardToken &&
+        error.config.url &&
+        error.config.url.includes('connections/')
+      ) {
         return Promise.reject(error);
       }
 

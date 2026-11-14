@@ -289,318 +289,26 @@
             </v-card-text>
           </v-window-item>
 
-          <!-- Synology -->
+          <!-- Synology: one card per connected NAS/account -->
           <v-window-item value="synology_photos">
-            <v-card-text>
-              <div v-if="form.synology_sid">
-                <v-alert
-                  type="success"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                  icon="mdi-check-circle"
-                >
-                  Connected to Synology Photos ({{ form.synology_account }} @
-                  {{ form.synology_url }})
-                </v-alert>
-
-                <v-row class="mt-2">
-                  <v-col cols="12">
-                    <div class="d-flex align-center justify-space-between mb-1">
-                      <h3 class="text-subtitle-1 font-weight-bold">
-                        Albums to sync
-                      </h3>
-                      <div class="d-flex ga-2">
-                        <v-btn
-                          size="small"
-                          variant="text"
-                          prepend-icon="mdi-refresh"
-                          :loading="synologyStore.loading"
-                          @click="loadAlbums"
-                          >Refresh albums</v-btn
-                        >
-                      </div>
-                    </div>
-                    <div class="text-caption text-grey mb-2">
-                      Choose which Synology Photos albums to pull photos from.
-                      Albums other DSM users shared with this account are listed
-                      too. Saving replaces the entire sync set.
-                    </div>
-
-                    <AlbumPicker
-                      v-model="synologySyncAlbumIds"
-                      :albums="synologyStore.albums"
-                      label-field="name"
-                      badge-field="shared_with_me"
-                      badge-text="Shared with me"
-                      stringify
-                      empty-text='No albums found. Click "Refresh albums" to load them from Synology.'
-                    ></AlbumPicker>
-                  </v-col>
-                </v-row>
-
-                <v-row class="mt-1">
-                  <v-col cols="12" md="6">
-                    <v-checkbox
-                      v-model="form.synology_auto_sync_enabled"
-                      label="Auto Sync Album"
-                      color="primary"
-                      density="compact"
-                      hide-details
-                      @update:model-value="saveSettingsInternal()"
-                    ></v-checkbox>
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <v-select
-                      v-model="form.synology_auto_sync_interval_minutes"
-                      :items="autoSyncIntervalOptions"
-                      item-title="title"
-                      item-value="value"
-                      label="Auto Sync Interval"
-                      variant="outlined"
-                      density="compact"
-                      :disabled="!form.synology_auto_sync_enabled"
-                      hint="How often to refresh photos from the selected album"
-                      persistent-hint
-                      @update:model-value="saveSettingsInternal()"
-                    ></v-select>
-                  </v-col>
-                </v-row>
-
-                <div class="d-flex flex-wrap ga-2 mt-4">
-                  <v-btn
-                    color="primary"
-                    :loading="synologyStore.loading"
-                    @click="syncSynology"
-                    >Sync Now</v-btn
-                  >
-                  <v-btn color="warning" @click="clearSynology"
-                    >Clear All Photos</v-btn
-                  >
-                  <v-btn color="error" variant="text" @click="logoutSynology"
-                    >Disconnect</v-btn
-                  >
-                </div>
-              </div>
-
-              <div v-else>
-                <v-text-field
-                  v-model="form.synology_url"
-                  label="NAS URL"
-                  placeholder="https://192.168.1.10:5001"
-                  variant="outlined"
-                  class="mb-2"
-                ></v-text-field>
-
-                <v-text-field
-                  v-model="form.synology_account"
-                  label="Account"
-                  variant="outlined"
-                  class="mb-2"
-                ></v-text-field>
-
-                <v-text-field
-                  v-model="form.synology_password"
-                  label="Password"
-                  type="password"
-                  variant="outlined"
-                  class="mb-2"
-                ></v-text-field>
-
-                <v-checkbox
-                  v-model="form.synology_skip_cert"
-                  label="Skip Certificate Verification (Insecure)"
-                  color="primary"
-                  density="compact"
-                ></v-checkbox>
-
-                <v-text-field
-                  v-model="form.synology_otp_code"
-                  label="OTP Code (If 2FA enabled)"
-                  placeholder="6-digit code"
-                  variant="outlined"
-                  class="mb-4"
-                ></v-text-field>
-
-                <v-btn
-                  color="primary"
-                  :disabled="
-                    !form.synology_url ||
-                    !form.synology_account ||
-                    !form.synology_password
-                  "
-                  :loading="synologyStore.loading"
-                  @click="testSynology"
-                >
-                  Connect
-                </v-btn>
-              </div>
-            </v-card-text>
+            <ConnectionList
+              ref="synologyList"
+              source="synology_photos"
+              :confirm="confirmPrompt"
+              :show-message="showMessage"
+              @synced="onConnectionSynced"
+            ></ConnectionList>
           </v-window-item>
 
-          <!-- Immich -->
+          <!-- Immich: one card per connected server -->
           <v-window-item value="immich">
-            <v-card-text>
-              <div v-if="immichConnected">
-                <v-alert
-                  type="success"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                  icon="mdi-check-circle"
-                >
-                  Connected to Immich ({{ form.immich_url }})
-                </v-alert>
-
-                <v-row class="mt-2">
-                  <v-col cols="12">
-                    <div class="d-flex align-center justify-space-between mb-1">
-                      <h3 class="text-subtitle-1 font-weight-bold">
-                        Albums to sync
-                      </h3>
-                      <div class="d-flex ga-2">
-                        <v-btn
-                          size="small"
-                          variant="text"
-                          prepend-icon="mdi-refresh"
-                          :loading="immichStore.loading"
-                          @click="loadImmichAlbums"
-                          >Refresh albums</v-btn
-                        >
-                      </div>
-                    </div>
-                    <div class="text-caption text-grey mb-2">
-                      Choose which Immich albums and collections to pull photos
-                      from. Saving replaces the entire sync set.
-                    </div>
-
-                    <AlbumPicker
-                      v-model="syncAlbumIds"
-                      :albums="immichStore.albums"
-                      label-field="albumName"
-                      empty-text='No albums found. Click "Refresh albums" to load them from Immich.'
-                    >
-                      <template #prepend>
-                        <v-list-item>
-                          <v-checkbox
-                            v-model="syncFavorites"
-                            label="Favorites"
-                            color="primary"
-                            density="compact"
-                            hide-details
-                          ></v-checkbox>
-                        </v-list-item>
-                        <v-list-item>
-                          <v-checkbox
-                            v-model="syncAll"
-                            label="All Photos (entire library)"
-                            color="primary"
-                            density="compact"
-                            hide-details
-                          ></v-checkbox>
-                        </v-list-item>
-                        <v-list-item>
-                          <v-checkbox
-                            v-model="syncMemories"
-                            label="Memories (on this day)"
-                            color="primary"
-                            density="compact"
-                            hide-details
-                          ></v-checkbox>
-                        </v-list-item>
-                      </template>
-                    </AlbumPicker>
-                  </v-col>
-                </v-row>
-
-                <v-row v-if="syncMemories" class="mt-0">
-                  <v-col cols="12">
-                    <v-select
-                      v-model="form.immich_memory_mode"
-                      :items="immichMemoryModeOptions"
-                      item-title="title"
-                      item-value="value"
-                      label="Memory Years"
-                      variant="outlined"
-                      density="compact"
-                      hint="Shuffle across all past years, or only the most recent year's photos"
-                      persistent-hint
-                      @update:model-value="saveSettingsInternal()"
-                    ></v-select>
-                  </v-col>
-                </v-row>
-
-                <v-row class="mt-1">
-                  <v-col cols="12" md="6">
-                    <v-checkbox
-                      v-model="form.immich_auto_sync_enabled"
-                      label="Auto Sync Album"
-                      color="primary"
-                      density="compact"
-                      hide-details
-                      @update:model-value="saveSettingsInternal()"
-                    ></v-checkbox>
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <v-select
-                      v-model="form.immich_auto_sync_interval_minutes"
-                      :items="autoSyncIntervalOptions"
-                      item-title="title"
-                      item-value="value"
-                      label="Auto Sync Interval"
-                      variant="outlined"
-                      density="compact"
-                      :disabled="!form.immich_auto_sync_enabled"
-                      hint="How often to refresh photos from the selected album"
-                      persistent-hint
-                      @update:model-value="saveSettingsInternal()"
-                    ></v-select>
-                  </v-col>
-                </v-row>
-
-                <div class="d-flex flex-wrap ga-2 mt-4">
-                  <v-btn
-                    color="primary"
-                    :loading="immichStore.loading"
-                    @click="syncImmich"
-                    >Sync Now</v-btn
-                  >
-                  <v-btn color="warning" @click="clearImmich"
-                    >Clear All Photos</v-btn
-                  >
-                  <v-btn color="error" variant="text" @click="disconnectImmich"
-                    >Disconnect</v-btn
-                  >
-                </div>
-              </div>
-
-              <div v-else>
-                <v-text-field
-                  v-model="form.immich_url"
-                  label="Immich Server URL"
-                  placeholder="http://192.168.1.10:2283"
-                  variant="outlined"
-                  class="mb-2"
-                ></v-text-field>
-
-                <v-text-field
-                  v-model="form.immich_api_key"
-                  label="API Key"
-                  type="password"
-                  variant="outlined"
-                  class="mb-4"
-                ></v-text-field>
-
-                <v-btn
-                  color="primary"
-                  :disabled="!form.immich_url || !form.immich_api_key"
-                  :loading="immichStore.loading"
-                  @click="testImmich"
-                >
-                  Connect
-                </v-btn>
-              </div>
-            </v-card-text>
+            <ConnectionList
+              ref="immichList"
+              source="immich"
+              :confirm="confirmPrompt"
+              :show-message="showMessage"
+              @synced="onConnectionSynced"
+            ></ConnectionList>
           </v-window-item>
 
           <!-- Unsplash -->
@@ -1730,7 +1438,7 @@
                               v-if="
                                 useThisServer &&
                                 selectedSource === 'immich' &&
-                                immichConnected
+                                hasConnections('immich')
                               "
                               class="mb-2 ml-8"
                             >
@@ -1752,7 +1460,7 @@
                               v-if="
                                 useThisServer &&
                                 selectedSource === 'synology_photos' &&
-                                form.synology_sid
+                                hasConnections('synology_photos')
                               "
                               class="mb-2 ml-8"
                             >
@@ -2640,8 +2348,7 @@
 import { onMounted, nextTick, reactive, ref, computed, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
-import { useSynologyStore } from '../stores/synology';
-import { useImmichStore } from '../stores/immich';
+import { useConnectionsStore } from '../stores/connections';
 import { useUnsplashStore, usePexelsStore } from '../stores/createSourceStore';
 import { useGalleryStore } from '../stores/gallery';
 import { useAuthStore } from '../stores/auth';
@@ -2670,6 +2377,7 @@ import {
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
+import ConnectionList from './ConnectionList.vue';
 import { newFramePasswordProblem } from '../utils/framePassword';
 import { getApiError } from '../utils/errors';
 import AlbumPicker from './AlbumPicker.vue';
@@ -2689,11 +2397,13 @@ import {
 
 const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
-const synologyStore = useSynologyStore();
-const immichStore = useImmichStore();
+const connectionsStore = useConnectionsStore();
 const unsplashStore = useUnsplashStore();
 const pexelsStore = usePexelsStore();
-const immichConnected = ref(false);
+// Whether a connection-backed source (Immich, Synology) has at least one
+// connection; drives the per-frame album pickers.
+const hasConnections = (source: string) =>
+  connectionsStore.bySource(source).length > 0;
 const unsplashConnected = ref(false);
 const pexelsConnected = ref(false);
 
@@ -2703,26 +2413,11 @@ const topicStores: Record<string, any> = {
   pexels: pexelsStore,
 };
 
-// Immich "albums to sync" selection (Part A)
-const syncAlbumIds = ref<string[]>([]);
-const syncFavorites = ref(false);
-const syncAll = ref(false);
-const syncMemories = ref(false);
-const savingSyncSelection = ref(false);
-
-// Synology "albums to sync" selection (mirror of Immich, no virtual modes)
-const synologySyncAlbumIds = ref<string[]>([]);
-const savingSynologySyncSelection = ref(false);
-
-// Album selection auto-saves (debounced) but does NOT trigger an import — the
-// user syncs manually or is prompted on leaving. Suppress the auto-save while
-// applying persisted state programmatically (load / post-save refresh).
-// *SyncDirty marks selection changed since the last actual sync.
-let suppressSyncAutoSave = false;
-let immichSyncSaveTimer: number | null = null;
-let synologySyncSaveTimer: number | null = null;
-const immichSyncDirty = ref(false);
-const synologySyncDirty = ref(false);
+// The Immich / Synology connection lists (one card per connection). Their
+// album selections live in the cards; Settings only asks them to offer a sync
+// when the user leaves the tab.
+const immichList = ref<any>(null);
+const synologyList = ref<any>(null);
 // Topic sources (Unsplash/Pexels): topics auto-save on add/remove but do not
 // import until the user syncs or is prompted on leaving the source.
 const topicSyncDirty = reactive<Record<string, boolean>>({
@@ -2732,8 +2427,10 @@ const topicSyncDirty = reactive<Record<string, boolean>>({
 
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
+const deviceImmichSyncedAlbums = ref<any[]>([]);
 // Per-device Synology album bindings (Part C)
 const deviceSynologyAlbumIds = ref<number[]>([]);
+const deviceSynologySyncedAlbums = ref<any[]>([]);
 // Per-device topic-source (unsplash/pexels) album bindings.
 const deviceUnsplashAlbumIds = ref<number[]>([]);
 const devicePexelsAlbumIds = ref<number[]>([]);
@@ -2755,6 +2452,9 @@ const sourceHasGallery = computed(() =>
   ].includes(sourceTab.value)
 );
 const confirmDialog = ref();
+// Passed to the connection cards so they ask through the same dialog.
+const confirmPrompt = (message: string): Promise<boolean> =>
+  confirmDialog.value.open(message);
 
 // Image Source Binding State
 const useThisServer = ref(true);
@@ -3860,28 +3560,38 @@ const editDevice = async (device: Device) => {
   devicePexelsAlbumIds.value = [];
   // Load device remote config
   await loadDeviceConfig(device.id);
-  // Load Immich album options + this device's bindings (best-effort)
-  if (immichConnected.value) {
+  // Load the synced albums of every Immich / Synology connection plus this
+  // device's bindings (best-effort).
+  if (!connectionsStore.loaded) {
     try {
-      await immichStore.fetchSyncedAlbums();
-      const res = await api.get(`/devices/${device.id}/albums?source=immich`);
-      deviceImmichAlbumIds.value = res.data?.album_ids || [];
+      await connectionsStore.fetch();
     } catch (e) {
-      // Non-fatal: leave bindings empty
+      // Non-fatal
     }
   }
-  // Load Synology album options + this device's bindings (best-effort)
-  if (form.synology_sid) {
-    try {
-      await synologyStore.fetchSyncedAlbums();
-      const res = await api.get(
-        `/devices/${device.id}/albums?source=synology_photos`
-      );
-      deviceSynologyAlbumIds.value = res.data?.album_ids || [];
-    } catch (e) {
-      // Non-fatal: leave bindings empty
-    }
-  }
+  const connectionBindings: [
+    string,
+    typeof deviceImmichAlbumIds,
+    typeof deviceImmichSyncedAlbums,
+  ][] = [
+    ['immich', deviceImmichAlbumIds, deviceImmichSyncedAlbums],
+    ['synology_photos', deviceSynologyAlbumIds, deviceSynologySyncedAlbums],
+  ];
+  await Promise.all(
+    connectionBindings.map(async ([source, ids, synced]) => {
+      if (!hasConnections(source)) return;
+      try {
+        const albums = await api.get(`/albums?source=${source}&synced=true`);
+        synced.value = albums.data || [];
+        const res = await api.get(
+          `/devices/${device.id}/albums?source=${source}`
+        );
+        ids.value = res.data?.album_ids || [];
+      } catch (e) {
+        // Non-fatal: leave bindings empty
+      }
+    })
+  );
   // Load topic-source album options + this device's bindings (best-effort).
   const topicBindingRefs: Record<string, typeof deviceUnsplashAlbumIds> = {
     unsplash: deviceUnsplashAlbumIds,
@@ -4142,7 +3852,7 @@ const saveDevice = async () => {
       });
 
       // Persist per-device Immich album bindings (best-effort).
-      if (immichConnected.value) {
+      if (hasConnections('immich')) {
         try {
           await api.put(`/devices/${editingDevice.id}/albums`, {
             source: 'immich',
@@ -4158,7 +3868,7 @@ const saveDevice = async () => {
       }
 
       // Persist per-device Synology album bindings (best-effort).
-      if (form.synology_sid) {
+      if (hasConnections('synology_photos')) {
         try {
           await api.put(`/devices/${editingDevice.id}/albums`, {
             source: 'synology_photos',
@@ -4309,24 +4019,6 @@ const form = reactive({
   google_calendar_connected: 'false',
   google_client_id: '',
   google_client_secret: '',
-  synology_sid: '',
-  synology_url: '',
-  synology_account: '',
-  synology_password: '',
-  synology_skip_cert: false,
-  synology_otp_code: '',
-  synology_album_id: '',
-  synology_auto_sync_enabled: false,
-  synology_auto_sync_interval_minutes: 60,
-  albums: [] as any[],
-  immich_url: '',
-  immich_api_key: '',
-  immich_source_mode: 'album',
-  immich_memory_mode: 'all',
-  immich_album_id: '',
-  immich_auto_sync_enabled: false,
-  immich_auto_sync_interval_minutes: 60,
-  immich_albums: [] as any[],
   telegram_bot_token: '',
   telegram_push_enabled: false,
   telegram_target_device_id: [] as number[],
@@ -4347,21 +4039,28 @@ const form = reactive({
   device_host: '', // Keep for backward compatibility/display? Or remove. Remove from form, keep in store maybe?
 });
 
-// Synced (persisted) Immich albums available for per-device binding.
-// Items use the internal album row id (number) as the value.
-const deviceImmichAlbumOptions = computed(() => {
-  return (immichStore.syncedAlbums || [])
+// Synced (persisted) albums of a connection-backed source available for
+// per-device binding. Items use the internal album row id (number) as the
+// value. With more than one connection, the album name is prefixed with the
+// connection's name so two servers' "Family" albums can be told apart.
+const connectionAlbumOptions = (source: string, synced: any[]) => {
+  const several = connectionsStore.hasSeveral(source);
+  return (synced || [])
     .filter((a: any) => a.sync_enabled)
-    .map((a: any) => ({ id: a.id, name: a.name }));
-});
-
-// Synced (persisted) Synology albums available for per-device binding.
-// Items use the internal album row id (number) as the value.
-const deviceSynologyAlbumOptions = computed(() => {
-  return (synologyStore.syncedAlbums || [])
-    .filter((a: any) => a.sync_enabled)
-    .map((a: any) => ({ id: a.id, name: a.name }));
-});
+    .map((a: any) => ({
+      id: a.id,
+      name:
+        several && a.connection_name
+          ? `${a.connection_name} · ${a.name}`
+          : a.name,
+    }));
+};
+const deviceImmichAlbumOptions = computed(() =>
+  connectionAlbumOptions('immich', deviceImmichSyncedAlbums.value)
+);
+const deviceSynologyAlbumOptions = computed(() =>
+  connectionAlbumOptions('synology_photos', deviceSynologySyncedAlbums.value)
+);
 
 // Synced topic albums available for per-device binding (topic sources).
 const topicAlbumOptions = (store: any) =>
@@ -4375,88 +4074,22 @@ const devicePexelsAlbumOptions = computed(() => topicAlbumOptions(pexelsStore));
 
 // Album search + checked-first sorting now live in <AlbumPicker>.
 
-// Derive the Synology checkbox selection from the persisted synced albums.
-// External ids are matched against String(album.id) of live Synology albums.
-const applySynologySyncedAlbumState = () => {
-  suppressSyncAutoSave = true;
-  synologySyncAlbumIds.value = (synologyStore.syncedAlbums || [])
-    .filter((a: any) => a.sync_enabled)
-    .map((a: any) => a.external_id);
-  nextTick(() => {
-    suppressSyncAutoSave = false;
-  });
-};
-
-// Virtual sentinel external_ids used by the backend for non-album sources.
-const IMMICH_FAVORITES_ID = '__favorites__';
-const IMMICH_ALL_ID = '__all__';
-const IMMICH_MEMORIES_ID = '__memories__';
-
-// Derive the checkbox selection state from the persisted synced albums.
-const applySyncedAlbumState = () => {
-  suppressSyncAutoSave = true;
-  const synced = (immichStore.syncedAlbums || []).filter(
-    (a: any) => a.sync_enabled
-  );
-  syncFavorites.value = synced.some(
-    (a: any) => a.external_id === IMMICH_FAVORITES_ID
-  );
-  syncAll.value = synced.some((a: any) => a.external_id === IMMICH_ALL_ID);
-  syncMemories.value = synced.some(
-    (a: any) => a.external_id === IMMICH_MEMORIES_ID
-  );
-  syncAlbumIds.value = synced
-    .filter(
-      (a: any) =>
-        a.kind === 'album' &&
-        a.external_id !== IMMICH_FAVORITES_ID &&
-        a.external_id !== IMMICH_ALL_ID &&
-        a.external_id !== IMMICH_MEMORIES_ID
-    )
-    .map((a: any) => a.external_id);
-  nextTick(() => {
-    suppressSyncAutoSave = false;
-  });
-};
-
-// Persist the album selection (debounced) without importing — the user syncs
-// manually or is prompted on leaving. Suppressed during programmatic apply.
-watch(
-  [syncAlbumIds, syncFavorites, syncAll, syncMemories],
-  () => {
-    if (suppressSyncAutoSave) return;
-    immichSyncDirty.value = true;
-    if (immichSyncSaveTimer != null) clearTimeout(immichSyncSaveTimer);
-    immichSyncSaveTimer = window.setTimeout(() => saveSyncSelection(), 600);
-  },
-  { deep: true }
-);
-watch(
-  synologySyncAlbumIds,
-  () => {
-    if (suppressSyncAutoSave) return;
-    synologySyncDirty.value = true;
-    if (synologySyncSaveTimer != null) clearTimeout(synologySyncSaveTimer);
-    synologySyncSaveTimer = window.setTimeout(
-      () => saveSynologySyncSelection(),
-      600
-    );
-  },
-  { deep: true }
-);
-
 // When the user leaves the Immich/Synology config (sub-tab or the whole Data
-// Sources tab) with unsynced selection changes, offer to sync now.
+// Sources tab) with unsynced selection changes, the connection cards offer to
+// sync now.
 const maybePromptSync = async (source: 'immich' | 'synology_photos') => {
-  const dirty = source === 'immich' ? immichSyncDirty : synologySyncDirty;
-  if (!dirty.value) return;
-  dirty.value = false; // ask once
-  const ok = await confirmDialog.value.open(
-    'You changed which albums to sync. Sync now to apply the changes?'
-  );
-  if (!ok) return;
-  if (source === 'immich') await syncImmich();
-  else await syncSynology();
+  const list = source === 'immich' ? immichList.value : synologyList.value;
+  await list?.promptIfDirty?.();
+};
+// A connection card started a sync or cleared photos: refresh the gallery
+// above, switching it to that source so the change is visible.
+const onConnectionSynced = async (source: string) => {
+  galleryStore.triggerRefresh();
+  if (sourceTab.value === source) {
+    await galleryStore.fetchPhotos();
+  } else {
+    sourceTab.value = source;
+  }
 };
 // When the user leaves a topic source (Unsplash/Pexels) after changing topics,
 // offer to sync now to import photos for them.
@@ -4484,11 +4117,6 @@ watch(activeMainTab, (_newVal, oldVal) => {
   }
 });
 
-const immichMemoryModeOptions = [
-  { title: 'All years', value: 'all' },
-  { title: 'Most recent year only', value: 'latest' },
-];
-
 const autoSyncIntervalOptions = [
   { title: 'Every 15 minutes', value: 15 },
   { title: 'Every 30 minutes', value: 30 },
@@ -4503,7 +4131,7 @@ const autoSyncIntervalOptions = [
 // album sync on the backend, so refresh the sync-selection UI afterwards.
 const deletingAllPhotos = ref(false);
 const deleteAllPhotosForSource = async (
-  source: 'immich' | 'synology_photos' | 'google_photos' | 'gallery'
+  source: 'google_photos' | 'gallery'
 ) => {
   if (
     !(await confirmDialog.value.open(
@@ -4515,28 +4143,6 @@ const deleteAllPhotosForSource = async (
   deletingAllPhotos.value = true;
   try {
     await api.delete('/gallery/photos?source=' + source);
-
-    if (source === 'immich') {
-      await immichStore.fetchSyncedAlbums();
-      try {
-        await immichStore.fetchAlbums();
-        form.immich_albums = immichStore.albums;
-      } catch (e) {
-        // Non-fatal: keep whatever albums we already have.
-      }
-      applySyncedAlbumState();
-      await immichStore.fetchCount();
-    } else if (source === 'synology_photos') {
-      await synologyStore.fetchSyncedAlbums();
-      try {
-        await synologyStore.fetchAlbums();
-        form.albums = synologyStore.albums;
-      } catch (e) {
-        // Non-fatal.
-      }
-      applySynologySyncedAlbumState();
-      await synologyStore.fetchCount();
-    }
 
     showMessage('All photos deleted.');
 
@@ -4577,29 +4183,6 @@ onMounted(async () => {
       : [],
     weather_lat: store.settings.weather_lat || '',
     weather_lon: store.settings.weather_lon || '',
-    synology_url: store.settings.synology_url || '',
-    synology_account: store.settings.synology_account || '',
-    synology_password: store.settings.synology_password || '',
-    synology_skip_cert: store.settings.synology_skip_cert === 'true',
-    synology_album_id: store.settings.synology_album_id
-      ? parseInt(store.settings.synology_album_id)
-      : '',
-    synology_auto_sync_enabled:
-      store.settings.synology_auto_sync_enabled === 'true',
-    synology_auto_sync_interval_minutes: parseInt(
-      store.settings.synology_auto_sync_interval_minutes || '60'
-    ),
-    synology_sid: store.settings.synology_sid || '',
-    immich_url: store.settings.immich_url || '',
-    immich_api_key: store.settings.immich_api_key || '',
-    immich_source_mode: store.settings.immich_source_mode || 'album',
-    immich_memory_mode: store.settings.immich_memory_mode || 'all',
-    immich_album_id: store.settings.immich_album_id || '',
-    immich_auto_sync_enabled:
-      store.settings.immich_auto_sync_enabled === 'true',
-    immich_auto_sync_interval_minutes: parseInt(
-      store.settings.immich_auto_sync_interval_minutes || '60'
-    ),
     device_image_base_url: store.settings.device_image_base_url || '',
     openai_api_key: store.settings.openai_api_key || '',
     google_api_key: store.settings.google_api_key || '',
@@ -4621,60 +4204,19 @@ onMounted(async () => {
       store.settings.pexels_randomize_results === 'true',
   });
 
-  // Load cached albums if available
-  if (store.settings.synology_albums_cache) {
-    try {
-      form.albums = JSON.parse(store.settings.synology_albums_cache);
-    } catch (e) {
-      console.error('Failed to parse cached albums', e);
-    }
-  }
-
   // Run independent fetches in parallel
   const parallelFetches: Promise<void>[] = [loadDevices()];
 
-  // Fetch Synology photo count + albums if connected
-  if (form.synology_sid) {
-    parallelFetches.push(
-      (async () => {
-        await synologyStore.fetchCount();
-        try {
-          await synologyStore.fetchAlbums();
-          form.albums = synologyStore.albums;
-        } catch (e) {
-          // Non-fatal: use cached albums until user refreshes
-        }
-        try {
-          await synologyStore.fetchSyncedAlbums();
-          applySynologySyncedAlbumState();
-        } catch (e) {
-          // Non-fatal: checkboxes start unchecked until user refreshes
-        }
-      })()
-    );
-  }
-
-  // Fetch Immich photo count and albums if connected
-  if (form.immich_url && form.immich_api_key) {
-    immichConnected.value = true;
-    parallelFetches.push(
-      (async () => {
-        await immichStore.fetchCount();
-        try {
-          await immichStore.fetchAlbums();
-          form.immich_albums = immichStore.albums;
-        } catch (e) {
-          // Non-fatal: album names will be shown as UUIDs until user clicks Refresh
-        }
-        try {
-          await immichStore.fetchSyncedAlbums();
-          applySyncedAlbumState();
-        } catch (e) {
-          // Non-fatal: checkboxes start unchecked until user refreshes
-        }
-      })()
-    );
-  }
+  // Immich / Synology connections (the cards load their own albums + counts).
+  parallelFetches.push(
+    (async () => {
+      try {
+        await connectionsStore.fetch();
+      } catch (e) {
+        // Non-fatal: the Data Sources tab retries when opened.
+      }
+    })()
+  );
 
   // Topic-source connection state (key present => connected).
   unsplashConnected.value = !!store.settings.unsplash_api_key;
@@ -4731,24 +4273,6 @@ const saveSettingsInternal = async () => {
       : form.telegram_target_device_id,
     weather_lat: form.weather_lat,
     weather_lon: form.weather_lon,
-    synology_url: form.synology_url,
-    synology_account: form.synology_account,
-    synology_password: form.synology_password,
-    synology_skip_cert: String(form.synology_skip_cert),
-    synology_album_id: String(form.synology_album_id),
-    synology_auto_sync_enabled: String(form.synology_auto_sync_enabled),
-    synology_auto_sync_interval_minutes: String(
-      form.synology_auto_sync_interval_minutes
-    ),
-    immich_url: form.immich_url,
-    immich_api_key: form.immich_api_key,
-    immich_source_mode: form.immich_source_mode,
-    immich_memory_mode: form.immich_memory_mode,
-    immich_album_id: form.immich_album_id,
-    immich_auto_sync_enabled: String(form.immich_auto_sync_enabled),
-    immich_auto_sync_interval_minutes: String(
-      form.immich_auto_sync_interval_minutes
-    ),
     openai_api_key: form.openai_api_key,
     google_api_key: form.google_api_key,
     unsplash_api_key: form.unsplash_api_key,
@@ -4830,141 +4354,6 @@ const logoutGoogleCalendar = async () => {
   }
 };
 
-const testSynology = async () => {
-  await saveSettingsInternal();
-  try {
-    await synologyStore.testConnection(form.synology_otp_code);
-    showMessage('Connection Successful!');
-    form.synology_otp_code = '';
-    // Store updates settings internally, but we need to update form
-    form.synology_sid = store.settings.synology_sid;
-    // Auto-load the album list so the user can pick albums right away.
-    await loadAlbums();
-  } catch (e: any) {
-    const err = e.response?.data?.error || 'Unknown error';
-    if (err.includes('code: 403')) {
-      showMessage(
-        '2FA Required! Please enter OTP code and Test Connection again.',
-        true
-      );
-    } else {
-      showMessage('Connection Failed: ' + err, true);
-    }
-  }
-};
-
-const logoutSynology = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to disconnect Synology?'
-    ))
-  )
-    return;
-  try {
-    await synologyStore.logout();
-    form.synology_sid = '';
-    form.albums = [];
-    synologySyncAlbumIds.value = [];
-    showMessage('Logged out from Synology.');
-  } catch (e) {
-    showMessage('Error logging out: ' + e, true);
-  }
-};
-
-const loadAlbums = async () => {
-  await saveSettingsInternal();
-  try {
-    await synologyStore.fetchAlbums();
-    form.albums = synologyStore.albums;
-    try {
-      await synologyStore.fetchSyncedAlbums();
-      applySynologySyncedAlbumState();
-    } catch (e) {
-      // Non-fatal
-    }
-    showMessage('Albums loaded!');
-  } catch (e: any) {
-    if (
-      e.message === 'Session expired' ||
-      (e.response && e.response.status === 401)
-    ) {
-      showMessage(
-        'Session expired or Unauthorized. Please check login/settings.',
-        true
-      );
-    } else {
-      showMessage(
-        'Failed to load albums: ' + (e.response?.data?.error || e.message),
-        true
-      );
-    }
-  }
-};
-
-const saveSynologySyncSelection = async () => {
-  savingSynologySyncSelection.value = true;
-  try {
-    await synologyStore.saveSyncAlbums(synologySyncAlbumIds.value);
-    applySynologySyncedAlbumState();
-    // Selection persisted only; no import here (manual Sync / prompt triggers it).
-  } catch (e: any) {
-    showMessage(
-      'Failed to save sync selection: ' +
-        (e.response?.data?.error || e.message),
-      true
-    );
-  } finally {
-    savingSynologySyncSelection.value = false;
-  }
-};
-
-const syncSynology = async () => {
-  await saveSettingsInternal();
-  try {
-    await synologyStore.sync();
-    synologySyncDirty.value = false;
-    showMessage('Sync started — importing in the background.');
-    galleryStore.triggerRefresh();
-    // Refresh the gallery preview above so the freshly synced photos show.
-    // Switching the source triggers a fetch; if it's already on synology the
-    // watch won't fire, so refetch explicitly.
-    if (sourceTab.value === 'synology_photos') {
-      await galleryStore.fetchPhotos();
-    } else {
-      sourceTab.value = 'synology_photos';
-    }
-  } catch (e: any) {
-    if (e.response && e.response.status === 401) {
-      showMessage('Session expired. Please reconnect.', true);
-    } else {
-      showMessage(
-        'Sync Failed: ' + (e.response?.data?.error || 'Unknown error'),
-        true
-      );
-    }
-  }
-};
-
-// Clear All Photos = delete photos AND turn off album sync (so they don't
-// re-import) — same behavior as the per-source Delete All.
-const clearSynology = () => deleteAllPhotosForSource('synology_photos');
-
-const testImmich = async () => {
-  await saveSettingsInternal();
-  try {
-    await immichStore.testConnection();
-    immichConnected.value = true;
-    showMessage('Connection Successful!');
-    // Auto-load the album list so the user can pick albums right away.
-    await loadImmichAlbums();
-  } catch (e: any) {
-    showMessage(
-      'Connection Failed: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
-};
-
 const disconnectTelegram = async () => {
   if (
     !(await confirmDialog.value.open(
@@ -4976,25 +4365,6 @@ const disconnectTelegram = async () => {
   form.telegram_push_enabled = false;
   await saveSettingsInternal();
   showMessage('Telegram bot disconnected.');
-};
-
-const disconnectImmich = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to disconnect Immich?'
-    ))
-  )
-    return;
-  form.immich_url = '';
-  form.immich_api_key = '';
-  form.immich_source_mode = 'album';
-  form.immich_album_id = '';
-  form.immich_albums = [];
-  await saveSettingsInternal();
-  immichConnected.value = false;
-  immichStore.count = 0;
-  immichStore.albums = [];
-  showMessage('Disconnected from Immich.');
 };
 
 const connectUnsplash = async () => {
@@ -5052,75 +4422,6 @@ const disconnectPexels = async () => {
   pexelsConnected.value = false;
   showMessage('Disconnected from Pexels.');
 };
-
-const loadImmichAlbums = async () => {
-  await saveSettingsInternal();
-  try {
-    await immichStore.fetchAlbums();
-    form.immich_albums = immichStore.albums;
-    try {
-      await immichStore.fetchSyncedAlbums();
-      applySyncedAlbumState();
-    } catch (e) {
-      // Non-fatal
-    }
-    showMessage('Albums loaded!');
-  } catch (e: any) {
-    showMessage(
-      'Failed to load albums: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
-};
-
-const saveSyncSelection = async () => {
-  savingSyncSelection.value = true;
-  try {
-    // Persist the memory-mode setting alongside the sync selection.
-    await saveSettingsInternal();
-    await immichStore.saveSyncAlbums({
-      album_ids: syncAlbumIds.value,
-      favorites: syncFavorites.value,
-      all: syncAll.value,
-      memories: syncMemories.value,
-    });
-    applySyncedAlbumState();
-    // Selection persisted only; no import here (manual Sync / prompt triggers it).
-  } catch (e: any) {
-    showMessage(
-      'Failed to save sync selection: ' +
-        (e.response?.data?.error || e.message),
-      true
-    );
-  } finally {
-    savingSyncSelection.value = false;
-  }
-};
-
-const syncImmich = async () => {
-  await saveSettingsInternal();
-  try {
-    await immichStore.sync();
-    immichSyncDirty.value = false;
-    showMessage('Sync started — importing in the background.');
-    galleryStore.triggerRefresh();
-    // Refresh the gallery preview above so the freshly synced photos show.
-    // Switching the source triggers a fetch; if it's already on immich the
-    // watch won't fire, so refetch explicitly.
-    if (sourceTab.value === 'immich') {
-      await galleryStore.fetchPhotos();
-    } else {
-      sourceTab.value = 'immich';
-    }
-  } catch (e: any) {
-    showMessage(
-      'Sync Failed: ' + (e.response?.data?.error || 'Unknown error'),
-      true
-    );
-  }
-};
-
-const clearImmich = () => deleteAllPhotosForSource('immich');
 
 // --- Topic sources (Unsplash / Pexels) ---
 // Replace the synced topic set, then offer to sync (topics have no photos
