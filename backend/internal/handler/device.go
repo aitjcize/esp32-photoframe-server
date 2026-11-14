@@ -18,18 +18,16 @@ import (
 )
 
 type DeviceHandler struct {
-	deviceService   *service.DeviceService
-	synologyService *service.SynologyService
-	immichService   *service.ImmichService
-	db              *gorm.DB
+	deviceService *service.DeviceService
+	conns         *service.ConnectionManager
+	db            *gorm.DB
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, synologyService *service.SynologyService, immichService *service.ImmichService, db *gorm.DB) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, conns *service.ConnectionManager, db *gorm.DB) *DeviceHandler {
 	return &DeviceHandler{
-		deviceService:   deviceService,
-		synologyService: synologyService,
-		immichService:   immichService,
-		db:              db,
+		deviceService: deviceService,
+		conns:         conns,
+		db:            db,
 	}
 }
 
@@ -430,8 +428,12 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			if err != nil {
 				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("invalid synology photo id %q: %v", img.ExternalID, err))
 			}
-			// Download to temporary file
-			data, err := h.synologyService.DownloadPhoto(synoID)
+			// Download from the connection the photo came from.
+			svc, err := h.conns.SynologyForImage(img)
+			if err != nil {
+				return respondError(c, http.StatusInternalServerError, err.Error())
+			}
+			data, err := svc.DownloadPhoto(synoID)
 			if err != nil {
 				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download synology photo: %v", err))
 			}
@@ -451,8 +453,12 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			tmp.Close()
 			imagePath = tempFile
 		} else if img.Source == model.SourceImmich {
-			// Download from Immich to temporary file
-			data, err := h.immichService.DownloadPhoto(img.ExternalID)
+			// Download from the Immich connection the photo came from.
+			svc, err := h.conns.ImmichForImage(img)
+			if err != nil {
+				return respondError(c, http.StatusInternalServerError, err.Error())
+			}
+			data, err := svc.DownloadPhoto(img.ExternalID)
 			if err != nil {
 				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download immich photo: %v", err))
 			}
@@ -530,12 +536,21 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 }
 
 // ListAlbums returns persisted source albums, optionally filtered by
-// ?source= and ?synced=true. Feeds the device album picker and gallery chips.
+// ?source=, ?connection_id= and ?synced=true. Feeds the device album picker
+// and gallery chips. Each album carries the name of its connection so the
+// picker can tell two servers' albums apart.
 // GET /api/albums
 func (h *DeviceHandler) ListAlbums(c echo.Context) error {
 	q := h.db.Model(&model.Album{})
 	if src := c.QueryParam("source"); src != "" {
 		q = q.Where("source = ?", src)
+	}
+	if cid := c.QueryParam("connection_id"); cid != "" {
+		id, err := strconv.Atoi(cid)
+		if err != nil {
+			return respondError(c, http.StatusBadRequest, "invalid connection_id")
+		}
+		q = q.Where("connection_id = ?", id)
 	}
 	if c.QueryParam("synced") == "true" {
 		q = q.Where("sync_enabled = ?", true)
@@ -543,6 +558,17 @@ func (h *DeviceHandler) ListAlbums(c echo.Context) error {
 	var albums []model.Album
 	if err := q.Order("name").Find(&albums).Error; err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	var conns []model.Connection
+	h.db.Select("id", "name").Find(&conns)
+	connName := make(map[uint]string, len(conns))
+	for _, cn := range conns {
+		connName[cn.ID] = cn.Name
+	}
+	for i := range albums {
+		if albums[i].ConnectionID != nil {
+			albums[i].ConnectionName = connName[*albums[i].ConnectionID]
+		}
 	}
 	// Report the LIVE photo count (memberships joined to existing images) rather
 	// than the cached Album.asset_count, which can go stale when images are

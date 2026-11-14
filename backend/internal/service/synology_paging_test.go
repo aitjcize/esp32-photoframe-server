@@ -104,7 +104,7 @@ func TestSynologyFetchAlbumAssetsPagesPastFiveThousand(t *testing.T) {
 	defer nas.Close()
 
 	svc, _ := newSharedAlbumService(t, nas.URL)
-	require.NoError(t, svc.ensureClient("", false))
+	require.NoError(t, mustLogin(svc, "", false))
 	assets, err := svc.FetchAlbumAssets(model.Album{
 		Source: model.SourceSynologyPhotos, ExternalID: "3", Kind: model.AlbumKindReal,
 	})

@@ -40,7 +40,7 @@ func TestSetSyncAlbumsRemovesDeselectedImages(t *testing.T) {
 	mkMembership(t, db, inBoth, albumB)
 
 	// Keep only album A checked.
-	require.NoError(t, SetSyncAlbums(db, model.SourceImmich, []RemoteAlbum{
+	require.NoError(t, SetSyncAlbums(db, sourceScope{Source: model.SourceImmich}, []RemoteAlbum{
 		{ExternalID: "album-a", Name: "A"},
 	}))
 
@@ -59,6 +59,7 @@ type fakeAlbumSource struct {
 }
 
 func (f *fakeAlbumSource) Source() string                           { return model.SourceImmich }
+func (f *fakeAlbumSource) ConnectionID() uint                       { return 0 }
 func (f *fakeAlbumSource) ListRemoteAlbums() ([]RemoteAlbum, error) { return nil, nil }
 func (f *fakeAlbumSource) FetchAlbumAssets(a model.Album) ([]RemoteAsset, error) {
 	if err := f.errs[a.ExternalID]; err != nil {

@@ -11,15 +11,17 @@ import (
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 )
 
-// synologyPhotosSource is the registry plugin for Synology-hosted photos.
+// synologyPhotosSource is the registry plugin for Synology-hosted photos. One
+// plugin serves every Synology connection; each picked image names the
+// connection to download it from.
 type synologyPhotosSource struct {
-	db       *gorm.DB
-	synology *SynologyService
+	db    *gorm.DB
+	conns *ConnectionManager
 }
 
 // NewSynologyPhotosSource constructs the plugin.
-func NewSynologyPhotosSource(db *gorm.DB, synology *SynologyService) imagesource.Source {
-	return &synologyPhotosSource{db: db, synology: synology}
+func NewSynologyPhotosSource(db *gorm.DB, conns *ConnectionManager) imagesource.Source {
+	return &synologyPhotosSource{db: db, conns: conns}
 }
 
 func (s *synologyPhotosSource) Name() string { return model.SourceSynologyPhotos }
@@ -34,13 +36,17 @@ func (s *synologyPhotosSource) Fetch(req *imagesource.Request) (*imagesource.Res
 		return PickRandomDBPhotoForAlbums(s.db, model.SourceSynologyPhotos, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
+		svc, err := s.conns.SynologyForImage(item)
+		if err != nil {
+			return nil, err
+		}
 		// The synology photo id lives in ExternalID. DownloadPhoto re-looks the
 		// row up by id to resolve the cache key + album, so pass it from there.
 		id, err := strconv.Atoi(item.ExternalID)
 		if err != nil {
 			return nil, err
 		}
-		data, err := s.synology.DownloadPhoto(id)
+		data, err := svc.DownloadPhoto(id)
 		if err != nil {
 			return nil, err
 		}

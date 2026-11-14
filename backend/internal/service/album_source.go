@@ -40,6 +40,10 @@ type RemoteAlbum struct {
 type AlbumSource interface {
 	// Source returns the model.Source* constant this source owns.
 	Source() string
+	// ConnectionID is the connection whose albums this source syncs, or 0 for
+	// sources that have no connections (topic sources): their albums are the
+	// source's rows with a NULL connection_id.
+	ConnectionID() uint
 	// ListRemoteAlbums is used for a best-effort album-name refresh during sync.
 	// May return nil (e.g. topic sources where the album name is the topic).
 	ListRemoteAlbums() ([]RemoteAlbum, error)
@@ -56,19 +60,21 @@ type AlbumSource interface {
 // Generalizes what immich.go/synology.go's ImportPhotos each hand-rolled.
 func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 	source := src.Source()
+	sc := sourceScope{Source: source, ConnectionID: src.ConnectionID()}
 
 	var albums []model.Album
-	if err := db.Where("source = ? AND sync_enabled = ?", source, true).Find(&albums).Error; err != nil {
+	if err := sc.where(db.Model(&model.Album{})).Where("sync_enabled = ?", true).
+		Find(&albums).Error; err != nil {
 		return 0, err
 	}
 
 	// Albums unchecked since the last sync keep their membership rows, which
 	// would shield their images from the orphan GC below. Drop them first so
 	// a resync removes what the user deselected.
-	pruneDisabledAlbumMemberships(db, source)
+	pruneDisabledAlbumMemberships(db, sc)
 
 	if len(albums) == 0 {
-		gcOrphanImagesForSource(db, source)
+		gcOrphanImagesForSource(db, sc)
 		log.Printf("%s sync: no albums enabled for sync", source)
 		return 0, nil
 	}
@@ -110,7 +116,7 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 			failures = append(failures, fmt.Sprintf("%s: %v", album.Name, err))
 			continue // leave the album's prior state + count untouched
 		}
-		newCount, _, err := upsertAlbumAssets(db, source, album.ID, assets)
+		newCount, _, err := upsertAlbumAssets(db, sc, album.ID, assets)
 		if err != nil {
 			log.Printf("%s: import album %q (%s) failed: %v", source, album.Name, album.ExternalID, err)
 			failures = append(failures, fmt.Sprintf("%s: %v", album.Name, err))
@@ -127,7 +133,7 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 		}
 	}
 
-	gcOrphanImagesForSource(db, source)
+	gcOrphanImagesForSource(db, sc)
 	log.Printf("%s sync complete: %d new photos across %d album(s)", source, total, len(albums))
 	if len(failures) > 0 {
 		return total, fmt.Errorf("%d of %d album(s) failed to sync — %s",
@@ -137,10 +143,11 @@ func SyncAlbumSource(db *gorm.DB, src AlbumSource) (int, error) {
 }
 
 // upsertAlbumAssets upserts image rows + (asset, album) membership rows for one
-// album, then prunes memberships for assets no longer present. Dedup is by the
-// generic (source, external_id). The whole album is one transaction so a
-// mid-import failure rolls back cleanly. Returns new image count + member count.
-func upsertAlbumAssets(db *gorm.DB, source string, albumID uint, assets []RemoteAsset) (newCount, memberCount int, err error) {
+// album, then prunes memberships for assets no longer present. Dedup is by
+// external_id within the scope (one connection, or the connection-less rows of
+// a source). The whole album is one transaction so a mid-import failure rolls
+// back cleanly. Returns new image count + member count.
+func upsertAlbumAssets(db *gorm.DB, sc sourceScope, albumID uint, assets []RemoteAsset) (newCount, memberCount int, err error) {
 	err = db.Transaction(func(tx *gorm.DB) error {
 		// Batch-load existing image ids by external id (one query).
 		idByExt := make(map[string]uint, len(assets))
@@ -150,7 +157,7 @@ func upsertAlbumAssets(db *gorm.DB, source string, albumID uint, assets []Remote
 				extIDs = append(extIDs, a.ExternalID)
 			}
 			var existing []model.Image
-			if e := tx.Where("source = ? AND external_id IN ?", source, extIDs).
+			if e := sc.where(tx.Model(&model.Image{})).Where("external_id IN ?", extIDs).
 				Find(&existing).Error; e != nil {
 				return e
 			}
@@ -172,7 +179,8 @@ func upsertAlbumAssets(db *gorm.DB, source string, albumID uint, assets []Remote
 				orientation = determineOrientation(a.Width, a.Height, "")
 			}
 			img := model.Image{
-				Source:       source,
+				Source:       sc.Source,
+				ConnectionID: sc.connectionRef(),
 				ExternalID:   a.ExternalID,
 				FilePath:     a.FilePath,
 				Caption:      a.Caption,
@@ -237,15 +245,14 @@ func upsertAlbumAssets(db *gorm.DB, source string, albumID uint, assets []Remote
 // never been used here" (total == 0, fall back to the legacy single-album
 // settings) from "the picker is in use and everything is deselected"
 // (total > 0, enabled == 0).
-func countAlbums(db *gorm.DB, source string) (total, enabled int64) {
-	if err := db.Model(&model.Album{}).Where("source = ?", source).
-		Count(&total).Error; err != nil {
-		log.Printf("%s: count albums: %v", source, err)
+func countAlbums(db *gorm.DB, sc sourceScope) (total, enabled int64) {
+	if err := sc.where(db.Model(&model.Album{})).Count(&total).Error; err != nil {
+		log.Printf("%s: count albums: %v", sc, err)
 		return 0, 0
 	}
-	if err := db.Model(&model.Album{}).Where("source = ? AND sync_enabled = ?", source, true).
+	if err := sc.where(db.Model(&model.Album{})).Where("sync_enabled = ?", true).
 		Count(&enabled).Error; err != nil {
-		log.Printf("%s: count sync-enabled albums: %v", source, err)
+		log.Printf("%s: count sync-enabled albums: %v", sc, err)
 		return total, 0
 	}
 	return total, enabled
@@ -257,17 +264,18 @@ func countAlbums(db *gorm.DB, source string) (total, enabled int64) {
 // by immich/synology album selection and by topic-source topic management.
 // Images of the deselected albums are removed immediately (metadata only; a
 // re-check plus resync re-imports them), matching topic-source behavior.
-func SetSyncAlbums(db *gorm.DB, source string, albums []RemoteAlbum) error {
+func SetSyncAlbums(db *gorm.DB, sc sourceScope, albums []RemoteAlbum) error {
 	err := db.Transaction(func(tx *gorm.DB) error {
 		wantIDs := make([]string, 0, len(albums))
 		for _, a := range albums {
 			wantIDs = append(wantIDs, a.ExternalID)
 			var existing model.Album
-			err := tx.Where("source = ? AND external_id = ?", source, a.ExternalID).First(&existing).Error
+			err := sc.where(tx.Model(&model.Album{})).Where("external_id = ?", a.ExternalID).First(&existing).Error
 			switch {
 			case err == gorm.ErrRecordNotFound:
 				if e := tx.Create(&model.Album{
-					Source:          source,
+					Source:          sc.Source,
+					ConnectionID:    sc.connectionRef(),
 					ExternalID:      a.ExternalID,
 					Name:            a.Name,
 					Kind:            model.AlbumKindReal,
@@ -297,7 +305,7 @@ func SetSyncAlbums(db *gorm.DB, source string, albums []RemoteAlbum) error {
 		}
 
 		// Disable real albums no longer wanted.
-		q := tx.Model(&model.Album{}).Where("source = ? AND kind = ?", source, model.AlbumKindReal)
+		q := sc.where(tx.Model(&model.Album{})).Where("kind = ?", model.AlbumKindReal)
 		if len(wantIDs) > 0 {
 			q = q.Where("external_id NOT IN ?", wantIDs)
 		}
@@ -308,7 +316,7 @@ func SetSyncAlbums(db *gorm.DB, source string, albums []RemoteAlbum) error {
 	}
 	// Drop the deselected albums' images right away instead of waiting for the
 	// next sync, so the gallery reflects the new selection immediately.
-	pruneDisabledAlbumMemberships(db, source)
-	gcOrphanImagesForSource(db, source)
+	pruneDisabledAlbumMemberships(db, sc)
+	gcOrphanImagesForSource(db, sc)
 	return nil
 }

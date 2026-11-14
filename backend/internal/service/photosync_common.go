@@ -5,6 +5,7 @@ package service
 // between immich.go and synology.go, differing only by the source constant.
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,6 +17,40 @@ import (
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 )
+
+// sourceScope names one pool of albums and images: a connection (one Immich
+// server, one NAS account), or, for sources without connections (topic
+// sources), the rows of a source type with no connection. Every shared helper
+// filters on it, so clearing or syncing one connection never touches another
+// connection of the same type.
+type sourceScope struct {
+	Source       string
+	ConnectionID uint // 0 = the source's connection-less rows
+}
+
+// where narrows a query on albums or images to the scope.
+func (sc sourceScope) where(q *gorm.DB) *gorm.DB {
+	if sc.ConnectionID != 0 {
+		return q.Where("connection_id = ?", sc.ConnectionID)
+	}
+	return q.Where("source = ? AND connection_id IS NULL", sc.Source)
+}
+
+// connectionRef is the value to store in a new row's connection_id.
+func (sc sourceScope) connectionRef() *uint {
+	if sc.ConnectionID == 0 {
+		return nil
+	}
+	id := sc.ConnectionID
+	return &id
+}
+
+func (sc sourceScope) String() string {
+	if sc.ConnectionID != 0 {
+		return fmt.Sprintf("%s#%d", sc.Source, sc.ConnectionID)
+	}
+	return sc.Source
+}
 
 // thumbnailDir is where gallery thumbnails are cached as <imageID>.jpg. Set
 // once at startup via SetThumbnailDir; when empty (e.g. unit tests without a
@@ -29,25 +64,25 @@ func SetThumbnailDir(dir string) { thumbnailDir = dir }
 // clearSourcePhotos hard-deletes all of the source's image rows. Their album
 // memberships drop via ON DELETE CASCADE (this is an Unscoped hard delete, so
 // the cascade fires).
-func clearSourcePhotos(db *gorm.DB, source string) error {
-	if err := db.Unscoped().Where("source = ?", source).
+func clearSourcePhotos(db *gorm.DB, sc sourceScope) error {
+	if err := sc.where(db.Unscoped().Model(&model.Image{})).
 		Delete(&model.Image{}).Error; err != nil {
 		return err
 	}
 	gcOrphanThumbnails(db)
-	log.Printf("Cleared all %s photos from database", source)
+	log.Printf("Cleared all %s photos from database", sc)
 	return nil
 }
 
 // gcOrphanImagesForSource removes the source's image rows that are no longer a
 // member of any album (their album was disabled or they were removed upstream),
 // then sweeps cached thumbnail files the deleted rows leave behind.
-func gcOrphanImagesForSource(db *gorm.DB, source string) {
+func gcOrphanImagesForSource(db *gorm.DB, sc sourceScope) {
 	sub := db.Model(&model.ImageAlbumMembership{}).Select("image_id")
-	if err := db.Unscoped().
-		Where("source = ? AND id NOT IN (?)", source, sub).
+	if err := sc.where(db.Unscoped().Model(&model.Image{})).
+		Where("id NOT IN (?)", sub).
 		Delete(&model.Image{}).Error; err != nil {
-		log.Printf("[%s] gc orphan images: %v", source, err)
+		log.Printf("[%s] gc orphan images: %v", sc, err)
 	}
 	gcOrphanThumbnails(db)
 }
@@ -57,12 +92,11 @@ func gcOrphanImagesForSource(db *gorm.DB, source string) {
 // Without it, unchecking an album kept its photos in the DB (and showing in
 // the gallery / rotating onto devices) forever, because the orphan GC only
 // removes images with no memberships at all.
-func pruneDisabledAlbumMemberships(db *gorm.DB, source string) {
-	sub := db.Model(&model.Album{}).Select("id").
-		Where("source = ? AND sync_enabled = ?", source, false)
+func pruneDisabledAlbumMemberships(db *gorm.DB, sc sourceScope) {
+	sub := sc.where(db.Model(&model.Album{})).Select("id").Where("sync_enabled = ?", false)
 	if err := db.Where("album_id IN (?)", sub).
 		Delete(&model.ImageAlbumMembership{}).Error; err != nil {
-		log.Printf("[%s] prune disabled-album memberships: %v", source, err)
+		log.Printf("[%s] prune disabled-album memberships: %v", sc, err)
 	}
 }
 
@@ -113,10 +147,9 @@ func gcOrphanThumbnails(db *gorm.DB) {
 }
 
 // sourcePhotoCount returns the number of (non-deleted) images for a source.
-func sourcePhotoCount(db *gorm.DB, source string) (int64, error) {
+func sourcePhotoCount(db *gorm.DB, sc sourceScope) (int64, error) {
 	var count int64
-	if err := db.Model(&model.Image{}).Where("source = ?", source).
-		Count(&count).Error; err != nil {
+	if err := sc.where(db.Model(&model.Image{})).Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil

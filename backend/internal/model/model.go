@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -40,7 +41,12 @@ type Image struct {
 	// photo id as text, unsplash/pexels id). Indexed with Source for dedup; the
 	// generic replacement for the old per-source id columns (immich_asset_id,
 	// synology_photo_id).
-	ExternalID   string         `gorm:"index:idx_images_source_external,priority:2" json:"external_id"`
+	ExternalID string `gorm:"index:idx_images_source_external,priority:2" json:"external_id"`
+	// ConnectionID is the connection (one configured Immich server, one NAS
+	// account, ...) this asset was synced from. Nil for sources that have no
+	// connections (gallery uploads, Google Photos, topic sources). With it,
+	// the same external id can exist once per connection.
+	ConnectionID *uint          `gorm:"index" json:"connection_id"`
 	ThumbnailKey string         `json:"thumbnail_key"`  // Cache key for Synology
 	PhotoTakenAt *time.Time     `json:"photo_taken_at"` // Original photo creation/taken date
 	CreatedAt    time.Time      `json:"created_at"`
@@ -185,12 +191,18 @@ const (
 // memories) use the ImmichVirtual* sentinels. SyncEnabled marks albums the
 // server pulls assets for.
 type Album struct {
-	ID          uint   `gorm:"primaryKey" json:"id"`
-	Source      string `gorm:"uniqueIndex:idx_albums_source_external,priority:1" json:"source"`
-	ExternalID  string `gorm:"uniqueIndex:idx_albums_source_external,priority:2" json:"external_id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"` // "album" | "virtual"
-	SyncEnabled bool   `json:"sync_enabled"`
+	ID         uint   `gorm:"primaryKey" json:"id"`
+	Source     string `gorm:"index:idx_albums_source_external,priority:1" json:"source"`
+	ExternalID string `gorm:"index:idx_albums_source_external,priority:2" json:"external_id"`
+	// ConnectionID is the connection this album belongs to; an external id is
+	// unique per connection, so two Immich servers can both have "__all__".
+	// Nil for topic sources, which have no connections.
+	ConnectionID *uint `gorm:"index" json:"connection_id"`
+	// ConnectionName is filled in by ListAlbums for display; not stored.
+	ConnectionName string `gorm:"-" json:"connection_name"`
+	Name           string `json:"name"`
+	Kind           string `json:"kind"` // "album" | "virtual"
+	SyncEnabled    bool   `json:"sync_enabled"`
 	// SharePassphrase grants access to a Synology album shared with (not owned
 	// by) the logged-in account. Empty for owned albums and other sources.
 	SharePassphrase string    `json:"-"`
@@ -221,4 +233,112 @@ type GenerativeState struct {
 	Source    string    `gorm:"primaryKey" json:"source"`
 	State     []byte    `json:"-"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Connection is one configured instance of a photo provider: one Immich
+// server, one Synology account. The source string stays the provider type;
+// albums and images hang off the connection, so several connections of the
+// same type can coexist. Config holds the user-entered settings (credentials
+// included) as JSON; State holds what the server learned on its own (a NAS
+// session) so a user edit never races it. Both stay out of JSON responses;
+// the handler reports a redacted view.
+type Connection struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Source    string    `gorm:"index" json:"source"`
+	Name      string    `json:"name"`
+	Enabled   bool      `json:"enabled"`
+	Config    string    `gorm:"default:'{}'" json:"-"`
+	State     string    `gorm:"default:'{}'" json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ConnectionSources are the source types that are configured as connections.
+var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos}
+
+// IsConnectionSource reports whether a source type is configured through
+// connections rather than through flat settings keys.
+func IsConnectionSource(source string) bool {
+	for _, s := range ConnectionSources {
+		if s == source {
+			return true
+		}
+	}
+	return false
+}
+
+// ImmichConfig is Connection.Config for an Immich connection.
+type ImmichConfig struct {
+	URL    string `json:"url"`
+	APIKey string `json:"api_key"`
+	// MemoryMode selects the "memories" lanes: "all" (every year, default) or
+	// "latest" (the most recent year only).
+	MemoryMode              string `json:"memory_mode"`
+	AutoSyncEnabled         bool   `json:"auto_sync_enabled"`
+	AutoSyncIntervalMinutes int    `json:"auto_sync_interval_minutes"`
+}
+
+// SynologyConfig is Connection.Config for a Synology Photos connection.
+type SynologyConfig struct {
+	URL                     string `json:"url"`
+	Account                 string `json:"account"`
+	Password                string `json:"password"`
+	SkipCert                bool   `json:"skip_cert"`
+	AutoSyncEnabled         bool   `json:"auto_sync_enabled"`
+	AutoSyncIntervalMinutes int    `json:"auto_sync_interval_minutes"`
+}
+
+// SynologyState is Connection.State for a Synology Photos connection: the
+// DSM session the server holds, restored across restarts.
+type SynologyState struct {
+	SID   string `json:"sid"`
+	DID   string `json:"did"`
+	Token string `json:"token"`
+}
+
+// DecodeConfig unmarshals Config into v. An empty Config is the zero value.
+func (c *Connection) DecodeConfig(v any) error {
+	if strings.TrimSpace(c.Config) == "" {
+		return nil
+	}
+	return json.Unmarshal([]byte(c.Config), v)
+}
+
+// EncodeConfig stores v as Config.
+func (c *Connection) EncodeConfig(v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	c.Config = string(b)
+	return nil
+}
+
+// DecodeState unmarshals State into v. An empty State is the zero value.
+func (c *Connection) DecodeState(v any) error {
+	if strings.TrimSpace(c.State) == "" {
+		return nil
+	}
+	return json.Unmarshal([]byte(c.State), v)
+}
+
+// ImmichConfig decodes Config for an Immich connection (zero value on error).
+func (c *Connection) ImmichConfig() ImmichConfig {
+	var cfg ImmichConfig
+	_ = c.DecodeConfig(&cfg)
+	return cfg
+}
+
+// SynologyConfig decodes Config for a Synology connection (zero value on error).
+func (c *Connection) SynologyConfig() SynologyConfig {
+	var cfg SynologyConfig
+	_ = c.DecodeConfig(&cfg)
+	return cfg
+}
+
+// SynologyState decodes State for a Synology connection (zero value on error).
+func (c *Connection) SynologyState() SynologyState {
+	var st SynologyState
+	_ = c.DecodeState(&st)
+	return st
 }

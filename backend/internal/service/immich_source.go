@@ -10,15 +10,17 @@ import (
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 )
 
-// immichSource is the registry plugin for Immich-hosted photos.
+// immichSource is the registry plugin for Immich-hosted photos. One plugin
+// serves every Immich connection: the device's albums may span several
+// servers, and each picked image names the connection to download it from.
 type immichSource struct {
-	db     *gorm.DB
-	immich *ImmichService
+	db    *gorm.DB
+	conns *ConnectionManager
 }
 
 // NewImmichSource constructs the plugin.
-func NewImmichSource(db *gorm.DB, immich *ImmichService) imagesource.Source {
-	return &immichSource{db: db, immich: immich}
+func NewImmichSource(db *gorm.DB, conns *ConnectionManager) imagesource.Source {
+	return &immichSource{db: db, conns: conns}
 }
 
 func (s *immichSource) Name() string { return model.SourceImmich }
@@ -33,7 +35,11 @@ func (s *immichSource) Fetch(req *imagesource.Request) (*imagesource.Response, e
 		return PickRandomDBPhotoForAlbums(s.db, model.SourceImmich, orientation, albumIDs, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
-		data, err := s.immich.DownloadPhoto(item.ExternalID)
+		svc, err := s.conns.ImmichForImage(item)
+		if err != nil {
+			return nil, err
+		}
+		data, err := svc.DownloadPhoto(item.ExternalID)
 		if err != nil {
 			return nil, err
 		}

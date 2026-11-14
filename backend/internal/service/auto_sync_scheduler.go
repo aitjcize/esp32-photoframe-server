@@ -15,7 +15,9 @@ type AutoSyncScheduler struct {
 	runSync       func() error
 	retryInterval time.Duration
 	resetCh       chan struct{}
+	stopCh        chan struct{}
 	startOnce     sync.Once
+	stopOnce      sync.Once
 	runMu         sync.Mutex
 	stateMu       sync.Mutex
 	lastSuccessAt time.Time
@@ -93,6 +95,7 @@ func NewAutoSyncScheduler(opts AutoSyncSchedulerOptions) *AutoSyncScheduler {
 		runSync:       opts.RunSync,
 		retryInterval: retry,
 		resetCh:       make(chan struct{}, 1),
+		stopCh:        make(chan struct{}),
 	}
 }
 
@@ -108,13 +111,23 @@ type AutoSyncSchedulerOptions struct {
 
 func (s *AutoSyncScheduler) Start() {
 	s.startOnce.Do(func() {
-		s.settings.RegisterOnChange(func(key, _ string) {
-			if s.isRelevantKey(key) {
-				s.TriggerReset()
-			}
-		})
+		// Sources configured through settings keys re-arm on a key change;
+		// connection-backed sources are re-armed by their manager instead.
+		if s.settings != nil && s.isRelevantKey != nil {
+			s.settings.RegisterOnChange(func(key, _ string) {
+				if s.isRelevantKey(key) {
+					s.TriggerReset()
+				}
+			})
+		}
 		go s.loop()
 	})
+}
+
+// Stop ends the loop for good; used when a connection is deleted. A sync in
+// flight finishes, nothing new is scheduled. Safe to call more than once.
+func (s *AutoSyncScheduler) Stop() {
+	s.stopOnce.Do(func() { close(s.stopCh) })
 }
 
 func (s *AutoSyncScheduler) TriggerReset() {
@@ -181,6 +194,8 @@ func (s *AutoSyncScheduler) loop() {
 		case <-timer.C:
 			s.tryRunDue()
 		case <-s.resetCh:
+		case <-s.stopCh:
+			return
 		}
 
 		delay := s.nextDelay()

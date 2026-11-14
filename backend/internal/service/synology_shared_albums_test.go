@@ -79,12 +79,11 @@ func (f *fakeNAS) lastItemQuery() string {
 func newSharedAlbumService(t *testing.T, url string) (*SynologyService, *gorm.DB) {
 	t.Helper()
 	db := setupAlbumDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Setting{}))
-	settings := NewSettingsService(db)
-	require.NoError(t, settings.Set("synology_url", url))
-	require.NoError(t, settings.Set("synology_account", "user"))
-	require.NoError(t, settings.Set("synology_password", "pass"))
-	return NewSynologyService(db, settings), db
+	require.NoError(t, db.AutoMigrate(&model.Connection{}))
+	c := mkConnection(t, db, model.SourceSynologyPhotos, "NAS", model.SynologyConfig{
+		URL: url, Account: "user", Password: "pass",
+	})
+	return NewSynologyService(db, NewConnectionStore(db), c.ID), db
 }
 
 // Issue #52: albums shared with the authenticated user live behind
@@ -207,11 +206,11 @@ func TestSynologyAlbumRefForImageCarriesPassphrase(t *testing.T) {
 	svc, db := newSharedAlbumService(t, nas.URL)
 
 	album := model.Album{
-		Source: model.SourceSynologyPhotos, ExternalID: "7", Kind: model.AlbumKindReal,
+		Source: model.SourceSynologyPhotos, ConnectionID: &svc.id, ExternalID: "7", Kind: model.AlbumKindReal,
 		Name: "Theirs", SyncEnabled: true, SharePassphrase: "pass7",
 	}
 	require.NoError(t, db.Create(&album).Error)
-	img := model.Image{ExternalID: "900", Source: model.SourceSynologyPhotos, Status: "pending"}
+	img := model.Image{ExternalID: "900", Source: model.SourceSynologyPhotos, ConnectionID: &svc.id, Status: "pending"}
 	require.NoError(t, db.Create(&img).Error)
 	require.NoError(t, db.Create(&model.ImageAlbumMembership{ImageID: img.ID, AlbumID: album.ID}).Error)
 
@@ -230,7 +229,8 @@ type recordingAlbumSource struct {
 	sawPassphrase string
 }
 
-func (f *recordingAlbumSource) Source() string { return model.SourceSynologyPhotos }
+func (f *recordingAlbumSource) Source() string     { return model.SourceSynologyPhotos }
+func (f *recordingAlbumSource) ConnectionID() uint { return 0 }
 func (f *recordingAlbumSource) ListRemoteAlbums() ([]RemoteAlbum, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -278,7 +278,7 @@ func TestSyncAlbumSourceClearsStaleLinkPassphraseOnOwnedAlbum(t *testing.T) {
 
 	svc, db := newSharedAlbumService(t, nas.URL)
 	album := model.Album{
-		Source: model.SourceSynologyPhotos, ExternalID: "3", Kind: model.AlbumKindReal,
+		Source: model.SourceSynologyPhotos, ConnectionID: &svc.id, ExternalID: "3", Kind: model.AlbumKindReal,
 		Name: "Mine", SyncEnabled: true, SharePassphrase: "link3",
 	}
 	require.NoError(t, db.Create(&album).Error)
@@ -333,7 +333,7 @@ func TestSetSyncAlbumsKeepsStoredPassphraseWhenBlank(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&album).Error)
 
-	require.NoError(t, SetSyncAlbums(db, model.SourceSynologyPhotos,
+	require.NoError(t, SetSyncAlbums(db, sourceScope{Source: model.SourceSynologyPhotos},
 		[]RemoteAlbum{{ExternalID: "7", Name: "Theirs"}}))
 
 	var stored model.Album

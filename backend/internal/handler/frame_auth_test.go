@@ -131,7 +131,7 @@ func TestPushDeviceConfigOfflineIsNotAuthRequired(t *testing.T) {
 
 func callDeviceHandler(t *testing.T, db *gorm.DB, id uint, method, body string, fn func(*DeviceHandler, echo.Context) error) *httptest.ResponseRecorder {
 	t.Helper()
-	h := NewDeviceHandler(service.NewDeviceService(service.DeviceServiceDeps{DB: db}), nil, nil, db)
+	h := NewDeviceHandler(service.NewDeviceService(service.DeviceServiceDeps{DB: db}), nil, db)
 	e := echo.New()
 	req := httptest.NewRequest(method, "/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

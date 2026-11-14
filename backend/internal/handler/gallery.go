@@ -24,26 +24,26 @@ import (
 )
 
 type GalleryHandler struct {
-	db       *gorm.DB
-	synology *service.SynologyService
-	immich   *service.ImmichService
-	dataDir  string
+	db      *gorm.DB
+	conns   *service.ConnectionManager
+	dataDir string
 }
 
-func NewGalleryHandler(db *gorm.DB, synology *service.SynologyService, immich *service.ImmichService, dataDir string) *GalleryHandler {
+func NewGalleryHandler(db *gorm.DB, conns *service.ConnectionManager, dataDir string) *GalleryHandler {
 	return &GalleryHandler{
-		db:       db,
-		synology: synology,
-		immich:   immich,
-		dataDir:  dataDir,
+		db:      db,
+		conns:   conns,
+		dataDir: dataDir,
 	}
 }
 
-// ListPhotos returns a paginated list of photos, optionally filtered by source
+// ListPhotos returns a paginated list of photos, optionally filtered by
+// source and by connection.
 func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 	limit := 50
 	offset := 0
 	source := c.QueryParam("source")
+	connectionID := c.QueryParam("connection_id")
 
 	if limitStr := c.QueryParam("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
@@ -60,6 +60,13 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 	query := h.db.Model(&model.Image{})
 	if source != "" {
 		query = query.Where("source = ?", source)
+	}
+	if connectionID != "" {
+		cid, err := strconv.Atoi(connectionID)
+		if err != nil {
+			return respondError(c, http.StatusBadRequest, "invalid connection_id")
+		}
+		query = query.Where("connection_id = ?", cid)
 	}
 	// Optional album filter (internal album row id) — group the gallery by album.
 	if albumStr := c.QueryParam("album"); albumStr != "" {
@@ -89,6 +96,7 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 		Height       int       `json:"height"`
 		Orientation  string    `json:"orientation"`
 		Source       string    `json:"source"`
+		ConnectionID *uint     `json:"connection_id"`
 	}
 
 	var photos []PhotoResponse
@@ -102,6 +110,7 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 			Height:       item.Height,
 			Orientation:  item.Orientation,
 			Source:       item.Source,
+			ConnectionID: item.ConnectionID,
 		})
 	}
 
@@ -224,7 +233,11 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		// Synology sizes: small, medium, large, original
 		// Synology rows carry the photo id in ExternalID.
 		synoID, _ := strconv.Atoi(item.ExternalID)
-		thumbBytes, err := h.synology.GetPhoto(synoID, item.ThumbnailKey, "small")
+		svc, err := h.conns.SynologyForImage(item)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		thumbBytes, err := svc.GetPhoto(synoID, item.ThumbnailKey, "small")
 		if err != nil {
 			fmt.Printf("Failed to fetch synology thumbnail (ID=%s): %v\n", item.ExternalID, err)
 			return respondError(c, http.StatusInternalServerError, "failed to fetch synology thumbnail")
@@ -237,7 +250,11 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 
 	// Case 1b: Immich (Proxy)
 	if item.Source == model.SourceImmich {
-		thumbBytes, err := h.immich.GetPhoto(item.ExternalID, "thumbnail")
+		svc, err := h.conns.ImmichForImage(item)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		thumbBytes, err := svc.GetPhoto(item.ExternalID, "thumbnail")
 		if err != nil {
 			fmt.Printf("Failed to fetch immich thumbnail (asset=%s): %v\n", item.ExternalID, err)
 			return respondError(c, http.StatusInternalServerError, "failed to fetch immich thumbnail")
@@ -392,39 +409,49 @@ func (h *GalleryHandler) DeletePhoto(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// DeletePhotos deletes all photos matching a source filter (or all if no filter)
-// e.g. DELETE /api/gallery/photos?source=google
+// DeletePhotos deletes all photos matching a source and/or connection filter
+// (or all if no filter), e.g. DELETE /api/gallery/photos?source=google or
+// ?connection_id=3.
 func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 	source := c.QueryParam("source")
-
-	var items []model.Image
-	query := h.db.Model(&model.Image{}).Select("id", "source", "file_path")
-	if source != "" {
-		query = query.Where("source = ?", source)
+	var connectionID int
+	if cid := c.QueryParam("connection_id"); cid != "" {
+		id, err := strconv.Atoi(cid)
+		if err != nil || id <= 0 {
+			return respondError(c, http.StatusBadRequest, "invalid connection_id")
+		}
+		connectionID = id
+	}
+	filter := func(q *gorm.DB) *gorm.DB {
+		if source != "" {
+			q = q.Where("source = ?", source)
+		}
+		if connectionID != 0 {
+			q = q.Where("connection_id = ?", connectionID)
+		}
+		return q
 	}
 
-	if err := query.Find(&items).Error; err != nil {
+	var items []model.Image
+	if err := filter(h.db.Model(&model.Image{}).Select("id", "source", "file_path")).
+		Find(&items).Error; err != nil {
 		return respondError(c, http.StatusInternalServerError, "failed to find photos")
 	}
 
 	// Delete DB rows first; clean up files only after the DB delete succeeds
 	// so a mid-operation failure leaves recoverable orphan files rather than
 	// orphan rows pointing at missing files.
-	delQuery := h.db
-	if source != "" {
-		delQuery = delQuery.Where("source = ?", source)
-	}
-	if err := delQuery.Unscoped().Delete(&model.Image{}).Error; err != nil {
+	if err := filter(h.db.Unscoped().Model(&model.Image{})).Delete(&model.Image{}).Error; err != nil {
 		fmt.Printf("DeletePhotos failed: %v\n", err)
 		return respondError(c, http.StatusInternalServerError, "failed to delete from db")
 	}
 
 	// Album memberships drop via ON DELETE CASCADE (Unscoped hard delete above).
 
-	// Disable sync for this source's albums so an auto-sync doesn't immediately
+	// Disable sync for the affected albums so an auto-sync doesn't immediately
 	// re-import what was just deleted (no-op for sources without albums).
-	if source != "" {
-		h.db.Model(&model.Album{}).Where("source = ?", source).Update("sync_enabled", false)
+	if source != "" || connectionID != 0 {
+		filter(h.db.Model(&model.Album{})).Update("sync_enabled", false)
 	}
 
 	for _, item := range items {

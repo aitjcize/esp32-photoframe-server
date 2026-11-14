@@ -153,6 +153,12 @@ func newTopicSource(db *gorm.DB, settings *SettingsService, source, apiKeyName s
 // Source implements AlbumSource.
 func (t *topicSource) Source() string { return t.source }
 
+// ConnectionID implements AlbumSource: topic sources have no connections.
+func (t *topicSource) ConnectionID() uint { return 0 }
+
+// scope is the topic source's album/image pool.
+func (t *topicSource) scope() sourceScope { return sourceScope{Source: t.source} }
+
 // ListRemoteAlbums implements AlbumSource. Topics are named locally (the topic
 // text is the album name), so there is nothing remote to list.
 func (t *topicSource) ListRemoteAlbums() ([]RemoteAlbum, error) { return nil, nil }
@@ -235,7 +241,7 @@ func (t *topicSource) SetSyncTopics(topics []string) error {
 		return err
 	}
 	// Drop images orphaned by the deleted topic albums.
-	gcOrphanImagesForSource(t.db, t.source)
+	gcOrphanImagesForSource(t.db, t.scope())
 	return nil
 }
 
@@ -258,12 +264,12 @@ func (t *topicSource) TestConnection() error {
 
 // GetPhotoCount returns the number of locally-stored photos for the source.
 func (t *topicSource) GetPhotoCount() (int64, error) {
-	return sourcePhotoCount(t.db, t.source)
+	return sourcePhotoCount(t.db, t.scope())
 }
 
 // ClearPhotos deletes all of the source's photos from the database.
 func (t *topicSource) ClearPhotos() error {
-	return clearSourcePhotos(t.db, t.source)
+	return clearSourcePhotos(t.db, t.scope())
 }
 
 // ClearAndResync runs an incremental resync in the background, returning

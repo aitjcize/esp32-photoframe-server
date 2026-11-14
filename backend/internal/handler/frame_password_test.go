@@ -51,7 +51,7 @@ func frameAt(t *testing.T, srv *httptest.Server, stored string) (*gorm.DB, uint)
 
 func changeFramePassword(t *testing.T, db *gorm.DB, id uint, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	h := NewDeviceHandler(service.NewDeviceService(service.DeviceServiceDeps{DB: db}), nil, nil, db)
+	h := NewDeviceHandler(service.NewDeviceService(service.DeviceServiceDeps{DB: db}), nil, db)
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

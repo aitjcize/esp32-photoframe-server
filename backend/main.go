@@ -162,12 +162,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize renderer: %v", err)
 	}
-	// Initialize Synology Photos Service
-	synologyService := service.NewSynologyService(database, settingsService)
-	synologyService.StartAutoSync()
-	// Initialize Immich Service
-	immichService := service.NewImmichService(database, settingsService)
-	immichService.StartAutoSync()
+	// Connection-backed sources (Immich servers, Synology accounts): one
+	// service per configured connection, built from the connections table.
+	connections := service.NewConnectionManager(database)
+	connections.Start()
 	// Initialize search-topic sources (each user topic becomes a synced album).
 	unsplashService := service.NewUnsplashService(database, settingsService)
 	unsplashService.StartAutoSync()
@@ -184,9 +182,9 @@ func main() {
 	// two stay easy to scan against each other.
 	sourceRegistry := imagesource.NewRegistry()
 	sourceRegistry.Register(service.NewGallerySource(database, dataDir))
-	sourceRegistry.Register(service.NewImmichSource(database, immichService))
+	sourceRegistry.Register(service.NewImmichSource(database, connections))
 	sourceRegistry.Register(service.NewGooglePhotosSource(database, dataDir))
-	sourceRegistry.Register(service.NewSynologyPhotosSource(database, synologyService))
+	sourceRegistry.Register(service.NewSynologyPhotosSource(database, connections))
 	sourceRegistry.Register(service.NewTopicSourcePlugin(database, model.SourceUnsplash))
 	sourceRegistry.Register(service.NewTopicSourcePlugin(database, model.SourcePexels))
 	sourceRegistry.Register(service.NewURLProxySource(database))
@@ -215,7 +213,7 @@ func main() {
 		Calendar:       calendarClient,
 		CalendarGoogle: googleCalendarClient,
 	})
-	deviceHandler := handler.NewDeviceHandler(deviceService, synologyService, immichService, database)
+	deviceHandler := handler.NewDeviceHandler(deviceService, connections, database)
 
 	// Initialize Telegram Service
 	// Pass deviceService as Pusher
@@ -232,17 +230,14 @@ func main() {
 	// Initialize Handlers
 	h := handler.NewHandler(settingsService, telegramService, googleClient, googleCalendarClient)
 	googleHandler := handler.NewGoogleHandler(googleClient, googleCalendarClient, pickerService, database, dataDir)
-	sh := handler.NewSynologyHandler(synologyService)
-	imh := handler.NewImmichHandler(immichService)
+	connh := handler.NewConnectionsHandler(connections)
 	// Generic photo-sync endpoints (sync / sync-status / clear / count) shared
-	// across sources.
-	synologySync := handler.NewPhotoSyncHandler(synologyService)
-	immichSync := handler.NewPhotoSyncHandler(immichService)
+	// across the settings-backed sources.
 	unsplashSync := handler.NewPhotoSyncHandler(unsplashService)
 	unsplashTopics := handler.NewTopicSourceHandler(unsplashService)
 	pexelsSync := handler.NewPhotoSyncHandler(pexelsService)
 	pexelsTopics := handler.NewTopicSourceHandler(pexelsService)
-	gh := handler.NewGalleryHandler(database, synologyService, immichService, dataDir)
+	gh := handler.NewGalleryHandler(database, connections, dataDir)
 	ih := handler.NewImageHandler(handler.ImageHandlerDeps{
 		Settings:       settingsService,
 		Renderer:       rendererService,
@@ -357,24 +352,22 @@ func main() {
 	protectedApi.GET("/google/picker/progress/:id", googleHandler.PollPickerProgress)
 	protectedApi.POST("/google/picker/process/:id", googleHandler.ProcessPickerSession)
 
-	// Synology (Protected)
-	protectedApi.POST("/synology/test", sh.TestConnection)
-	protectedApi.POST("/synology/sync", synologySync.Sync)
-	protectedApi.GET("/synology/sync-status", synologySync.SyncStatus)
-	protectedApi.POST("/synology/clear", synologySync.Clear)
-	protectedApi.GET("/synology/albums", sh.ListAlbums)
-	protectedApi.POST("/synology/sync-albums", sh.SetSyncAlbums)
-	protectedApi.GET("/synology/count", synologySync.Count)
-	protectedApi.POST("/synology/logout", sh.Logout)
-
-	// Immich (Protected)
-	protectedApi.POST("/immich/test", imh.TestConnection)
-	protectedApi.POST("/immich/sync", immichSync.Sync)
-	protectedApi.GET("/immich/sync-status", immichSync.SyncStatus)
-	protectedApi.POST("/immich/clear", immichSync.Clear)
-	protectedApi.GET("/immich/albums", imh.ListAlbums)
-	protectedApi.POST("/immich/sync-albums", imh.SetSyncAlbums)
-	protectedApi.GET("/immich/count", immichSync.Count)
+	// Connections (Protected): Immich servers and Synology accounts. One
+	// generic set of routes keyed by connection id replaces the per-type
+	// /synology/* and /immich/* families.
+	protectedApi.GET("/connections", connh.List)
+	protectedApi.POST("/connections", connh.Create)
+	protectedApi.GET("/connections/:id", connh.Get)
+	protectedApi.PUT("/connections/:id", connh.Update)
+	protectedApi.DELETE("/connections/:id", connh.Delete)
+	protectedApi.POST("/connections/:id/test", connh.Test)
+	protectedApi.GET("/connections/:id/remote-albums", connh.RemoteAlbums)
+	protectedApi.POST("/connections/:id/sync-albums", connh.SetSyncAlbums)
+	protectedApi.POST("/connections/:id/sync", connh.Sync)
+	protectedApi.GET("/connections/:id/sync-status", connh.SyncStatus)
+	protectedApi.POST("/connections/:id/clear", connh.Clear)
+	protectedApi.GET("/connections/:id/count", connh.Count)
+	protectedApi.POST("/connections/:id/logout", connh.Logout)
 
 	// Search-topic sources (Unsplash / Pexels). Topics are listed via
 	// the generic GET /albums?source=<src>; sync/count/clear reuse PhotoSyncHandler.

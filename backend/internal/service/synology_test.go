@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 )
 
 // newFakeSynology returns a test server whose auth.cgi responds per succeed,
@@ -33,15 +35,22 @@ func newFakeSynology(succeed bool) (*httptest.Server, *int32) {
 
 func newTestSynologyService(t *testing.T, serverURL string) *SynologyService {
 	t.Helper()
-	db := setupTestDB()
-	settings := NewSettingsService(db)
-	require.NoError(t, settings.Set("synology_url", serverURL))
-	require.NoError(t, settings.Set("synology_account", "user"))
-	require.NoError(t, settings.Set("synology_password", "pass"))
-	// Clear state a previous test may have left in the shared in-memory DB.
-	require.NoError(t, settings.Set("synology_sid", ""))
-	require.NoError(t, settings.Set("synology_did", ""))
-	return NewSynologyService(db, settings)
+	db := setupGateDB(t)
+	c := mkConnection(t, db, model.SourceSynologyPhotos, "NAS", model.SynologyConfig{
+		URL: serverURL, Account: "user", Password: "pass",
+	})
+	return NewSynologyService(db, NewConnectionStore(db), c.ID)
+}
+
+// setSynologyURL rewrites the service's connection URL, as the Settings UI does.
+func setSynologyURL(t *testing.T, svc *SynologyService, url string) {
+	t.Helper()
+	c, err := svc.conns.Get(svc.id)
+	require.NoError(t, err)
+	cfg := c.SynologyConfig()
+	cfg.URL = url
+	require.NoError(t, c.EncodeConfig(cfg))
+	require.NoError(t, svc.conns.Update(&c))
 }
 
 // A failed login must start a cooldown during which background callers
@@ -54,19 +63,19 @@ func TestSynologyLoginCooldown(t *testing.T) {
 	svc := newTestSynologyService(t, ts.URL)
 
 	// First background attempt reaches the server and fails.
-	err := svc.ensureClient("", false)
+	err := mustLogin(svc, "", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "login failed")
 	assert.EqualValues(t, 1, atomic.LoadInt32(authCalls))
 
 	// During the cooldown, background attempts fail fast with no network call.
-	err = svc.ensureClient("", false)
+	err = mustLogin(svc, "", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recently failed")
 	assert.EqualValues(t, 1, atomic.LoadInt32(authCalls))
 
 	// An explicit user action (Connect / Test) bypasses the cooldown.
-	err = svc.ensureClient("", true)
+	err = mustLogin(svc, "", true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "login failed")
 	assert.EqualValues(t, 2, atomic.LoadInt32(authCalls))
@@ -80,23 +89,23 @@ func TestSynologyReloginSharedAcrossRequests(t *testing.T) {
 	defer ts.Close()
 	svc := newTestSynologyService(t, ts.URL)
 
-	require.NoError(t, svc.ensureClient("", false))
+	require.NoError(t, mustLogin(svc, "", false))
 	assert.EqualValues(t, 1, atomic.LoadInt32(authCalls))
 
 	// Simulate N requests observing the session before it expired.
 	gen := svc.loginGeneration()
 
 	// The first one to hit auth-expired re-logs in.
-	require.NoError(t, svc.relogin(gen))
+	require.NoError(t, mustRelogin(svc, gen))
 	assert.EqualValues(t, 2, atomic.LoadInt32(authCalls))
 
 	// The rest see the newer session and skip the login entirely.
-	require.NoError(t, svc.relogin(gen))
-	require.NoError(t, svc.relogin(gen))
+	require.NoError(t, mustRelogin(svc, gen))
+	require.NoError(t, mustRelogin(svc, gen))
 	assert.EqualValues(t, 2, atomic.LoadInt32(authCalls))
 
 	// A request that observed the refreshed session re-logs in for real.
-	require.NoError(t, svc.relogin(svc.loginGeneration()))
+	require.NoError(t, mustRelogin(svc, svc.loginGeneration()))
 	assert.EqualValues(t, 3, atomic.LoadInt32(authCalls))
 }
 
@@ -108,13 +117,25 @@ func TestSynologyLoginSuccessClearsCooldown(t *testing.T) {
 	defer tsOK.Close()
 
 	svc := newTestSynologyService(t, tsFail.URL)
-	require.Error(t, svc.ensureClient("", false)) // starts cooldown
+	require.Error(t, mustLogin(svc, "", false)) // starts cooldown
 
 	// User fixes the URL and explicitly connects.
-	require.NoError(t, svc.settings.Set("synology_url", tsOK.URL))
-	require.NoError(t, svc.ensureClient("", true))
+	setSynologyURL(t, svc, tsOK.URL)
+	require.NoError(t, mustLogin(svc, "", true))
 	assert.EqualValues(t, 1, atomic.LoadInt32(okCalls))
 
 	// Background calls work again immediately (SID cached, no cooldown error).
-	require.NoError(t, svc.ensureClient("", false))
+	require.NoError(t, mustLogin(svc, "", false))
+}
+
+// mustLogin is ensureClient for tests that only care whether the login worked.
+func mustLogin(svc *SynologyService, otp string, force bool) error {
+	_, err := svc.ensureClient(otp, force)
+	return err
+}
+
+// mustRelogin is relogin for tests that only care whether it worked.
+func mustRelogin(svc *SynologyService, gen uint64) error {
+	_, err := svc.relogin(gen)
+	return err
 }
