@@ -56,6 +56,11 @@
 - **The Google OAuth client moved to Settings → System → Google.** It serves
   every Google Photos and Google Calendar account and is no longer mixed in
   with the photo sources.
+- **An explicit "All" row in the per-frame album pickers.** The device
+  dialog used to say "leave all unchecked to use every photo"; the album and
+  topic lists for Gallery, Immich, Synology, Unsplash and Pexels now start
+  with an **All … photos** row that is ticked while no album is picked, and
+  the Gallery list is shown even before any album exists.
 - **Provider credentials no longer leave the server.** The Immich API key,
   the Synology password and the Unsplash and Pexels keys used to be returned
   by `GET /api/settings` in plain text to the dashboard. They now live in the
