@@ -1383,16 +1383,16 @@
                               class="mb-2 ml-8"
                             >
                               <div class="text-caption text-grey mb-1">
-                                Albums for this frame — leave all unchecked to
-                                use every gallery photo.
+                                Albums for this frame:
                               </div>
                               <AlbumPicker
                                 v-model="deviceGalleryAlbumIds"
+                                all-label="All gallery photos"
                                 :albums="deviceGalleryAlbumOptions"
                                 label-field="name"
                                 :max-height="220"
                                 :disabled="!deviceConfig.auto_rotate"
-                                empty-text="No gallery albums yet — every gallery photo is used. Create albums under Settings → Gallery → Albums."
+                                empty-text="No gallery albums yet. Create them under Settings → Gallery → Albums."
                               ></AlbumPicker>
                             </div>
 
@@ -1405,11 +1405,11 @@
                               class="mb-2 ml-8"
                             >
                               <div class="text-caption text-grey mb-1">
-                                Albums for this frame — leave all unchecked to
-                                use every synced Immich photo.
+                                Albums for this frame:
                               </div>
                               <AlbumPicker
                                 v-model="deviceImmichAlbumIds"
+                                all-label="All synced Immich photos"
                                 :albums="deviceImmichAlbumOptions"
                                 label-field="name"
                                 :max-height="220"
@@ -1427,11 +1427,11 @@
                               class="mb-2 ml-8"
                             >
                               <div class="text-caption text-grey mb-1">
-                                Albums for this frame — leave all unchecked to
-                                use every synced Synology photo.
+                                Albums for this frame:
                               </div>
                               <AlbumPicker
                                 v-model="deviceSynologyAlbumIds"
+                                all-label="All synced Synology photos"
                                 :albums="deviceSynologyAlbumOptions"
                                 label-field="name"
                                 :max-height="220"
@@ -1447,11 +1447,11 @@
                               class="mb-2 ml-8"
                             >
                               <div class="text-caption text-grey mb-1">
-                                Topics for this frame — leave all unchecked to
-                                use every synced Unsplash photo.
+                                Topics for this frame:
                               </div>
                               <AlbumPicker
                                 v-model="deviceUnsplashAlbumIds"
+                                all-label="All synced Unsplash photos"
                                 :albums="deviceUnsplashAlbumOptions"
                                 label-field="name"
                                 :max-height="220"
@@ -1467,11 +1467,11 @@
                               class="mb-2 ml-8"
                             >
                               <div class="text-caption text-grey mb-1">
-                                Topics for this frame — leave all unchecked to
-                                use every synced Pexels photo.
+                                Topics for this frame:
                               </div>
                               <AlbumPicker
                                 v-model="devicePexelsAlbumIds"
+                                all-label="All synced Pexels photos"
                                 :albums="devicePexelsAlbumOptions"
                                 label-field="name"
                                 :max-height="220"

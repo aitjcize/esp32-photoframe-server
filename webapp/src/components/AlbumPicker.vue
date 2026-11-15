@@ -18,6 +18,22 @@
     >
       <slot name="prepend"></slot>
       <v-divider v-if="hasPrepend && albums.length"></v-divider>
+      <!-- Explicit "All": checked while nothing is picked; picking an album
+           turns it off, ticking it again clears the selection. -->
+      <template v-if="allLabel">
+        <v-list-item>
+          <v-checkbox
+            :model-value="!modelValue.length"
+            :label="allLabel"
+            :disabled="disabled"
+            color="primary"
+            density="compact"
+            hide-details
+            @update:model-value="selectAll($event)"
+          ></v-checkbox>
+        </v-list-item>
+        <v-divider v-if="albums.length"></v-divider>
+      </template>
       <v-list-item v-for="album in filtered" :key="album.id">
         <div class="d-flex align-center ga-2">
           <v-checkbox
@@ -67,6 +83,9 @@ const props = withDefaults(
     // account, which can otherwise be indistinguishable by name.
     badgeField?: string;
     badgeText?: string;
+    // Label for a pinned "All" row meaning "no restriction" (an empty
+    // selection). Omit it for pickers where an empty selection means none.
+    allLabel?: string;
   }>(),
   {
     stringify: false,
@@ -75,6 +94,7 @@ const props = withDefaults(
     maxHeight: 320,
     badgeField: '',
     badgeText: '',
+    allLabel: '',
   }
 );
 const emit = defineEmits<{ 'update:modelValue': [(string | number)[]] }>();
@@ -94,6 +114,11 @@ const filtered = computed(() =>
       )
     )
 );
+
+// "All" cannot be unticked directly: pick an album to narrow the selection.
+function selectAll(checked: boolean | null) {
+  if (checked) emit('update:modelValue', []);
+}
 
 function toggle(album: any, checked: boolean | null) {
   const v = valueOf(album);
