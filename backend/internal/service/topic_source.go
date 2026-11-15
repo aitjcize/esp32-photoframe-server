@@ -374,7 +374,7 @@ func (t *TopicSource) getAutoSyncConfig() (bool, time.Duration) {
 // NewTopicSourcePlugin constructs the shared registry plugin for a topic
 // source. Both topic sources store the image URL in FilePath, so one plugin
 // implementation serves every source — it just picks a random DB photo for
-// the source's albums (across all of its connections) and fetches the bytes
+// the source's albums (of the frame's connection, or all of them) and fetches the bytes
 // over HTTP.
 func NewTopicSourcePlugin(db *gorm.DB, source string) imagesource.Source {
 	return &topicSourcePlugin{db: db, source: source}
@@ -388,12 +388,8 @@ type topicSourcePlugin struct {
 func (p *topicSourcePlugin) Name() string { return p.source }
 
 func (p *topicSourcePlugin) Fetch(req *imagesource.Request) (*imagesource.Response, error) {
-	var albumIDs []uint
-	if req.Device != nil {
-		albumIDs = DeviceAlbumIDs(p.db, req.Device.ID, p.source)
-	}
 	pick := func(orientation string, exclude []uint) (model.Image, error) {
-		return PickRandomDBPhotoForAlbums(p.db, p.source, orientation, albumIDs, exclude)
+		return PickRandomDBPhotoForDevice(p.db, p.source, req.Device, orientation, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
 		resp, err := http.Get(item.FilePath)

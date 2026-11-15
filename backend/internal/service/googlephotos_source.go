@@ -26,7 +26,7 @@ func (s *googlePhotosSource) Name() string { return model.SourceGooglePhotos }
 
 func (s *googlePhotosSource) Fetch(req *imagesource.Request) (*imagesource.Response, error) {
 	pick := func(orientation string, exclude []uint) (model.Image, error) {
-		return PickRandomDBPhoto(s.db, model.SourceGooglePhotos, orientation, exclude)
+		return PickRandomDBPhotoForDevice(s.db, model.SourceGooglePhotos, req.Device, orientation, exclude)
 	}
 	load := func(item model.Image) (image.Image, error) {
 		return LoadLocalPhoto(s.dataDir, item)

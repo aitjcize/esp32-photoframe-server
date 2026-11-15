@@ -88,9 +88,14 @@ type Device struct {
 	FirmwareVersion string `json:"firmware_version" gorm:"default:''"`
 	// Per-device image source (e.g. "immich"), resolved by the unified /image
 	// endpoint. Empty means the device hasn't picked a server-side source.
-	Source       string `json:"source"`
-	ShowCalendar bool   `json:"show_calendar"`
-	CalendarID   string `json:"calendar_id"` // Google Calendar ID (per-device)
+	Source string `json:"source"`
+	// ImageConnectionID narrows a connection-backed Source to one connection
+	// (one Immich server, one Synology account...). Nil draws from every
+	// connection of the source, which is what every frame did before a
+	// source could have several.
+	ImageConnectionID *uint  `json:"image_connection_id"`
+	ShowCalendar      bool   `json:"show_calendar"`
+	CalendarID        string `json:"calendar_id"` // Google Calendar ID (per-device)
 	// CalendarConnectionID is the google_calendar connection (the Google
 	// account) CalendarID belongs to. Nil falls back to the first connected
 	// account, which is what every frame had before accounts were plural.

@@ -359,6 +359,9 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		CalendarConnectionID *uint  `json:"calendar_connection_id"`
 		DateFormat           string `json:"date_format"`
 		Source               string `json:"source"`
+		// The connection of Source the frame draws from (nil or 0: every
+		// connection of that source). Ignored for built-in sources.
+		ImageConnectionID *uint `json:"image_connection_id"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return respondError(c, http.StatusBadRequest, "invalid request")
@@ -366,6 +369,10 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 
 	if req.Layout == "" {
 		req.Layout = model.LayoutPhotoOverlay
+	}
+	imageConn, err := service.ImageConnectionFor(h.db, req.Source, req.ImageConnectionID)
+	if err != nil {
+		return respondError(c, http.StatusBadRequest, "image_connection_id: "+err.Error())
 	}
 
 	device, err := h.deviceService.UpdateDevice(uint(id), req.Name, req.Host, req.Orientation, req.EnableCollage, req.ShowDate, req.ShowPhotoDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.AIProvider, req.AIModel, req.AIPrompt, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
@@ -381,12 +388,14 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 	}
 	if err := h.db.Model(device).Updates(map[string]interface{}{
 		"source":                 req.Source,
+		"image_connection_id":    imageConn,
 		"background_color":       req.BackgroundColor,
 		"calendar_connection_id": calendarConn,
 	}).Error; err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	device.Source = req.Source
+	device.ImageConnectionID = imageConn
 	device.BackgroundColor = req.BackgroundColor
 	device.CalendarConnectionID = calendarConn
 	return c.JSON(http.StatusOK, device)

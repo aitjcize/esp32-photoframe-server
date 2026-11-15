@@ -572,13 +572,76 @@ func TestCalendarConnectionMigrationOnFreshInstall(t *testing.T) {
 	}
 }
 
+// 000045 binds a frame to its source's only connection and leaves a frame
+// whose source has several unbound (it keeps drawing from all of them);
+// frames on built-in sources are untouched, and a deleted connection unbinds
+// its frames.
+func TestImageConnectionMigration(t *testing.T) {
+	gdb, m := migratedTo(t, 44)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if err := gdb.Exec(q, args...).Error; err != nil {
+			t.Fatalf("exec %q: %v", q, err)
+		}
+	}
+	num := func(q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := gdb.Raw(q, args...).Scan(&n).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return n
+	}
+
+	exec("INSERT INTO connections(id, source, name, enabled) VALUES (1, 'immich', 'Home', 1)")
+	exec("INSERT INTO connections(id, source, name, enabled) VALUES (2, 'immich', 'Parents', 1)")
+	exec("INSERT INTO connections(id, source, name, enabled) VALUES (3, 'synology_photos', 'NAS', 1)")
+	exec("INSERT INTO devices(id, name, host, source) VALUES (1, 'kitchen', '10.0.0.1', 'immich')")
+	exec("INSERT INTO devices(id, name, host, source) VALUES (2, 'study', '10.0.0.2', 'synology_photos')")
+	exec("INSERT INTO devices(id, name, host, source) VALUES (3, 'hall', '10.0.0.3', 'gallery')")
+	exec("INSERT INTO devices(id, name, host, source) VALUES (4, 'new', '10.0.0.4', '')")
+
+	if err := m.Migrate(45); err != nil {
+		t.Fatalf("migrate to 45: %v", err)
+	}
+	for q, want := range map[string]int{
+		"SELECT COUNT(*) FROM devices WHERE id = 1 AND image_connection_id IS NULL": 1, // two Immich servers: any
+		"SELECT COUNT(*) FROM devices WHERE id = 2 AND image_connection_id = 3":     1, // the only NAS
+		"SELECT COUNT(*) FROM devices WHERE id = 3 AND image_connection_id IS NULL": 1,
+		"SELECT COUNT(*) FROM devices WHERE id = 4 AND image_connection_id IS NULL": 1,
+	} {
+		if got := num(q); got != want {
+			t.Errorf("%s = %d, want %d", q, got, want)
+		}
+	}
+
+	exec("UPDATE devices SET image_connection_id = 2 WHERE id = 1")
+	exec("DELETE FROM connections WHERE id = 2")
+	if got := num("SELECT COUNT(*) FROM devices WHERE id = 1 AND image_connection_id IS NULL"); got != 1 {
+		t.Errorf("deleting a connection must unbind its frames, not remove them")
+	}
+	if got := num("SELECT COUNT(*) FROM devices"); got != 4 {
+		t.Errorf("devices: %d", got)
+	}
+
+	if err := m.Migrate(44); err != nil {
+		t.Fatalf("migrate down to 44: %v", err)
+	}
+	if got := num("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = 'image_connection_id'"); got != 0 {
+		t.Errorf("down: column must be gone")
+	}
+	if got := num("SELECT COUNT(*) FROM devices WHERE id = 2 AND source = 'synology_photos'"); got != 1 {
+		t.Errorf("down: the frame's source must survive")
+	}
+}
+
 // A rollback must leave a schema the application can still write to, and a
 // later upgrade must apply again: 000041's down rebuilds albums and images
 // without their connection_id (a dangling REFERENCES would fail every insert
 // once connections is gone), keeping memberships, frame bindings and the
-// serving history; 000044's down does the same for devices.
+// serving history; 000044's and 000045's downs do the same for devices.
 func TestConnectionRollbacksKeepTheSchemaUsable(t *testing.T) {
-	gdb, m := migratedTo(t, 44)
+	gdb, m := migratedTo(t, 45)
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if err := gdb.Exec(q, args...).Error; err != nil {
@@ -596,7 +659,7 @@ func TestConnectionRollbacksKeepTheSchemaUsable(t *testing.T) {
 
 	exec("INSERT INTO connections(id, source, name, enabled) VALUES (1, 'immich', 'Immich', 1)")
 	exec("INSERT INTO connections(id, source, name, enabled, state) VALUES (2, 'google_calendar', 'Cal', 1, '{\"refresh_token\":\"r\"}')")
-	exec("INSERT INTO devices(id, name, host, show_calendar, calendar_connection_id) VALUES (1, 'kitchen', '10.0.0.1', 1, 2)")
+	exec("INSERT INTO devices(id, name, host, source, image_connection_id, show_calendar, calendar_connection_id) VALUES (1, 'kitchen', '10.0.0.1', 'immich', 1, 1, 2)")
 	exec("INSERT INTO albums(id, source, external_id, name, sync_enabled, connection_id) VALUES (1, 'immich', 'a', 'Trips', 1, 1)")
 	exec("INSERT INTO albums(id, source, external_id, name, sync_enabled) VALUES (2, 'gallery', 'gallery-x', 'Family', 1)")
 	exec("INSERT INTO images(id, source, external_id, file_path, connection_id) VALUES (1, 'immich', 'i1', '', 1)")
@@ -616,6 +679,22 @@ func TestConnectionRollbacksKeepTheSchemaUsable(t *testing.T) {
 	exec("INSERT INTO url_sources(id, url) VALUES (1, 'http://x/y.jpg')")
 	exec("INSERT INTO device_url_mappings(device_id, url_source_id) VALUES (1, 1)")
 	exec("INSERT INTO generative_states(device_id, source, state) VALUES (1, 'fractal', x'00')")
+
+	// Down past the image connection column: the calendar binding and the
+	// children of devices survive the rebuild.
+	if err := m.Migrate(44); err != nil {
+		t.Fatalf("migrate down to 44: %v", err)
+	}
+	for q, want := range map[string]int{
+		"SELECT COUNT(*) FROM devices WHERE id = 1 AND calendar_connection_id = 2":             1,
+		"SELECT COUNT(*) FROM api_keys WHERE id = 1 AND device_id = 1":                         1,
+		"SELECT COUNT(*) FROM device_album_mappings WHERE device_id = 1":                       2,
+		"SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = 'image_connection_id'": 0,
+	} {
+		if got := num(q); got != want {
+			t.Errorf("after down to 44: %s = %d, want %d", q, got, want)
+		}
+	}
 
 	// Down past the calendar column: devices and all its children survive.
 	if err := m.Migrate(43); err != nil {
@@ -678,11 +757,14 @@ func TestConnectionRollbacksKeepTheSchemaUsable(t *testing.T) {
 	}
 
 	// And back up to the top.
-	if err := m.Migrate(44); err != nil {
-		t.Fatalf("migrate back up to 44: %v", err)
+	if err := m.Migrate(45); err != nil {
+		t.Fatalf("migrate back up to 45: %v", err)
 	}
 	if got := num("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = 'calendar_connection_id'"); got != 1 {
 		t.Errorf("calendar column must be back")
+	}
+	if got := num("SELECT COUNT(*) FROM devices WHERE id = 1 AND image_connection_id = 1"); got != 1 {
+		t.Errorf("the frame on the only Immich connection is bound to it again")
 	}
 	if got := num("SELECT COUNT(*) FROM connections WHERE source = 'immich'"); got != 1 {
 		t.Errorf("the immich albums bring a connection back, got %d", got)
