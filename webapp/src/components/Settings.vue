@@ -189,52 +189,20 @@
                 >Save Credentials</v-btn
               >
 
-              <!-- Photos Section -->
+              <!-- Photos: one card per connected Google account -->
               <v-divider class="my-6"></v-divider>
               <h3 class="text-subtitle-1 font-weight-bold mb-3">Photos</h3>
-
-              <div v-if="form.google_connected === 'true'">
-                <v-alert
-                  type="success"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                  icon="mdi-check-circle"
-                >
-                  Connected to Google Photos
-                </v-alert>
-
-                <div class="d-flex flex-wrap ga-2 mt-4">
-                  <v-btn
-                    color="warning"
-                    :loading="deletingAllPhotos"
-                    @click="deleteAllPhotosForSource('google_photos')"
-                    >Clear All Photos</v-btn
-                  >
-                  <v-btn color="error" variant="text" @click="logoutGoogle">
-                    Disconnect Google Photos
-                  </v-btn>
-                </div>
-              </div>
-
-              <div v-else>
-                <v-btn
-                  v-if="form.google_client_id && form.google_client_secret"
-                  color="primary"
-                  @click="connectGoogle"
-                >
-                  Authorize Google Photos
-                </v-btn>
-                <v-alert
-                  v-else
-                  type="warning"
-                  variant="tonal"
-                  density="compact"
-                >
-                  Enter Google API credentials above first.
-                </v-alert>
-              </div>
-
+            </v-card-text>
+            <ConnectionList
+              ref="googleList"
+              source="google_photos"
+              :confirm="confirmPrompt"
+              :show-message="showMessage"
+              :before-connect="saveSettingsInternal"
+              :focus-id="focusConnectionId"
+              @synced="onConnectionSynced"
+            ></ConnectionList>
+            <v-card-text>
               <!-- Calendar Section -->
               <v-divider class="my-6"></v-divider>
               <h3 class="text-subtitle-1 font-weight-bold mb-3">Calendar</h3>
@@ -2418,6 +2386,10 @@ const topicStores: Record<string, any> = {
 // when the user leaves the tab.
 const immichList = ref<any>(null);
 const synologyList = ref<any>(null);
+const googleList = ref<any>(null);
+// The Google connection the OAuth callback just connected (?connection=),
+// so its card is scrolled into view.
+const focusConnectionId = ref<number | undefined>(undefined);
 // Topic sources (Unsplash/Pexels): topics auto-save on add/remove but do not
 // import until the user syncs or is prompted on leaving the source.
 const topicSyncDirty = reactive<Record<string, boolean>>({
@@ -4015,7 +3987,6 @@ const form = reactive({
   show_weather: true,
   weather_lat: '',
   weather_lon: '',
-  google_connected: 'false',
   google_calendar_connected: 'false',
   google_client_id: '',
   google_client_secret: '',
@@ -4130,9 +4101,7 @@ const autoSyncIntervalOptions = [
 // Delete all photos for a given image source. Also disables that source's
 // album sync on the backend, so refresh the sync-selection UI afterwards.
 const deletingAllPhotos = ref(false);
-const deleteAllPhotosForSource = async (
-  source: 'google_photos' | 'gallery'
-) => {
+const deleteAllPhotosForSource = async (source: 'gallery') => {
   if (
     !(await confirmDialog.value.open(
       'Delete all photos for this source? This also turns off its album sync.'
@@ -4170,7 +4139,6 @@ onMounted(async () => {
     show_weather: store.settings.show_weather !== 'false',
     google_client_id: store.settings.google_client_id || '',
     google_client_secret: store.settings.google_client_secret || '',
-    google_connected: store.settings.google_connected || 'false',
     google_calendar_connected:
       store.settings.google_calendar_connected || 'false',
     telegram_bot_token: store.settings.telegram_bot_token || '',
@@ -4242,6 +4210,7 @@ onMounted(async () => {
   const params = new URLSearchParams(window.location.search);
   const tab = params.get('tab');
   const source = params.get('source');
+  const connection = Number(params.get('connection'));
 
   if (tab && tab !== 'datasources') {
     activeMainTab.value = tab;
@@ -4249,9 +4218,15 @@ onMounted(async () => {
   if (source) {
     sourceTab.value = source === 'google' ? 'google_photos' : source;
   }
+  if (connection > 0) {
+    focusConnectionId.value = connection;
+    // Fresh from the OAuth callback: the connection list must not show the
+    // state it cached before the redirect.
+    await connectionsStore.fetch();
+  }
 
   // Clean up URL if params were present
-  if (tab || source) {
+  if (tab || source || connection) {
     window.history.replaceState({}, '', '/');
   }
 });
@@ -4295,33 +4270,6 @@ const save = async () => {
     showMessage('Settings saved successfully');
   } catch (err: any) {
     showMessage(err.message || 'Failed to save settings', true);
-  }
-};
-
-const connectGoogle = async () => {
-  try {
-    await saveSettingsInternal();
-    const res = await api.get('/auth/google/login');
-    window.location.href = res.data.url;
-  } catch (e) {
-    showMessage('Failed to connect: ' + e, true);
-  }
-};
-
-const logoutGoogle = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to disconnect Google Photos?'
-    ))
-  )
-    return;
-  try {
-    await api.post('/auth/google/logout');
-    form.google_connected = 'false';
-    showMessage('Disconnected Google Photos.');
-    await store.fetchSettings();
-  } catch (e) {
-    showMessage('Error disconnecting: ' + e, true);
   }
 };
 

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from '../api';
 import { useSettingsStore } from './settings';
+import { useConnectionsStore } from './connections';
 
 export const useGalleryStore = defineStore('gallery', {
   state: () => ({
@@ -155,7 +156,11 @@ export const useGalleryStore = defineStore('gallery', {
       }
     },
 
-    async startPicker() {
+    // Opens the Google Photos Picker for one connected Google account and
+    // imports what the user picks into it. Called from the Gallery's "Add
+    // Photos via Google" (connectionId optional) and from the Google
+    // connection cards (their own id).
+    async startPicker(connectionId?: number) {
       const store = useSettingsStore();
 
       if (this.source === 'synology_photos') {
@@ -189,9 +194,32 @@ export const useGalleryStore = defineStore('gallery', {
         return;
       }
 
+      // Which Google account to import into. With one connected account the
+      // button goes straight to it; the Gallery offers a menu when there are
+      // several, and the connection cards pass their own id.
+      const connections = useConnectionsStore();
+      if (!connections.loaded) await connections.fetch();
+      const connected = connections.googleConnected();
+      const target =
+        connectionId != null
+          ? connected.find((c) => c.id === connectionId)
+          : connected.length === 1
+            ? connected[0]
+            : undefined;
+      if (!target) {
+        this.importMessage =
+          connected.length === 0
+            ? 'Connect a Google account under Data Sources → Google first.'
+            : 'Choose which Google account to add photos from.';
+        setTimeout(() => (this.importMessage = ''), 5000);
+        return;
+      }
+
       this.loading = true;
       try {
-        const res = await api.get('/google/picker/session');
+        const res = await api.get(
+          `/connections/${target.id}/google/picker/session`
+        );
         const { id, pickerUri } = res.data;
 
         // Open Popup
@@ -205,24 +233,27 @@ export const useGalleryStore = defineStore('gallery', {
           `width=${width},height=${height},top=${top},left=${left}`
         );
 
-        this.pollPicker(id);
-      } catch (e) {
+        this.pollPicker(target.id, id);
+      } catch (e: any) {
         console.error(e);
-        this.importMessage = 'Failed to start picker flow';
+        this.importMessage =
+          'Failed to start picker flow: ' +
+          (e.response?.data?.error || e.message || e);
         this.loading = false;
       }
     },
 
-    pollPicker(sessionId: string) {
+    pollPicker(connectionId: number, sessionId: string) {
       if (this.pickerTimer) clearInterval(this.pickerTimer);
 
+      const base = `/connections/${connectionId}/google/picker`;
       this.pickerTimer = window.setInterval(async () => {
         try {
-          const res = await api.get(`/google/picker/poll/${sessionId}`);
+          const res = await api.get(`${base}/poll/${sessionId}`);
           const { complete } = res.data;
           if (complete) {
             if (this.pickerTimer) clearInterval(this.pickerTimer);
-            await this.processPicker(sessionId);
+            await this.processPicker(connectionId, sessionId);
           }
         } catch (e) {
           console.error('Polling error', e);
@@ -230,11 +261,13 @@ export const useGalleryStore = defineStore('gallery', {
       }, 2000);
     },
 
-    async processPicker(sessionId: string) {
+    async processPicker(connectionId: number, sessionId: string) {
       try {
-        const res = await api.post(`/google/picker/process/${sessionId}`);
+        const res = await api.post(
+          `/connections/${connectionId}/google/picker/process/${sessionId}`
+        );
         if (res.status === 202) {
-          this.pollProgress(sessionId);
+          this.pollProgress(connectionId, sessionId);
         } else {
           const { count } = res.data;
           this.importMessage = `Successfully added ${count} photos!`;
@@ -249,10 +282,12 @@ export const useGalleryStore = defineStore('gallery', {
       }
     },
 
-    pollProgress(sessionId: string) {
+    pollProgress(connectionId: number, sessionId: string) {
       const progressInterval = setInterval(async () => {
         try {
-          const pRes = await api.get(`/google/picker/progress/${sessionId}`);
+          const pRes = await api.get(
+            `/connections/${connectionId}/google/picker/progress/${sessionId}`
+          );
           const pData = pRes.data;
           this.fetchPhotos();
 

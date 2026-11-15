@@ -50,15 +50,47 @@
             class="d-none"
             @change="onFilesSelected"
           />
+          <!-- Google: one connected account picks directly; several offer a
+               menu of accounts to import into. -->
+          <v-menu
+            v-if="
+              galleryStore.source === 'google_photos' &&
+              googleAccounts.length > 1
+            "
+          >
+            <template #activator="{ props: menu }">
+              <v-btn
+                v-bind="menu"
+                color="primary"
+                variant="flat"
+                height="40"
+                :loading="galleryStore.loading"
+                :disabled="galleryStore.loading"
+                prepend-icon="mdi-google"
+                append-icon="mdi-menu-down"
+              >
+                Add Photos via Google
+              </v-btn>
+            </template>
+            <v-list density="compact">
+              <v-list-item
+                v-for="acc in googleAccounts"
+                :key="acc.id"
+                :title="acc.name"
+                :subtitle="acc.config.email"
+                @click="galleryStore.startPicker(acc.id)"
+              ></v-list-item>
+            </v-list>
+          </v-menu>
           <v-btn
-            v-if="galleryStore.source === 'google_photos'"
+            v-else-if="galleryStore.source === 'google_photos'"
             color="primary"
             variant="flat"
             height="40"
             :loading="galleryStore.loading"
             :disabled="galleryStore.loading"
             prepend-icon="mdi-google"
-            @click="galleryStore.startPicker"
+            @click="galleryStore.startPicker()"
           >
             Add Photos via Google
           </v-btn>
@@ -328,10 +360,13 @@
           </span>
         </p>
         <v-btn
-          v-if="galleryStore.source === 'google_photos'"
+          v-if="
+            galleryStore.source === 'google_photos' &&
+            googleAccounts.length <= 1
+          "
           color="primary"
           prepend-icon="mdi-plus"
-          @click="galleryStore.startPicker"
+          @click="galleryStore.startPicker()"
         >
           Add Photos
         </v-btn>
@@ -413,6 +448,7 @@
 import { onMounted, onUnmounted, ref, reactive, computed, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
+import { useConnectionsStore } from '../stores/connections';
 import { api, listDevices, pushToDevice, type Device } from '../api';
 import { useFramePasswordPrompt } from '../composables/useFramePasswordPrompt';
 import { isFrameAuthRefusal } from '../utils/frameAuth';
@@ -420,7 +456,11 @@ import { getApiError } from '../utils/errors';
 
 const authStore = useAuthStore();
 const galleryStore = useGalleryStore();
+const connectionsStore = useConnectionsStore();
 const { promptFramePassword } = useFramePasswordPrompt();
+
+// The connected Google accounts a picker can import into.
+const googleAccounts = computed(() => connectionsStore.googleConnected());
 
 // Album chips (only shown for Immich / Synology sources).
 const albumChips = ref<any[]>([]);
@@ -724,6 +764,7 @@ onMounted(async () => {
   fetchAlbumChips();
   checkSyncStatus();
   syncPollTimer = window.setInterval(checkSyncStatus, 6000);
+  if (!connectionsStore.loaded) connectionsStore.fetch();
 });
 
 onUnmounted(() => {

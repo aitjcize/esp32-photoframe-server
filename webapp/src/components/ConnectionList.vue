@@ -16,22 +16,29 @@
           Connect an Immich server to sync its albums and collections. You can
           add more than one.
         </span>
+        <span v-else-if="source === 'google_photos'">
+          Connect a Google account to pick photos from its Google Photos
+          library. You can add more than one account.
+        </span>
         <span v-else>
           Connect a Synology Photos account to sync its albums. You can add more
           than one NAS or account.
         </span>
       </v-alert>
 
-      <ConnectionCard
+      <component
+        :is="source === 'google_photos' ? GoogleConnectionCard : ConnectionCard"
         v-for="c in connections"
         :key="c.id"
-        :ref="(el) => setCardRef(c.id, el)"
+        :ref="(el: any) => setCardRef(c.id, el)"
         :connection="c"
         :confirm="confirm"
         :show-message="showMessage"
+        :before-connect="beforeConnect"
+        :focus="c.id === focusId"
         @synced="emit('synced', $event)"
         @deleted="cardRefs.delete($event)"
-      ></ConnectionCard>
+      ></component>
 
       <v-btn
         color="primary"
@@ -49,12 +56,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import ConnectionCard from './ConnectionCard.vue';
+import GoogleConnectionCard from './GoogleConnectionCard.vue';
 import { SOURCE_LABELS, useConnectionsStore } from '../stores/connections';
 
 const props = defineProps<{
-  source: 'immich' | 'synology_photos';
+  source: 'immich' | 'synology_photos' | 'google_photos';
   confirm: (message: string) => Promise<boolean>;
   showMessage: (message: string, isError?: boolean) => void;
+  // Google cards: runs before leaving for Google's consent page.
+  beforeConnect?: () => Promise<void>;
+  // The connection to scroll to (the OAuth callback names the one it
+  // connected).
+  focusId?: number;
 }>();
 const emit = defineEmits<{ synced: [source: string] }>();
 

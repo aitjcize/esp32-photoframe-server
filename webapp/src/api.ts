@@ -55,10 +55,6 @@ export const getStatus = async () => {
   return response.data;
 };
 
-export const getGoogleAlbums = async () => {
-  const response = await api.get('google/albums');
-  return response.data;
-};
 // Devices
 export interface Device {
   id: number;

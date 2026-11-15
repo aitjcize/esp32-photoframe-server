@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia';
 import { api } from '../api';
 
-// One configured instance of a connection-backed source: an Immich server or
-// a Synology Photos account. `config` is the server's redacted view (URLs and
-// flags, never secrets; `has_api_key` / `has_password` say whether one is
-// stored) and `connected` is whether it can be used right now.
+// One configured instance of a connection-backed source: an Immich server, a
+// Synology Photos account or a Google account. `config` is the server's
+// redacted view (URLs and flags, never secrets; `has_api_key` /
+// `has_password` say whether one is stored; Google: the account `email`) and
+// `connected` is whether it can be used right now.
 export interface Connection {
   id: number;
-  source: 'immich' | 'synology_photos' | string;
+  source: 'immich' | 'synology_photos' | 'google_photos' | string;
   name: string;
   enabled: boolean;
   connected: boolean;
@@ -15,11 +16,19 @@ export interface Connection {
   created_at: string;
 }
 
-export const CONNECTION_SOURCES = ['immich', 'synology_photos'];
+export const CONNECTION_SOURCES = [
+  'immich',
+  'synology_photos',
+  'google_photos',
+];
+// The connection sources that sync albums in the background (Google imports
+// through the picker instead and has no sync status).
+export const SYNCING_SOURCES = ['immich', 'synology_photos'];
 
 export const SOURCE_LABELS: Record<string, string> = {
   immich: 'Immich',
   synology_photos: 'Synology Photos',
+  google_photos: 'Google Photos',
 };
 
 export const useConnectionsStore = defineStore('connections', {
@@ -105,6 +114,18 @@ export const useConnectionsStore = defineStore('connections', {
     async logout(id: number) {
       await api.post(`/connections/${id}/logout`);
       await this.refreshOne(id);
+    },
+
+    // Google: the consent page URL for this connection. The browser goes
+    // there and Google sends it back to the dashboard once authorised.
+    async googleLoginUrl(id: number): Promise<string> {
+      const res = await api.get(`/connections/${id}/google/login`);
+      return res.data.url;
+    },
+
+    // Google: the connected accounts, i.e. the ones a picker can import into.
+    googleConnected(): Connection[] {
+      return this.bySource('google_photos').filter((c) => c.connected);
     },
 
     async fetchCount(id: number) {
