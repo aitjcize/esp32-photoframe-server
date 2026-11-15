@@ -22,7 +22,6 @@ import (
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
-	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/weather"
 	"github.com/labstack/echo/v4"
@@ -36,43 +35,41 @@ import (
 // overlays, the processor for dithering, the weather/calendar clients for
 // overlay data, the auth service, and the registered source registry.
 type ImageHandlerDeps struct {
-	Settings       *service.SettingsService
-	Renderer       *service.RendererService
-	Processor      *service.ProcessorService
-	CalendarGoogle *googlephotos.Client
-	Sources        *imagesource.Registry
-	Weather        *weather.Client
-	Calendar       *gcalendar.Client
-	Auth           *service.AuthService
-	DB             *gorm.DB
-	DataDir        string
+	Settings  *service.SettingsService
+	Renderer  *service.RendererService
+	Processor *service.ProcessorService
+	// Connections resolves the Google Calendar account a frame shows.
+	Connections *service.ConnectionManager
+	Sources     *imagesource.Registry
+	Weather     *weather.Client
+	Auth        *service.AuthService
+	DB          *gorm.DB
+	DataDir     string
 }
 
 type ImageHandler struct {
-	settings       *service.SettingsService
-	renderer       *service.RendererService
-	processor      *service.ProcessorService
-	calendarGoogle *googlephotos.Client
-	sources        *imagesource.Registry
-	weather        *weather.Client
-	calendar       *gcalendar.Client
-	auth           *service.AuthService
-	db             *gorm.DB
-	dataDir        string
+	settings    *service.SettingsService
+	renderer    *service.RendererService
+	processor   *service.ProcessorService
+	connections *service.ConnectionManager
+	sources     *imagesource.Registry
+	weather     *weather.Client
+	auth        *service.AuthService
+	db          *gorm.DB
+	dataDir     string
 }
 
 func NewImageHandler(deps ImageHandlerDeps) *ImageHandler {
 	return &ImageHandler{
-		settings:       deps.Settings,
-		renderer:       deps.Renderer,
-		processor:      deps.Processor,
-		calendarGoogle: deps.CalendarGoogle,
-		sources:        deps.Sources,
-		weather:        deps.Weather,
-		calendar:       deps.Calendar,
-		auth:           deps.Auth,
-		db:             deps.DB,
-		dataDir:        deps.DataDir,
+		settings:    deps.Settings,
+		renderer:    deps.Renderer,
+		processor:   deps.Processor,
+		connections: deps.Connections,
+		sources:     deps.Sources,
+		weather:     deps.Weather,
+		auth:        deps.Auth,
+		db:          deps.DB,
+		dataDir:     deps.DataDir,
 	}
 }
 
@@ -401,18 +398,11 @@ func (h *ImageHandler) ServeImage(c echo.Context) error {
 		}
 
 		var events []gcalendar.Event
-		if showCalendar && h.calendar != nil && h.calendarGoogle != nil {
-			httpClient, err := h.calendarGoogle.GetClient()
-			if err == nil {
-				calendarID := device.CalendarID
-				if calendarID == "" {
-					calendarID = "primary"
-				}
-				var calErr error
-				events, calErr = h.calendar.GetTodayEvents(httpClient, calendarID, deviceTimezone)
-				if calErr != nil {
-					log.Printf("Failed to fetch calendar events: %v", calErr)
-				}
+		if showCalendar && deviceFound && h.connections != nil {
+			if cal, err := h.connections.CalendarForDevice(device); err != nil {
+				log.Printf("device %d: calendar account: %v", device.ID, err)
+			} else if events, err = cal.TodayEvents(device.CalendarID, deviceTimezone); err != nil {
+				log.Printf("Failed to fetch calendar events: %v", err)
 			}
 		}
 

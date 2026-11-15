@@ -56,7 +56,10 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 		DisplayMode   string  `json:"display_mode"`
 		ShowCalendar  bool    `json:"show_calendar"`
 		CalendarID    string  `json:"calendar_id"`
-		DateFormat    string  `json:"date_format"`
+		// The Google Calendar connection CalendarID belongs to (nil: the
+		// first connected account).
+		CalendarConnectionID *uint  `json:"calendar_connection_id"`
+		DateFormat           string `json:"date_format"`
 		// Only needed when the frame requires a password on its own HTTP API.
 		HTTPPassword string `json:"http_password"`
 	}
@@ -79,6 +82,12 @@ func (h *DeviceHandler) AddDevice(c echo.Context) error {
 	device, err := h.deviceService.AddDevice(req.Host, req.HTTPPassword, req.EnableCollage, req.ShowDate, req.ShowPhotoDate, req.ShowWeather, req.WeatherLat, req.WeatherLon, req.Layout, req.DisplayMode, req.ShowCalendar, req.CalendarID, req.DateFormat)
 	if err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	if req.CalendarConnectionID != nil {
+		if err := h.db.Model(device).Update("calendar_connection_id", req.CalendarConnectionID).Error; err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		device.CalendarConnectionID = req.CalendarConnectionID
 	}
 	return c.JSON(http.StatusCreated, device)
 }
@@ -345,8 +354,11 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 		BackgroundColor string  `json:"background_color"`
 		ShowCalendar    bool    `json:"show_calendar"`
 		CalendarID      string  `json:"calendar_id"`
-		DateFormat      string  `json:"date_format"`
-		Source          string  `json:"source"`
+		// The Google Calendar connection CalendarID belongs to (nil or 0:
+		// the first connected account).
+		CalendarConnectionID *uint  `json:"calendar_connection_id"`
+		DateFormat           string `json:"date_format"`
+		Source               string `json:"source"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return respondError(c, http.StatusBadRequest, "invalid request")
@@ -363,14 +375,20 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 	// Per-device image source + fit-mode background color for the unified
 	// /image endpoint (kept out of the long UpdateDevice signature; persisted
 	// directly).
+	calendarConn := req.CalendarConnectionID
+	if calendarConn != nil && *calendarConn == 0 {
+		calendarConn = nil
+	}
 	if err := h.db.Model(device).Updates(map[string]interface{}{
-		"source":           req.Source,
-		"background_color": req.BackgroundColor,
+		"source":                 req.Source,
+		"background_color":       req.BackgroundColor,
+		"calendar_connection_id": calendarConn,
 	}).Error; err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	device.Source = req.Source
 	device.BackgroundColor = req.BackgroundColor
+	device.CalendarConnectionID = calendarConn
 	return c.JSON(http.StatusOK, device)
 }
 

@@ -5,18 +5,16 @@ import (
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/version"
-	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/labstack/echo/v4"
 )
 
 type Handler struct {
-	settings       *service.SettingsService
-	telegram       *service.TelegramService
-	googleCalendar *googlephotos.Client
+	settings *service.SettingsService
+	telegram *service.TelegramService
 }
 
-func NewHandler(s *service.SettingsService, t *service.TelegramService, gc *googlephotos.Client) *Handler {
-	return &Handler{settings: s, telegram: t, googleCalendar: gc}
+func NewHandler(s *service.SettingsService, t *service.TelegramService) *Handler {
+	return &Handler{settings: s, telegram: t}
 }
 
 // HealthCheck reports liveness plus the build-time server version (issue #6:
@@ -33,13 +31,6 @@ func (h *Handler) GetSettings(c echo.Context) error {
 	if err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-
-	if h.googleCalendar.IsConnected() {
-		settings["google_calendar_connected"] = "true"
-	} else {
-		settings["google_calendar_connected"] = "false"
-	}
-
 	return c.JSON(http.StatusOK, settings)
 }
 

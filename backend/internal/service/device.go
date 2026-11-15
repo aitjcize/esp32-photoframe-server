@@ -13,41 +13,38 @@ import (
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
-	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/weather"
 	"gorm.io/gorm"
 )
 
 type DeviceServiceDeps struct {
-	DB             *gorm.DB
-	Settings       *SettingsService
-	Processor      *ProcessorService
-	Renderer       *RendererService
-	Weather        *weather.Client
-	Calendar       *gcalendar.Client
-	CalendarGoogle *googlephotos.Client
+	DB        *gorm.DB
+	Settings  *SettingsService
+	Processor *ProcessorService
+	Renderer  *RendererService
+	Weather   *weather.Client
+	// Connections resolves the Google Calendar account a frame shows.
+	Connections *ConnectionManager
 }
 
 type DeviceService struct {
-	db             *gorm.DB
-	settings       *SettingsService
-	processor      *ProcessorService
-	renderer       *RendererService
-	weather        *weather.Client
-	calendar       *gcalendar.Client
-	calendarGoogle *googlephotos.Client
+	db          *gorm.DB
+	settings    *SettingsService
+	processor   *ProcessorService
+	renderer    *RendererService
+	weather     *weather.Client
+	connections *ConnectionManager
 }
 
 func NewDeviceService(deps DeviceServiceDeps) *DeviceService {
 	return &DeviceService{
-		db:             deps.DB,
-		settings:       deps.Settings,
-		processor:      deps.Processor,
-		renderer:       deps.Renderer,
-		weather:        deps.Weather,
-		calendar:       deps.Calendar,
-		calendarGoogle: deps.CalendarGoogle,
+		db:          deps.DB,
+		settings:    deps.Settings,
+		processor:   deps.Processor,
+		renderer:    deps.Renderer,
+		weather:     deps.Weather,
+		connections: deps.Connections,
 	}
 }
 
@@ -558,18 +555,11 @@ func (s *DeviceService) PushToHost(device *model.Device, imagePath string, extra
 		}
 
 		var events []gcalendar.Event
-		if device.ShowCalendar && s.calendar != nil && s.calendarGoogle != nil {
-			httpClient, err := s.calendarGoogle.GetClient()
-			if err == nil {
-				calendarID := device.CalendarID
-				if calendarID == "" {
-					calendarID = "primary"
-				}
-				var calErr error
-				events, calErr = s.calendar.GetTodayEvents(httpClient, calendarID, deviceTimezone)
-				if calErr != nil {
-					log.Printf("Failed to fetch calendar events for device %d: %v", device.ID, calErr)
-				}
+		if device.ShowCalendar && s.connections != nil {
+			if cal, err := s.connections.CalendarForDevice(*device); err != nil {
+				log.Printf("device %d: calendar account: %v", device.ID, err)
+			} else if events, err = cal.TodayEvents(device.CalendarID, deviceTimezone); err != nil {
+				log.Printf("Failed to fetch calendar events for device %d: %v", device.ID, err)
 			}
 		}
 

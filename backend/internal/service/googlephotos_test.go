@@ -39,7 +39,7 @@ func (c staticGoogleConfig) GetGoogleConfig() (googlephotos.Config, error) {
 
 func newGoogleManager(t *testing.T, db *gorm.DB, cfg googlephotos.ConfigProvider) *ConnectionManager {
 	t.Helper()
-	m := NewConnectionManager(db, cfg, NewPickerService(db, t.TempDir()))
+	m := NewConnectionManager(db, cfg, cfg, NewPickerService(db, t.TempDir()))
 	m.Start()
 	return m
 }

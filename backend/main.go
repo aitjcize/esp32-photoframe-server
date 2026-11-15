@@ -14,8 +14,6 @@ import (
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/middleware"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
-	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/gcalendar"
-	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/weather"
 	"github.com/labstack/echo/v4"
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
@@ -142,16 +140,13 @@ func main() {
 
 	// Schema is owned by golang-migrate (db/migrations); no AutoMigrate here.
 
-	// Initialize Google Calendar Client (its own OAuth consent and token;
-	// Google Photos tokens live on their connections)
-	calendarTokenStore := service.NewDBTokenStore(database)
+	// The OAuth client with the Calendar scopes; Google Calendar accounts are
+	// connections like Google Photos accounts, each with its own token.
 	calendarConfigProvider := service.NewCalendarConfigProvider(settingsService)
-	googleCalendarClient := googlephotos.NewClient(calendarConfigProvider, calendarTokenStore)
 
 	// Initialize Processor
 	processorService := service.NewProcessorService()
 	weatherClient := weather.NewClient()
-	calendarClient := gcalendar.NewClient()
 	// Initialize Renderer (HTML/CSS → image via headless Chrome)
 	// Chrome is launched lazily on first render request to save memory.
 	rendererService, err := service.NewRendererService()
@@ -163,7 +158,7 @@ func main() {
 	// connections table. settingsService supplies the global Google OAuth app
 	// credentials, read fresh on every request.
 	pickerService := service.NewPickerService(database, dataDir)
-	connections := service.NewConnectionManager(database, settingsService, pickerService)
+	connections := service.NewConnectionManager(database, settingsService, calendarConfigProvider, pickerService)
 	connections.Start()
 	// Initialize AI Generation Service
 	aiGenerationService := service.NewAIGenerationService(settingsService)
@@ -195,13 +190,12 @@ func main() {
 
 	// Initialize Device Service
 	deviceService := service.NewDeviceService(service.DeviceServiceDeps{
-		DB:             database,
-		Settings:       settingsService,
-		Processor:      processorService,
-		Renderer:       rendererService,
-		Weather:        weatherClient,
-		Calendar:       calendarClient,
-		CalendarGoogle: googleCalendarClient,
+		DB:          database,
+		Settings:    settingsService,
+		Processor:   processorService,
+		Renderer:    rendererService,
+		Weather:     weatherClient,
+		Connections: connections,
 	})
 	deviceHandler := handler.NewDeviceHandler(deviceService, connections, database)
 
@@ -218,25 +212,23 @@ func main() {
 	}
 
 	// Initialize Handlers
-	h := handler.NewHandler(settingsService, telegramService, googleCalendarClient)
-	googleHandler := handler.NewGoogleHandler(googleCalendarClient, connections)
+	h := handler.NewHandler(settingsService, telegramService)
+	googleHandler := handler.NewGoogleHandler(connections)
 	connh := handler.NewConnectionsHandler(connections)
 	// Generic photo-sync endpoints (sync / sync-status / clear / count) shared
 	// across the settings-backed sources.
 	gh := handler.NewGalleryHandler(database, connections, dataDir)
 	ih := handler.NewImageHandler(handler.ImageHandlerDeps{
-		Settings:       settingsService,
-		Renderer:       rendererService,
-		Processor:      processorService,
-		CalendarGoogle: googleCalendarClient,
-		Sources:        sourceRegistry,
-		Weather:        weatherClient,
-		Calendar:       calendarClient,
-		Auth:           authService,
-		DB:             database,
-		DataDir:        dataDir,
+		Settings:    settingsService,
+		Renderer:    rendererService,
+		Processor:   processorService,
+		Connections: connections,
+		Sources:     sourceRegistry,
+		Weather:     weatherClient,
+		Auth:        authService,
+		DB:          database,
+		DataDir:     dataDir,
 	})
-	ch := handler.NewCalendarHandler(googleCalendarClient, calendarClient)
 	ah := handler.NewAuthHandler(authService, settingsService)
 
 	// Echo instance
@@ -359,19 +351,14 @@ func main() {
 	protectedApi.GET("/connections/:id/google/picker/poll/:session", connh.PickerPoll)
 	protectedApi.POST("/connections/:id/google/picker/process/:session", connh.PickerProcess)
 	protectedApi.GET("/connections/:id/google/picker/progress/:session", connh.PickerProgress)
+	// Google Calendar connections: the account's calendars for the per-frame picker
+	protectedApi.GET("/connections/:id/calendars", connh.Calendars)
 	// Unsplash / Pexels connections: the search topics (each one a synced album)
 	protectedApi.GET("/connections/:id/topics", connh.Topics)
 	protectedApi.POST("/connections/:id/topics", connh.SetTopics)
 
-	// Calendar (Protected)
-	protectedApi.GET("/calendar/calendars", ch.ListCalendars)
-
-	// Google Auth (Photos connections + Calendar share the same callback via
-	// the state parameter; Photos logins start under /connections/:id/google)
-	protectedApi.GET("/auth/google-calendar/login", googleHandler.CalendarLogin)
-	protectedApi.POST("/auth/google-calendar/logout", googleHandler.CalendarLogout)
-
-	// Public Callback (shared by both Photos and Calendar)
+	// Google OAuth callback, shared by every Google Photos and Google Calendar
+	// connection (logins start under /connections/:id/google/login)
 	e.GET("/api/auth/google/callback", googleHandler.Callback)
 
 	// Static Files (Frontend)

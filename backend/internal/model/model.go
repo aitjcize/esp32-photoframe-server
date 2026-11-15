@@ -15,6 +15,7 @@ type Setting struct {
 
 const (
 	SourceGooglePhotos   = "google_photos"
+	SourceGoogleCalendar = "google_calendar" // not a photo source: a Google account whose calendar frames can show
 	SourceSynologyPhotos = "synology_photos"
 	SourceGallery        = "gallery"
 	SourceURLProxy       = "url_proxy"
@@ -51,13 +52,6 @@ type Image struct {
 	PhotoTakenAt *time.Time     `json:"photo_taken_at"` // Original photo creation/taken date
 	CreatedAt    time.Time      `json:"created_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
-}
-
-type GoogleCalendarAuth struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	AccessToken  string    `json:"-"`
-	RefreshToken string    `json:"-"`
-	Expiry       time.Time `json:"expiry"`
 }
 
 type Device struct {
@@ -97,7 +91,11 @@ type Device struct {
 	Source       string `json:"source"`
 	ShowCalendar bool   `json:"show_calendar"`
 	CalendarID   string `json:"calendar_id"` // Google Calendar ID (per-device)
-	DateFormat   string `json:"date_format"` // Go time format string, empty = default "Mon, Jan 02"
+	// CalendarConnectionID is the google_calendar connection (the Google
+	// account) CalendarID belongs to. Nil falls back to the first connected
+	// account, which is what every frame had before accounts were plural.
+	CalendarConnectionID *uint  `json:"calendar_connection_id"`
+	DateFormat           string `json:"date_format"` // Go time format string, empty = default "Mon, Jan 02"
 	// Password for the frame's own HTTP API when its owner enabled the
 	// optional authentication. Empty = open, the firmware default. Never
 	// serialized outward -- the UI posts it and only learns whether one is
@@ -248,7 +246,7 @@ type Connection struct {
 }
 
 // ConnectionSources are the source types that are configured as connections.
-var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos, SourceGooglePhotos, SourceUnsplash, SourcePexels}
+var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos, SourceGooglePhotos, SourceUnsplash, SourcePexels, SourceGoogleCalendar}
 
 // TopicSources are the connection sources whose albums are search topics
 // (stock-photo search by keyword).
@@ -315,7 +313,8 @@ type SynologyState struct {
 	Token string `json:"token"`
 }
 
-// GoogleState is Connection.State for a Google Photos connection: the OAuth
+// GoogleState is Connection.State for a Google Photos or Google Calendar
+// connection: the OAuth
 // token Google issued for that account, refreshed in place, plus the account
 // email for display. A Google connection has no Config; the OAuth client id
 // and secret are global settings shared by every Google connection.

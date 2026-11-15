@@ -3,10 +3,6 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
 	"os"
 	"sync"
 
@@ -100,110 +96,30 @@ func (s *connectionTokenStore) setEmail(email string) error {
 	return s.save(st)
 }
 
-// GooglePhotosService is one connected Google account: its OAuth client and
-// the picker flow that imports photos from it. Photos are downloaded to the
-// data directory at import time, so serving them never needs the token; only
-// authorisation and picking do.
+// GooglePhotosService is one connected Google account's photos: the shared
+// OAuth account plus the picker flow that imports photos from it. Photos are
+// downloaded to the data directory at import time, so serving them never needs
+// the token; only authorisation and picking do.
 type GooglePhotosService struct {
+	*googleAccount
 	db     *gorm.DB
 	conns  *ConnectionStore
-	id     uint
-	store  *connectionTokenStore
-	cfg    googlephotos.ConfigProvider
-	client *googlephotos.Client
 	picker *PickerService
 }
 
 // NewGooglePhotosService builds the service for connection id. cfg supplies
-// the global OAuth client id and secret.
+// the global OAuth client id and secret with the Photos scopes.
 func NewGooglePhotosService(db *gorm.DB, conns *ConnectionStore, id uint, cfg googlephotos.ConfigProvider, picker *PickerService) *GooglePhotosService {
-	store := &connectionTokenStore{conns: conns, id: id}
 	return &GooglePhotosService{
-		db:     db,
-		conns:  conns,
-		id:     id,
-		store:  store,
-		cfg:    cfg,
-		client: googlephotos.NewClient(cfg, store),
-		picker: picker,
+		googleAccount: newGoogleAccount(conns, id, cfg),
+		db:            db,
+		conns:         conns,
+		picker:        picker,
 	}
 }
-
-// ConnectionID is the connection this service serves.
-func (s *GooglePhotosService) ConnectionID() uint { return s.id }
 
 func (s *GooglePhotosService) scope() sourceScope {
 	return sourceScope{Source: model.SourceGooglePhotos, ConnectionID: s.id}
-}
-
-// Connected reports whether the account has a usable token.
-func (s *GooglePhotosService) Connected() bool {
-	st, err := s.store.state()
-	return err == nil && st.Connected()
-}
-
-// AuthURL returns the Google consent page for this account. redirectURL is the
-// server's callback as the browser reaches it; state ties the callback to this
-// connection.
-func (s *GooglePhotosService) AuthURL(redirectURL, state string) (string, error) {
-	cfg, err := s.cfg.GetGoogleConfig()
-	if err != nil {
-		return "", err
-	}
-	if cfg.ClientID == "" || cfg.ClientSecret == "" {
-		return "", errors.New("Google API credentials are not configured; enter the client id and secret first")
-	}
-	s.client.SetRedirectURL(redirectURL)
-	url := s.client.GetAuthURL(state)
-	if url == "" {
-		return "", errors.New("could not build the Google sign-in URL")
-	}
-	return url, nil
-}
-
-// Exchange turns the callback's code into a token for this account and records
-// the account email for display. redirectURL must be the one AuthURL was given.
-func (s *GooglePhotosService) Exchange(redirectURL, code string) error {
-	s.client.SetRedirectURL(redirectURL)
-	if err := s.client.Exchange(code); err != nil {
-		return err
-	}
-	if email, err := s.fetchEmail(); err != nil {
-		log.Printf("google connection #%d: account email lookup: %v", s.id, err)
-	} else if err := s.store.setEmail(email); err != nil {
-		log.Printf("google connection #%d: store email: %v", s.id, err)
-	}
-	return nil
-}
-
-// fetchEmail reads the connected account's address (the userinfo.email scope
-// is part of the consent).
-func (s *GooglePhotosService) fetchEmail() (string, error) {
-	httpClient, err := s.client.GetClient()
-	if err != nil {
-		return "", err
-	}
-	resp, err := httpClient.Get("https://www.googleapis.com/oauth2/v2/userinfo")
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", fmt.Errorf("userinfo: status %d: %s", resp.StatusCode, body)
-	}
-	var info struct {
-		Email string `json:"email"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", err
-	}
-	return info.Email, nil
-}
-
-// Logout forgets the token. Imported photos stay.
-func (s *GooglePhotosService) Logout() error {
-	return s.client.Logout()
 }
 
 // Stop ends the account's running picker imports (and waits for them), so

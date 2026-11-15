@@ -13,7 +13,7 @@ import (
 
 func newTopicManager(t *testing.T, db *gorm.DB) *ConnectionManager {
 	t.Helper()
-	m := NewConnectionManager(db, nil, nil)
+	m := NewConnectionManager(db, nil, nil, nil)
 	m.Start()
 	return m
 }

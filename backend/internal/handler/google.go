@@ -5,47 +5,31 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
-	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 	"github.com/labstack/echo/v4"
 )
 
-// GoogleHandler serves the Google OAuth endpoints: the Calendar login and
-// logout, and the callback that Photos and Calendar share. Google Photos
-// logins start per connection under /api/connections/:id/google/login; the
-// callback routes their codes back by the state nonce the manager issued.
+// GoogleHandler serves the OAuth callback that every Google connection
+// (Photos and Calendar accounts) shares. Logins start per connection under
+// /api/connections/:id/google/login; the callback routes the code back by the
+// state nonce the manager issued.
 type GoogleHandler struct {
-	calendarClient *googlephotos.Client
-	conns          *service.ConnectionManager
+	conns *service.ConnectionManager
 }
 
-func NewGoogleHandler(calendarClient *googlephotos.Client, conns *service.ConnectionManager) *GoogleHandler {
-	return &GoogleHandler{calendarClient: calendarClient, conns: conns}
+func NewGoogleHandler(conns *service.ConnectionManager) *GoogleHandler {
+	return &GoogleHandler{conns: conns}
 }
 
-// CalendarLogin initiates the OAuth flow for Google Calendar.
-func (h *GoogleHandler) CalendarLogin(c echo.Context) error {
-	redirectURL := buildRedirectURL(c)
-	h.calendarClient.SetRedirectURL(redirectURL)
-	url := h.calendarClient.GetAuthURL("calendar")
-	return c.JSON(http.StatusOK, map[string]string{"url": url})
-}
-
-// Callback handles the shared OAuth callback. The state parameter says whose
-// code this is: the literal "calendar", or the nonce of a pending Google
-// Photos connection login.
+// Callback completes the sign-in the state names and sends the browser back
+// to the dashboard: to the photo source for a Google Photos account, to the
+// Calendar tab for a Google Calendar account.
 func (h *GoogleHandler) Callback(c echo.Context) error {
 	code := c.QueryParam("code")
 	state := c.QueryParam("state")
 	if code == "" {
 		return respondError(c, http.StatusBadRequest, "code is required")
-	}
-
-	if state == "calendar" {
-		if err := h.calendarClient.Exchange(code); err != nil {
-			return respondError(c, http.StatusInternalServerError, err.Error())
-		}
-		return c.Redirect(http.StatusTemporaryRedirect, "/?tab=datasources&source=google")
 	}
 
 	id, err := h.conns.CompleteGoogleAuth(state, code)
@@ -55,15 +39,11 @@ func (h *GoogleHandler) Callback(c echo.Context) error {
 		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	// Back to the Google tab, on the card that was just connected.
-	return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/?tab=datasources&source=google&connection=%d", id))
-}
-
-func (h *GoogleHandler) CalendarLogout(c echo.Context) error {
-	if err := h.calendarClient.Logout(); err != nil {
-		return respondError(c, http.StatusInternalServerError, err.Error())
+	conn, err := h.conns.Store().Get(id)
+	if err == nil && conn.Source == model.SourceGoogleCalendar {
+		return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/?tab=calendar&connection=%d", id))
 	}
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/?source=google&connection=%d", id))
 }
 
 func buildRedirectURL(c echo.Context) string {

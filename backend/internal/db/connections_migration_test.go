@@ -457,3 +457,234 @@ func TestTopicConnectionsMigrationOnFreshInstall(t *testing.T) {
 		t.Errorf("fresh install created %d topic connections", n)
 	}
 }
+
+// TestCalendarConnectionMigration seeds a v43 database with the single Google
+// Calendar token and frames that show a calendar, and checks that 000044
+// turns the token into one google_calendar connection, points every
+// calendar-showing frame at it, and leaves the others unbound.
+func TestCalendarConnectionMigration(t *testing.T) {
+	gdb, m := migratedTo(t, 43)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if err := gdb.Exec(q, args...).Error; err != nil {
+			t.Fatalf("exec %q: %v", q, err)
+		}
+	}
+	num := func(q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := gdb.Raw(q, args...).Scan(&n).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return n
+	}
+	str := func(q string, args ...any) string {
+		t.Helper()
+		var s string
+		if err := gdb.Raw(q, args...).Scan(&s).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return s
+	}
+
+	expiry := time.Date(2026, 11, 15, 10, 30, 0, 0, time.FixedZone("TPE", 8*3600))
+	exec("INSERT INTO google_calendar_auths(id, access_token, refresh_token, expiry) VALUES (1, 'acc', 'ref', ?)",
+		expiry.Format("2006-01-02 15:04:05.999999999-07:00"))
+	exec("INSERT INTO devices(id, name, host, show_calendar, calendar_id) VALUES (1, 'kitchen', '10.0.0.1', 1, 'family@group.calendar.google.com')")
+	exec("INSERT INTO devices(id, name, host, show_calendar, calendar_id) VALUES (2, 'study', '10.0.0.2', 0, '')")
+
+	if err := m.Migrate(44); err != nil {
+		t.Fatalf("migrate to 44: %v", err)
+	}
+
+	if got := num("SELECT COUNT(*) FROM connections WHERE source = 'google_calendar'"); got != 1 {
+		t.Fatalf("calendar connections: got %d, want 1", got)
+	}
+	var conn model.Connection
+	if err := gdb.Where("source = ?", "google_calendar").First(&conn).Error; err != nil {
+		t.Fatalf("load connection: %v", err)
+	}
+	if conn.Name != "Google Calendar" || !conn.Enabled || conn.Config != "{}" {
+		t.Errorf("connection row: %+v", conn)
+	}
+	st := conn.GoogleState()
+	if st.AccessToken != "acc" || st.RefreshToken != "ref" || !st.Expiry.Equal(expiry) || !st.Connected() {
+		t.Errorf("token not carried over: %+v (state %s)", st, conn.State)
+	}
+	if got := num("SELECT COUNT(*) FROM devices WHERE id = 1 AND calendar_connection_id = ?", conn.ID); got != 1 {
+		t.Errorf("the frame showing a calendar must point at the migrated account")
+	}
+	if got := str("SELECT calendar_id FROM devices WHERE id = 1"); got != "family@group.calendar.google.com" {
+		t.Errorf("calendar_id must survive: %q", got)
+	}
+	if got := num("SELECT COUNT(*) FROM devices WHERE id = 2 AND calendar_connection_id IS NULL"); got != 1 {
+		t.Errorf("a frame without a calendar stays unbound")
+	}
+	if got := num("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'google_calendar_auths'"); got != 0 {
+		t.Errorf("google_calendar_auths table should be gone")
+	}
+
+	// A second account fits beside the first; the frame on it is unbound
+	// when it goes (ON DELETE SET NULL), not deleted.
+	exec("INSERT INTO connections(source, name, enabled, state) VALUES ('google_calendar', 'Work', 1, '{\"refresh_token\":\"r2\"}')")
+	second := num("SELECT MAX(id) FROM connections")
+	exec("UPDATE devices SET calendar_connection_id = ? WHERE id = 2", second)
+	exec("DELETE FROM connections WHERE id = ?", second)
+	if got := num("SELECT COUNT(*) FROM devices WHERE id = 2 AND calendar_connection_id IS NULL"); got != 1 {
+		t.Errorf("deleting an account must unbind its frames, not remove them")
+	}
+	if got := num("SELECT COUNT(*) FROM devices"); got != 2 {
+		t.Errorf("devices: %d", got)
+	}
+
+	if err := m.Migrate(43); err != nil {
+		t.Fatalf("migrate down to 43: %v", err)
+	}
+	if got := str("SELECT refresh_token FROM google_calendar_auths WHERE id = 1"); got != "ref" {
+		t.Errorf("down: refresh token %q", got)
+	}
+	if got := num("SELECT COUNT(*) FROM connections WHERE source = 'google_calendar'"); got != 0 {
+		t.Errorf("down: calendar connections left: %d", got)
+	}
+	if got := num("SELECT COUNT(*) FROM devices WHERE show_calendar = 1 AND calendar_id = 'family@group.calendar.google.com'"); got != 1 {
+		t.Errorf("down: the frame's calendar settings must survive")
+	}
+}
+
+// Without a calendar token no calendar connection is made and frames stay
+// unbound.
+func TestCalendarConnectionMigrationOnFreshInstall(t *testing.T) {
+	gdb, m := migratedTo(t, 43)
+	if err := gdb.Exec("INSERT INTO devices(id, name, host, show_calendar) VALUES (1, 'kitchen', '10.0.0.1', 1)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(44); err != nil {
+		t.Fatalf("migrate to 44: %v", err)
+	}
+	var n int
+	gdb.Raw("SELECT COUNT(*) FROM connections WHERE source = 'google_calendar'").Scan(&n)
+	if n != 0 {
+		t.Errorf("fresh install must not get a calendar connection, got %d", n)
+	}
+	gdb.Raw("SELECT COUNT(*) FROM devices WHERE calendar_connection_id IS NULL").Scan(&n)
+	if n != 1 {
+		t.Errorf("frame must stay unbound")
+	}
+}
+
+// A rollback must leave a schema the application can still write to, and a
+// later upgrade must apply again: 000041's down rebuilds albums and images
+// without their connection_id (a dangling REFERENCES would fail every insert
+// once connections is gone), keeping memberships, frame bindings and the
+// serving history; 000044's down does the same for devices.
+func TestConnectionRollbacksKeepTheSchemaUsable(t *testing.T) {
+	gdb, m := migratedTo(t, 44)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if err := gdb.Exec(q, args...).Error; err != nil {
+			t.Fatalf("exec %q: %v", q, err)
+		}
+	}
+	num := func(q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := gdb.Raw(q, args...).Scan(&n).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return n
+	}
+
+	exec("INSERT INTO connections(id, source, name, enabled) VALUES (1, 'immich', 'Immich', 1)")
+	exec("INSERT INTO connections(id, source, name, enabled, state) VALUES (2, 'google_calendar', 'Cal', 1, '{\"refresh_token\":\"r\"}')")
+	exec("INSERT INTO devices(id, name, host, show_calendar, calendar_connection_id) VALUES (1, 'kitchen', '10.0.0.1', 1, 2)")
+	exec("INSERT INTO albums(id, source, external_id, name, sync_enabled, connection_id) VALUES (1, 'immich', 'a', 'Trips', 1, 1)")
+	exec("INSERT INTO albums(id, source, external_id, name, sync_enabled) VALUES (2, 'gallery', 'gallery-x', 'Family', 1)")
+	exec("INSERT INTO images(id, source, external_id, file_path, connection_id) VALUES (1, 'immich', 'i1', '', 1)")
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (2, 'gallery', '', '/data/photos/gallery/u.jpg')")
+	exec("INSERT INTO image_album_memberships(image_id, album_id) VALUES (1, 1), (2, 2)")
+	exec("INSERT INTO device_album_mappings(device_id, album_id) VALUES (1, 1), (1, 2)")
+	exec("INSERT INTO device_histories(device_id, image_id, served_at) VALUES (1, 2, CURRENT_TIMESTAMP)")
+	exec("INSERT INTO api_keys(id, user_id, name, created_at, device_id) VALUES (1, 1, 'frame', CURRENT_TIMESTAMP, 1)")
+	// A revoked key (its row is gone) must stay revoked: its id is never
+	// issued again, even though the table is rebuilt on the way down.
+	exec("INSERT INTO api_keys(id, user_id, name, created_at, device_id) VALUES (2, 1, 'revoked', CURRENT_TIMESTAMP, 1)")
+	exec("DELETE FROM api_keys WHERE id = 2")
+	exec("INSERT INTO devices(id, name, host) VALUES (2, 'gone', '10.0.0.9')")
+	exec("DELETE FROM devices WHERE id = 2")
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (3, 'gallery', '', '/data/photos/gallery/gone.jpg')")
+	exec("DELETE FROM images WHERE id = 3")
+	exec("INSERT INTO url_sources(id, url) VALUES (1, 'http://x/y.jpg')")
+	exec("INSERT INTO device_url_mappings(device_id, url_source_id) VALUES (1, 1)")
+	exec("INSERT INTO generative_states(device_id, source, state) VALUES (1, 'fractal', x'00')")
+
+	// Down past the calendar column: devices and all its children survive.
+	if err := m.Migrate(43); err != nil {
+		t.Fatalf("migrate down to 43: %v", err)
+	}
+	for q, want := range map[string]int{
+		"SELECT COUNT(*) FROM devices WHERE id = 1 AND show_calendar = 1":                         1,
+		"SELECT COUNT(*) FROM api_keys WHERE id = 1 AND device_id = 1":                            1,
+		"SELECT COUNT(*) FROM device_album_mappings WHERE device_id = 1":                          2,
+		"SELECT COUNT(*) FROM device_url_mappings WHERE device_id = 1":                            1,
+		"SELECT COUNT(*) FROM generative_states WHERE device_id = 1":                              1,
+		"SELECT COUNT(*) FROM device_histories WHERE device_id = 1 AND image_id = 2":              1,
+		"SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = 'calendar_connection_id'": 0,
+	} {
+		if got := num(q); got != want {
+			t.Errorf("after down to 43: %s = %d, want %d", q, got, want)
+		}
+	}
+	exec("INSERT INTO api_keys(user_id, name, created_at, device_id) VALUES (1, 'new', CURRENT_TIMESTAMP, 1)")
+	if got := num("SELECT MAX(id) FROM api_keys"); got != 3 {
+		t.Errorf("after down to 43: a new api key got id %d; the revoked id 2 must not be reused", got)
+	}
+	exec("INSERT INTO devices(name, host) VALUES ('study', '10.0.0.2')")
+	if got := num("SELECT id FROM devices WHERE host = '10.0.0.2'"); got != 3 {
+		t.Errorf("after down to 43: a new device got id %d, want 3", got)
+	}
+	exec("DELETE FROM devices WHERE host = '10.0.0.2'")
+
+	// Down past the connections table: inserts still work and the children
+	// of albums and images are intact.
+	if err := m.Migrate(40); err != nil {
+		t.Fatalf("migrate down to 40: %v", err)
+	}
+	exec("INSERT INTO images(source, external_id, file_path) VALUES ('gallery', '', '/data/photos/gallery/v.jpg')")
+	if got := num("SELECT MAX(id) FROM images"); got != 4 {
+		t.Errorf("after down to 40: a new image got id %d; the deleted id 3 must not be reused", got)
+	}
+	exec("INSERT INTO albums(source, external_id, name) VALUES ('immich', 'b', 'More')")
+	for q, want := range map[string]int{
+		"SELECT COUNT(*) FROM images":                                                      3,
+		"SELECT COUNT(*) FROM albums":                                                      3,
+		"SELECT COUNT(*) FROM image_album_memberships":                                     2,
+		"SELECT COUNT(*) FROM device_album_mappings WHERE device_id = 1":                   2,
+		"SELECT COUNT(*) FROM device_histories WHERE device_id = 1 AND image_id = 2":       1,
+		"SELECT COUNT(*) FROM pragma_table_info('images') WHERE name = 'connection_id'":    0,
+		"SELECT COUNT(*) FROM pragma_table_info('albums') WHERE name = 'connection_id'":    0,
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'connections'": 0,
+	} {
+		if got := num(q); got != want {
+			t.Errorf("after down to 40: %s = %d, want %d", q, got, want)
+		}
+	}
+	// Cascades still fire on the rebuilt tables.
+	exec("DELETE FROM images WHERE id = 2")
+	if got := num("SELECT COUNT(*) FROM image_album_memberships WHERE image_id = 2"); got != 0 {
+		t.Errorf("membership must cascade with its image")
+	}
+	if got := num("SELECT COUNT(*) FROM device_histories WHERE image_id IS NULL"); got != 1 {
+		t.Errorf("history must keep the row and null the image")
+	}
+
+	// And back up to the top.
+	if err := m.Migrate(44); err != nil {
+		t.Fatalf("migrate back up to 44: %v", err)
+	}
+	if got := num("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = 'calendar_connection_id'"); got != 1 {
+		t.Errorf("calendar column must be back")
+	}
+	if got := num("SELECT COUNT(*) FROM connections WHERE source = 'immich'"); got != 1 {
+		t.Errorf("the immich albums bring a connection back, got %d", got)
+	}
+}

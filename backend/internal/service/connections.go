@@ -104,16 +104,20 @@ func (st *ConnectionStore) Delete(id uint) error {
 // startup, on create, and stops them on delete. Handlers and the serving
 // plugins look services up here by connection id, never by source type.
 type ConnectionManager struct {
-	db        *gorm.DB
-	store     *ConnectionStore
-	googleCfg googlephotos.ConfigProvider
-	picker    *PickerService
+	db    *gorm.DB
+	store *ConnectionStore
+	// The global OAuth client with the Photos scopes, and the same client
+	// with the Calendar scopes.
+	googleCfg   googlephotos.ConfigProvider
+	calendarCfg googlephotos.ConfigProvider
+	picker      *PickerService
 
-	mu       sync.Mutex
-	immich   map[uint]*ImmichService
-	synology map[uint]*SynologyService
-	google   map[uint]*GooglePhotosService
-	topics   map[uint]*TopicSource
+	mu        sync.Mutex
+	immich    map[uint]*ImmichService
+	synology  map[uint]*SynologyService
+	google    map[uint]*GooglePhotosService
+	calendars map[uint]*GoogleCalendarService
+	topics    map[uint]*TopicSource
 
 	// Pending Google OAuth flows by state nonce: the callback carries only
 	// the nonce, which names the connection the code belongs to.
@@ -129,17 +133,19 @@ type pendingOAuth struct {
 // NewConnectionManager builds an empty manager; Start loads the rows.
 // googleCfg supplies the global Google OAuth client id and secret; picker
 // is the shared Google Photos Picker flow.
-func NewConnectionManager(db *gorm.DB, googleCfg googlephotos.ConfigProvider, picker *PickerService) *ConnectionManager {
+func NewConnectionManager(db *gorm.DB, googleCfg, calendarCfg googlephotos.ConfigProvider, picker *PickerService) *ConnectionManager {
 	return &ConnectionManager{
-		db:        db,
-		store:     NewConnectionStore(db),
-		googleCfg: googleCfg,
-		picker:    picker,
-		immich:    map[uint]*ImmichService{},
-		synology:  map[uint]*SynologyService{},
-		google:    map[uint]*GooglePhotosService{},
-		topics:    map[uint]*TopicSource{},
-		oauth:     map[string]pendingOAuth{},
+		db:          db,
+		store:       NewConnectionStore(db),
+		googleCfg:   googleCfg,
+		calendarCfg: calendarCfg,
+		picker:      picker,
+		immich:      map[uint]*ImmichService{},
+		synology:    map[uint]*SynologyService{},
+		google:      map[uint]*GooglePhotosService{},
+		calendars:   map[uint]*GoogleCalendarService{},
+		topics:      map[uint]*TopicSource{},
+		oauth:       map[string]pendingOAuth{},
 	}
 }
 
@@ -189,6 +195,13 @@ func (m *ConnectionManager) ensure(c model.Connection) (any, error) {
 		s := NewGooglePhotosService(m.db, m.store, c.ID, m.googleCfg, m.picker)
 		m.google[c.ID] = s
 		return s, nil
+	case model.SourceGoogleCalendar:
+		if s, ok := m.calendars[c.ID]; ok {
+			return s, nil
+		}
+		s := NewGoogleCalendarService(m.store, c.ID, m.calendarCfg)
+		m.calendars[c.ID] = s
+		return s, nil
 	case model.SourceUnsplash, model.SourcePexels:
 		if s, ok := m.topics[c.ID]; ok {
 			return s, nil
@@ -233,6 +246,10 @@ func (m *ConnectionManager) Updated(id uint) {
 // Delete stops the connection's service and removes the row, which cascades
 // to its albums and images; cached thumbnails of those images are swept.
 func (m *ConnectionManager) Delete(id uint) error {
+	row, err := m.store.Get(id)
+	if err != nil {
+		return err
+	}
 	m.mu.Lock()
 	if s, ok := m.immich[id]; ok {
 		s.Stop()
@@ -250,11 +267,25 @@ func (m *ConnectionManager) Delete(id uint) error {
 	if isGoogle {
 		delete(m.google, id)
 	}
+	if s, ok := m.calendars[id]; ok {
+		s.Stop()
+		delete(m.calendars, id)
+	}
 	m.mu.Unlock()
 	// Outside the lock: stopping a Google account waits for its running
 	// imports to notice, and nothing else needs the manager meanwhile.
 	if isGoogle {
 		g.Stop()
+	}
+	// Frames that showed this account's calendar fall back to the first
+	// connected account's primary calendar: the account binding goes (as the
+	// column's ON DELETE SET NULL would do) and so does the calendar id,
+	// which another account may not be able to read.
+	if row.Source == model.SourceGoogleCalendar {
+		if err := m.db.Model(&model.Device{}).Where("calendar_connection_id = ?", id).
+			Updates(map[string]any{"calendar_connection_id": nil, "calendar_id": ""}).Error; err != nil {
+			return err
+		}
 	}
 	// Google photos are local files; take them off disk before the cascade
 	// forgets where they are.
@@ -336,6 +367,82 @@ func (m *ConnectionManager) Google(id uint) (*GooglePhotosService, error) {
 	return v.(*GooglePhotosService), nil
 }
 
+// Calendar returns the service for a Google Calendar connection.
+func (m *ConnectionManager) Calendar(id uint) (*GoogleCalendarService, error) {
+	m.mu.Lock()
+	s, ok := m.calendars[id]
+	m.mu.Unlock()
+	if ok {
+		return s, nil
+	}
+	c, err := m.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if c.Source != model.SourceGoogleCalendar {
+		return nil, fmt.Errorf("connection %d is %s, not google_calendar", id, c.Source)
+	}
+	v, err := m.ensure(c)
+	if err != nil {
+		return nil, err
+	}
+	return v.(*GoogleCalendarService), nil
+}
+
+// CalendarForDevice resolves the Google account whose calendar a frame shows:
+// the one it is bound to, or else the first connected account, which keeps
+// frames set up before accounts were plural working.
+func (m *ConnectionManager) CalendarForDevice(d model.Device) (*GoogleCalendarService, error) {
+	if d.CalendarConnectionID != nil {
+		return m.Calendar(*d.CalendarConnectionID)
+	}
+	rows, err := m.store.List(model.SourceGoogleCalendar)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range rows {
+		if !c.Enabled || !c.GoogleState().Connected() {
+			continue
+		}
+		return m.Calendar(c.ID)
+	}
+	return nil, ErrCalendarNotConnected
+}
+
+// googleAccount returns the OAuth side of a Google Photos or Google Calendar
+// connection, whichever it is.
+func (m *ConnectionManager) googleAccount(id uint) (*googleAccount, error) {
+	c, err := m.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	switch c.Source {
+	case model.SourceGooglePhotos:
+		s, err := m.Google(id)
+		if err != nil {
+			return nil, err
+		}
+		return s.googleAccount, nil
+	case model.SourceGoogleCalendar:
+		s, err := m.Calendar(id)
+		if err != nil {
+			return nil, err
+		}
+		return s.googleAccount, nil
+	}
+	return nil, fmt.Errorf("connection %d is %s, not a Google account", id, c.Source)
+}
+
+// GoogleLogout forgets a Google Photos or Calendar account's token; the
+// connection and (for Photos) its imported photos stay.
+func (m *ConnectionManager) GoogleLogout(id uint) error {
+	a, err := m.googleAccount(id)
+	if err != nil {
+		return err
+	}
+	return a.Logout()
+}
+
 // Topic returns the service for an Unsplash or Pexels connection.
 func (m *ConnectionManager) Topic(id uint) (*TopicSource, error) {
 	m.mu.Lock()
@@ -362,12 +469,13 @@ func (m *ConnectionManager) Topic(id uint) (*TopicSource, error) {
 // callback is refused.
 const oauthStateTTL = 15 * time.Minute
 
-// BeginGoogleAuth starts the consent flow for a Google connection and returns
-// the URL to send the browser to. redirectURL is the server's callback as the
-// browser reaches it. The state parameter is a random nonce remembered here,
-// so the callback can only complete a flow this server started.
+// BeginGoogleAuth starts the consent flow for a Google Photos or Google
+// Calendar connection and returns the URL to send the browser to. redirectURL
+// is the server's callback as the browser reaches it. The state parameter is a
+// random nonce remembered here, so the callback can only complete a flow this
+// server started.
 func (m *ConnectionManager) BeginGoogleAuth(id uint, redirectURL string) (string, error) {
-	svc, err := m.Google(id)
+	svc, err := m.googleAccount(id)
 	if err != nil {
 		return "", err
 	}
@@ -405,7 +513,7 @@ func (m *ConnectionManager) CompleteGoogleAuth(state, code string) (uint, error)
 	if !ok || p.expires.Before(time.Now()) {
 		return 0, ErrUnknownOAuthState
 	}
-	svc, err := m.Google(p.connectionID)
+	svc, err := m.googleAccount(p.connectionID)
 	if err != nil {
 		return 0, err
 	}
@@ -464,6 +572,8 @@ func (m *ConnectionManager) Backend(id uint) (SyncBackend, error) {
 		return m.Google(id)
 	case model.SourceUnsplash, model.SourcePexels:
 		return m.Topic(id)
+	case model.SourceGoogleCalendar:
+		return nil, fmt.Errorf("a Google Calendar connection has no photos")
 	}
 	return nil, fmt.Errorf("source %q has no sync backend", c.Source)
 }

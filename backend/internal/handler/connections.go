@@ -76,7 +76,7 @@ func (h *ConnectionsHandler) view(c model.Connection) connectionResponse {
 			"auto_sync_enabled":          cfg.AutoSyncEnabled,
 			"auto_sync_interval_minutes": cfg.AutoSyncIntervalMinutes,
 		}
-	case model.SourceGooglePhotos:
+	case model.SourceGooglePhotos, model.SourceGoogleCalendar:
 		st := c.GoogleState()
 		out.Connected = st.Connected()
 		// The account email is display state, not a secret.
@@ -197,7 +197,7 @@ func applyConfig(c *model.Connection, in map[string]any) error {
 			cfg.AutoSyncIntervalMinutes = 60
 		}
 		return c.EncodeConfig(cfg)
-	case model.SourceGooglePhotos:
+	case model.SourceGooglePhotos, model.SourceGoogleCalendar:
 		// Nothing to configure: the account is chosen on Google's consent
 		// page and the OAuth app credentials are global settings.
 		c.Config = "{}"
@@ -239,6 +239,8 @@ func defaultName(source string) string {
 		return "Synology Photos"
 	case model.SourceGooglePhotos:
 		return "Google Photos"
+	case model.SourceGoogleCalendar:
+		return "Google Calendar"
 	case model.SourceUnsplash:
 		return "Unsplash"
 	case model.SourcePexels:
@@ -413,7 +415,7 @@ func (h *ConnectionsHandler) Test(c echo.Context) error {
 		if err := svc.TestConnection(req.OTPCode); err != nil {
 			return respondError(c, http.StatusBadRequest, err.Error())
 		}
-	case model.SourceGooglePhotos:
+	case model.SourceGooglePhotos, model.SourceGoogleCalendar:
 		return respondError(c, http.StatusBadRequest, "Google connections are authorised through /google/login")
 	case model.SourceUnsplash, model.SourcePexels:
 		svc, err := h.conns.Topic(conn.ID)
@@ -522,12 +524,8 @@ func (h *ConnectionsHandler) Logout(c echo.Context) error {
 		if err := svc.Logout(); err != nil {
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
-	case model.SourceGooglePhotos:
-		svc, err := h.conns.Google(conn.ID)
-		if err != nil {
-			return respondError(c, http.StatusInternalServerError, err.Error())
-		}
-		if err := svc.Logout(); err != nil {
+	case model.SourceGooglePhotos, model.SourceGoogleCalendar:
+		if err := h.conns.GoogleLogout(conn.ID); err != nil {
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 	default:
@@ -613,23 +611,51 @@ func (h *ConnectionsHandler) google(c echo.Context) (*service.GooglePhotosServic
 	return svc, true
 }
 
-// GoogleLogin starts the OAuth consent flow for a Google connection and
-// returns the URL to send the browser to. The callback lands on
-// /api/auth/google/callback and redirects back to the dashboard.
+// GoogleLogin starts the OAuth consent flow for a Google Photos or Google
+// Calendar connection and returns the URL to send the browser to. The callback
+// lands on /api/auth/google/callback and redirects back to the dashboard.
 // GET /api/connections/:id/google/login
 func (h *ConnectionsHandler) GoogleLogin(c echo.Context) error {
 	conn, ok := h.load(c)
 	if !ok {
 		return nil
 	}
-	if conn.Source != model.SourceGooglePhotos {
-		return respondError(c, http.StatusBadRequest, "not a Google Photos connection")
+	if conn.Source != model.SourceGooglePhotos && conn.Source != model.SourceGoogleCalendar {
+		return respondError(c, http.StatusBadRequest, "not a Google connection")
 	}
 	url, err := h.conns.BeginGoogleAuth(conn.ID, buildRedirectURL(c))
 	if err != nil {
 		return respondError(c, http.StatusBadRequest, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"url": url})
+}
+
+// Calendars lists the calendars of a Google Calendar account, for the
+// per-frame calendar picker. 403 calendar_not_authorized means the account
+// was signed in without the calendar scope: sign in again.
+// GET /api/connections/:id/calendars
+func (h *ConnectionsHandler) Calendars(c echo.Context) error {
+	conn, ok := h.load(c)
+	if !ok {
+		return nil
+	}
+	if conn.Source != model.SourceGoogleCalendar {
+		return respondError(c, http.StatusBadRequest, "not a Google Calendar connection")
+	}
+	svc, err := h.conns.Calendar(conn.ID)
+	if err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	calendars, err := svc.Calendars()
+	switch {
+	case errors.Is(err, service.ErrCalendarNotAuthorized):
+		return respondError(c, http.StatusForbidden, "calendar_not_authorized")
+	case errors.Is(err, service.ErrCalendarNotConnected):
+		return respondError(c, http.StatusBadRequest, err.Error())
+	case err != nil:
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, calendars)
 }
 
 // PickerSession opens a Google Photos Picker session for the account.
