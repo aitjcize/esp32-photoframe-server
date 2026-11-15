@@ -119,23 +119,29 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
      ssh -L 9607:localhost:9607 root@homeassistant.local -p 22222
      ```
    - Access the dashboard at `http://localhost:9607`
-   - Go to **Settings** → **Data Sources**
-   - Select **Source: Google Photos**
-   - Enter your **Client ID** and **Client Secret**
-   - Click **Save All Settings**
+   - Go to **Settings** → **Data Sources** → **Google**
+   - Enter your **Client ID** and **Client Secret** and click **Save Credentials**
 
-3. **Authenticate and Import Photos**:
-   - Go to the **Gallery** tab
-   - Click **Add Photos via Google**
-   - You'll be redirected to Google OAuth (sign in if needed)
-   - Select the photos you want to display
-   - Click **Add** to import them
+3. **Connect a Google account**:
+   - Still on the **Google** tab, click **Add Google Photos** (or **Add another**
+     for a second account) and then **Connect Google account** on the new card
+   - You'll be redirected to Google OAuth (sign in if needed) and back to the card
+   - The card shows which account is connected; rename it with the pencil if you like
+   - Repeat for every Google account whose photos the frame should show — one
+     set of OAuth credentials serves all of them
 
-4. **After Setup**:
-   - The OAuth token is saved in the database
+4. **Import Photos**:
+   - Click **Add Photos via Google** on the account's card, or in the **Gallery**
+     with **Source: Google Photos** selected (with several accounts the Gallery
+     button asks which one)
+   - Select the photos you want to display and click **Add** to import them
+
+5. **After Setup**:
+   - Each account's OAuth token is saved on its connection
    - You can close the SSH tunnel (if used)
    - Access the server normally via Home Assistant ingress or `http://homeassistant.local:9607`
-   - Re-authentication is only needed if you revoke access or want to add more photos
+   - Re-authentication is only needed if you revoke access; adding more photos
+     just needs the picker
 
 ### Synology Setup
 
