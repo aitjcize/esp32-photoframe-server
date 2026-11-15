@@ -38,11 +38,24 @@
   albums are listed by `GET /api/albums?source=gallery` and bound per frame
   through the existing `/api/devices/:id/albums`.
 
+- **Several Google Calendar accounts.** Calendar accounts are connections
+  too: **Settings → Calendar** lists them, **Add Google account** signs
+  another one in, and each frame picks the account and then the calendar in
+  the device dialog. A frame without a chosen account uses the first
+  connected one. The single calendar token of existing installs becomes one
+  "Google Calendar" account on first start and every frame that showed a
+  calendar is pointed at it, so nothing needs re-authorising. API:
+  connections of source `google_calendar` (sign-in through
+  `/api/connections/:id/google/login`, calendars from
+  `/api/connections/:id/calendars`), a `calendar_connection_id` on devices;
+  `/api/calendar/calendars` and `/api/auth/google-calendar/{login,logout}`
+  are gone, as is `google_calendar_connected` in `GET /api/settings`.
+
 ### Changed
 
-- **The Google OAuth client and the Calendar connection moved to Settings →
-  System → Google.** They serve every Google Photos account and are no longer
-  mixed in with the photo sources.
+- **The Google OAuth client moved to Settings → System → Google.** It serves
+  every Google Photos and Google Calendar account and is no longer mixed in
+  with the photo sources.
 - **Provider credentials no longer leave the server.** The Immich API key,
   the Synology password and the Unsplash and Pexels keys used to be returned
   by `GET /api/settings` in plain text to the dashboard. They now live in the

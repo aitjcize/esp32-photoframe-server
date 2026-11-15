@@ -145,6 +145,14 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
    - Re-authentication is only needed if you revoke access; adding more photos
      just needs the picker
 
+### Google Calendar
+
+Frames can show today's events of a Google Calendar next to the photo. Calendar accounts are separate from Google Photos accounts and share the same OAuth client.
+
+1. Enter the **Client ID** and **Client Secret** under **Settings** → **System** → **Google** (the same ones Google Photos uses).
+2. Open **Settings** → **Calendar**, click **Add Google account**, name it and click **Sign in with Google**. Repeat for every account whose calendar a frame should show.
+3. In the device dialog tick **Show Google Calendar Events**, pick the **Google account** and then the **calendar**. A frame without a chosen account uses the first connected one.
+
 ### Synology Setup
 
 1. Click **+** next to the source picker and choose **Synology Photos**.
