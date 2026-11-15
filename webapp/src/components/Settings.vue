@@ -39,6 +39,7 @@
             :confirm="confirmPrompt"
             :show-message="showMessage"
             @synced="onConnectionSynced"
+            @deleted="loadDevices"
           ></component>
         </template>
 
@@ -1365,15 +1366,49 @@
                             <!-- This server: source dropdown -->
                             <v-select
                               v-if="useThisServer"
-                              v-model="selectedSource"
-                              :items="sourceOptions"
+                              v-model="deviceSourceKey"
+                              :items="deviceSourceItems"
+                              item-title="title"
+                              item-value="value"
                               label="Image Source"
                               variant="outlined"
                               density="compact"
                               hide-details
                               class="mb-2 ml-8"
+                              :menu-props="{ maxHeight: 420 }"
                               :disabled="!deviceConfig.auto_rotate"
-                            ></v-select>
+                            >
+                              <template #selection="{ item }">
+                                <span class="text-truncate">{{
+                                  item.raw.title
+                                }}</span>
+                                <span
+                                  v-if="
+                                    item.raw.group &&
+                                    item.raw.group !== item.raw.title
+                                  "
+                                  class="text-caption text-grey ml-2"
+                                  >{{ item.raw.group }}</span
+                                >
+                              </template>
+                              <template #item="{ props: itemProps, item }">
+                                <v-list-item
+                                  v-bind="itemProps"
+                                  :title="item.raw.title"
+                                  :subtitle="item.raw.subtitle"
+                                  :prepend-icon="item.raw.icon"
+                                >
+                                  <template
+                                    v-if="item.raw.notConnected"
+                                    #append
+                                  >
+                                    <v-chip size="x-small" variant="tonal"
+                                      >Not connected</v-chip
+                                    >
+                                  </template>
+                                </v-list-item>
+                              </template>
+                            </v-select>
 
                             <!-- Per-frame album selection for the chosen source -->
                             <div
@@ -2327,6 +2362,9 @@ import { useSettingsStore } from '../stores/settings';
 import {
   CALENDAR_SOURCE,
   CONNECTION_SOURCES,
+  SOURCE_ICONS,
+  SOURCE_LABELS,
+  connectionSubtitle,
   useConnectionsStore,
   type Connection,
 } from '../stores/connections';
@@ -2665,19 +2703,106 @@ async function turnOffFramePassword() {
   await sendFramePassword('');
 }
 
-const selectedSource = ref('immich');
-const sourceOptions = [
-  { title: 'Gallery', value: 'gallery' },
-  { title: 'Immich', value: 'immich' },
-  { title: 'Google Photos', value: 'google_photos' },
-  { title: 'Synology Photos', value: 'synology_photos' },
-  { title: 'Unsplash', value: 'unsplash' },
-  { title: 'Pexels', value: 'pexels' },
-  { title: 'URL Proxy', value: 'url_proxy' },
-  { title: 'AI Generation', value: 'ai_generation' },
-  { title: 'Fractal (Mandelbrot zoom)', value: 'fractal' },
-  { title: 'DLA (diffusion-limited aggregation)', value: 'dla' },
+// What the frame draws from, as one dropdown value: a built-in source by
+// name, one connection ('conn:<id>'), or every connection of a provider
+// ('any:<source>'). The device record stores it as source +
+// image_connection_id (null = any).
+const deviceSourceKey = ref('gallery');
+const BUILT_IN_SOURCES = [
+  { value: 'gallery', title: 'Gallery', icon: 'mdi-image-multiple' },
+  { value: 'url_proxy', title: 'URL Proxy', icon: 'mdi-link-variant' },
+  { value: 'ai_generation', title: 'AI Generation', icon: 'mdi-creation' },
+  {
+    value: 'fractal',
+    title: 'Fractal (Mandelbrot zoom)',
+    icon: 'mdi-infinity',
+  },
+  {
+    value: 'dla',
+    title: 'DLA (diffusion-limited aggregation)',
+    icon: 'mdi-snowflake',
+  },
 ];
+type DeviceSourceItem = {
+  value: string;
+  title: string;
+  subtitle?: string;
+  icon?: string;
+  group?: string;
+  notConnected?: boolean;
+  type?: 'subheader' | 'divider';
+};
+const deviceSourceKeyFor = (
+  source: string,
+  connectionId: number | null | undefined
+) => {
+  if (!CONNECTION_SOURCES.includes(source as any)) return source;
+  // A binding to a connection this dashboard no longer knows (deleted
+  // since the device list loaded) counts as unbound.
+  if (connectionId && connectionsStore.byId(connectionId)) {
+    return `conn:${connectionId}`;
+  }
+  // Unbound on a provider with one connection: that connection, which is
+  // what the frame draws from anyway and what the dropdown can show.
+  const conns = connectionsStore.bySource(source);
+  if (conns.length === 1) return `conn:${conns[0].id}`;
+  return `any:${source}`;
+};
+// The source type the key stands for ('' until a device is loaded).
+const selectedSource = computed(() => {
+  const key = deviceSourceKey.value;
+  if (key.startsWith('conn:')) {
+    return connectionsStore.byId(Number(key.slice(5)))?.source || '';
+  }
+  if (key.startsWith('any:')) return key.slice(4);
+  return key;
+});
+// The connection the key names, or null for a built-in or 'any'.
+const selectedConnectionId = computed(() => {
+  const key = deviceSourceKey.value;
+  return key.startsWith('conn:') ? Number(key.slice(5)) || null : null;
+});
+// Built-ins first, then one group per provider that has connections. A
+// provider with several also offers 'Any', which is what a frame bound
+// before connections were plural still has.
+const deviceSourceItems = computed<DeviceSourceItem[]>(() => {
+  const out: DeviceSourceItem[] = [
+    { type: 'subheader', title: 'Built-in', value: '' },
+    ...BUILT_IN_SOURCES,
+  ];
+  for (const source of CONNECTION_SOURCES) {
+    const conns = connectionsStore.bySource(source);
+    const current = deviceSourceKey.value === `any:${source}`;
+    if (conns.length === 0 && !current) continue;
+    const label = SOURCE_LABELS[source];
+    out.push({ type: 'divider', title: '', value: '' });
+    out.push({ type: 'subheader', title: label, value: '' });
+    for (const c of conns) {
+      out.push({
+        value: `conn:${c.id}`,
+        title: c.name,
+        subtitle: connectionSubtitle(c),
+        icon: SOURCE_ICONS[source],
+        group: label,
+        notConnected: !c.connected,
+      });
+    }
+    if (conns.length > 1 || current) {
+      out.push({
+        value: `any:${source}`,
+        title: conns.length
+          ? `Any ${label} connection`
+          : `${label} (no connection yet)`,
+        subtitle: conns.length
+          ? `Photos of all ${conns.length} connections`
+          : 'Add one with + above the photos',
+        icon: SOURCE_ICONS[source],
+        group: label,
+      });
+    }
+  }
+  return out;
+});
 
 // URL Proxy State
 const urlSources = ref<any[]>([]); // Renamed from urlImages
@@ -3166,7 +3291,10 @@ const loadDeviceConfig = async (deviceId: number) => {
     // image_url for back-compat with devices configured before `source` existed.
     if (editingDevice.source) {
       useThisServer.value = true;
-      selectedSource.value = editingDevice.source;
+      deviceSourceKey.value = deviceSourceKeyFor(
+        editingDevice.source,
+        editingDevice.image_connection_id
+      );
     } else {
       // Detect if image_url points to this server
       const imgUrl = cfg.image_url || '';
@@ -3184,7 +3312,7 @@ const loadDeviceConfig = async (deviceId: number) => {
       if (isThisServer) {
         const match = imgUrl.match(/\/image\/([^/?]+)/);
         if (match) {
-          selectedSource.value = match[1];
+          deviceSourceKey.value = deviceSourceKeyFor(match[1], null);
         }
       }
     }
@@ -3594,10 +3722,8 @@ const editDevice = async (device: Device) => {
   deviceSynologyAlbumIds.value = [];
   deviceUnsplashAlbumIds.value = [];
   devicePexelsAlbumIds.value = [];
-  // Load device remote config
-  await loadDeviceConfig(device.id);
-  // Load the synced albums of every connection plus this device's bindings
-  // (best-effort).
+  // The connections first: the source dropdown names them, so the device's
+  // binding can only be shown once they are known (best-effort).
   if (!connectionsStore.loaded) {
     try {
       await connectionsStore.fetch();
@@ -3605,6 +3731,10 @@ const editDevice = async (device: Device) => {
       // Non-fatal
     }
   }
+  // Load device remote config
+  await loadDeviceConfig(device.id);
+  // Load the synced albums of every connection plus this device's bindings
+  // (best-effort).
   const connectionBindings: [
     string,
     typeof deviceImmichAlbumIds,
@@ -3803,7 +3933,8 @@ const saveDevice = async () => {
         editingDevice.date_format || '',
         deviceSource,
         deviceProcessing.backgroundColor || '',
-        editingDevice.calendar_connection_id || null
+        editingDevice.calendar_connection_id || null,
+        deviceSource ? selectedConnectionId.value : null
       );
 
       // Write-only: only send when the field was filled in. Blank leaves any
@@ -3894,7 +4025,10 @@ const saveDevice = async () => {
         try {
           await api.put(`/devices/${editingDevice.id}/albums`, {
             source: 'immich',
-            album_ids: deviceImmichAlbumIds.value,
+            album_ids: shownAlbumIds(
+              deviceImmichAlbumIds.value,
+              deviceImmichAlbumOptions.value
+            ),
           });
         } catch (e: any) {
           showMessage(
@@ -3910,7 +4044,10 @@ const saveDevice = async () => {
         try {
           await api.put(`/devices/${editingDevice.id}/albums`, {
             source: 'synology_photos',
-            album_ids: deviceSynologyAlbumIds.value,
+            album_ids: shownAlbumIds(
+              deviceSynologyAlbumIds.value,
+              deviceSynologyAlbumOptions.value
+            ),
           });
         } catch (e: any) {
           showMessage(
@@ -3923,8 +4060,14 @@ const saveDevice = async () => {
 
       // Persist per-device topic bindings (best-effort).
       const topicBindings: Record<string, number[]> = {
-        unsplash: deviceUnsplashAlbumIds.value,
-        pexels: devicePexelsAlbumIds.value,
+        unsplash: shownAlbumIds(
+          deviceUnsplashAlbumIds.value,
+          deviceUnsplashAlbumOptions.value
+        ),
+        pexels: shownAlbumIds(
+          devicePexelsAlbumIds.value,
+          devicePexelsAlbumOptions.value
+        ),
       };
       for (const [source, album_ids] of Object.entries(topicBindings)) {
         if (!hasConnections(source)) continue;
@@ -4072,12 +4215,16 @@ const form = reactive({
 
 // Synced (persisted) albums of a connection-backed source available for
 // per-device binding. Items use the internal album row id (number) as the
-// value. With more than one connection, the album name is prefixed with the
-// connection's name so two servers' "Family" albums can be told apart.
+// value. A frame bound to one connection sees that connection's albums; one
+// on 'Any' sees every connection's, each name prefixed with the connection's
+// so two servers' "Family" albums can be told apart.
 const connectionAlbumOptions = (source: string, synced: any[]) => {
-  const several = connectionsStore.hasSeveral(source);
+  const bound =
+    selectedSource.value === source ? selectedConnectionId.value : null;
+  const several = !bound && connectionsStore.hasSeveral(source);
   return (synced || [])
     .filter((a: any) => a.sync_enabled)
+    .filter((a: any) => !bound || a.connection_id === bound)
     .map((a: any) => ({
       id: a.id,
       name:
@@ -4085,6 +4232,12 @@ const connectionAlbumOptions = (source: string, synced: any[]) => {
           ? `${a.connection_name} · ${a.name}`
           : a.name,
     }));
+};
+// What is saved is what the picker showed: albums of a connection the frame
+// is no longer bound to are dropped rather than kept as hidden bindings.
+const shownAlbumIds = (ids: number[], options: { id: number }[]) => {
+  const shown = new Set(options.map((o) => o.id));
+  return ids.filter((id) => shown.has(id));
 };
 const deviceGalleryAlbumOptions = computed(() =>
   connectionAlbumOptions('gallery', deviceGallerySyncedAlbums.value)

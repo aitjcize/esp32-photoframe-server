@@ -95,6 +95,9 @@ export interface Device {
   calendar_connection_id?: number | null;
   date_format?: string;
   source?: string;
+  // The connection of `source` the frame draws from; null means every
+  // connection of that source.
+  image_connection_id?: number | null;
   board_name?: string;
   // Display color model reported by the device: "gc16" (16-level grayscale),
   // "spectra6" (6-color), or undefined for legacy firmware (treated as color).
@@ -207,7 +210,8 @@ export const updateDevice = async (
   dateFormat?: string,
   source?: string,
   backgroundColor?: string,
-  calendarConnectionId?: number | null
+  calendarConnectionId?: number | null,
+  imageConnectionId?: number | null
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -228,6 +232,7 @@ export const updateDevice = async (
     calendar_id: calendarId || '',
     date_format: dateFormat || '',
     source: source || '',
+    image_connection_id: imageConnectionId ?? null,
     background_color: backgroundColor || '',
     calendar_connection_id: calendarConnectionId ?? null,
   });
