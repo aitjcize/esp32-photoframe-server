@@ -160,7 +160,7 @@ Frames can show today's events of a Google Calendar next to the photo. Calendar 
 3. If using 2FA, the dialog asks for the **OTP Code**; enter it and click **Connect** again.
 4. Click **Refresh albums** and pick the albums to sync. Albums other DSM users shared with your account are listed too, badged **Shared with me**. Album and photo listings are paged, so large libraries (hundreds of albums, thousands of photos per album) sync in full.
 5. Click **Sync Now** to import metadata, or enable **Auto Sync Album** to keep it current.
-6. Repeat with **+** for a second NAS or account; each connection has its own albums and schedule, and a frame can show albums from any of them.
+6. Repeat with **+** for a second NAS or account; each connection has its own albums and schedule. In the device dialog a frame picks one connection as its Image Source, or **Any Synology Photos connection** to draw from all of them.
 
 > [!NOTE]
 > Shared Space (FotoTeam) folders can't be picked as a source yet — see [#55](https://github.com/aitjcize/esp32-photoframe-server/issues/55). Photos from the Shared Space do sync when they are in an album.
@@ -171,7 +171,7 @@ Frames can show today's events of a Google Calendar next to the photo. Calendar 
 2. Name the connection and enter your **Server URL** (e.g., `https://immich.example.com`) and an **API Key** (in Immich: **Account Settings** → **API Keys**).
 3. Click **Connect** to validate, then choose the albums to sync on the connection's card — or the **All Photos**, **Favorites**, or **Memories** views.
 4. Click **Sync Now** to import.
-5. Repeat with **+** for a second Immich server. Each connection keeps its own albums and schedule; the per-frame album picker lists them all, prefixed with the connection name.
+5. Repeat with **+** for a second Immich server. Each connection keeps its own albums and schedule. In the device dialog a frame picks one server as its Image Source and then some of its albums, or **Any Immich connection** to draw from every server; the album picker then lists all their albums, prefixed with the connection name.
 
 ### Gallery Albums
 

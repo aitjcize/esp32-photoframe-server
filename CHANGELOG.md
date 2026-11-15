@@ -14,15 +14,23 @@
   opens the new connection. Picking a connection shows its card first, with
   its credentials, album or topic selection, auto-sync schedule, photo count
   and Sync / Clear buttons, and its photos below; the pencil renames it, the
-  bin deletes it together with its photos. A frame on the Immich source can
-  draw from albums of any Immich connection: the per-frame album picker
-  lists every connection's albums, prefixed with the connection name when
-  there is more than one. Existing installs are migrated on first start: the
-  old Immich and Synology settings become one connection each, named
-  "Immich" and "Synology Photos", with their albums, photos and session
-  carried over, the Google Photos token and imports become a "Google
-  Photos" connection, and the Unsplash and Pexels keys become one connection
-  each with their topics; nothing needs re-entering or re-authorising.
+  bin deletes it together with its photos. The device dialog's **Image
+  Source** is grouped the same way: the built-in sources, then each
+  provider's connections by name, so a frame draws from one Immich server,
+  one NAS account or one API key and its album picker lists that
+  connection's albums. A provider with several connections also offers
+  **Any … connection**, which draws from all of them with every
+  connection's albums in the picker, prefixed with the connection name.
+  Existing installs are migrated on first start: the old Immich and Synology
+  settings become one connection each, named "Immich" and "Synology
+  Photos", with their albums, photos and session carried over, the Google
+  Photos token and imports become a "Google Photos" connection, and the
+  Unsplash and Pexels keys become one connection each with their topics;
+  nothing needs re-entering or re-authorising. A frame whose provider has
+  one connection is bound to it; one whose provider has several keeps
+  drawing from all of them until you pick one. API: devices carry
+  `image_connection_id` (null = any connection of `source`), accepted by
+  `PUT /api/devices/:id`, which rejects a connection of another source.
 
 - **Albums inside the Gallery.** The local gallery (dashboard uploads and
   Telegram photos) can be split into albums: create and rename them under
