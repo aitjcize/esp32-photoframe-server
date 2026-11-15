@@ -2,7 +2,9 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
@@ -47,20 +50,93 @@ type PickerProgress struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// PickerService runs the Google Photos Picker flow: open a session, wait for
+// the user to pick, download the picked items into the data directory. It is
+// shared by every Google connection; each call names the account's OAuth
+// client and the connection the imported photos belong to. Session ids come
+// from Google and are unique across accounts, so one progress map serves all.
 type PickerService struct {
-	client   *googlephotos.Client
 	db       *gorm.DB
 	dataDir  string
 	mu       sync.Mutex
 	progress map[string]*PickerProgress
+	// Running imports per connection, so deleting a connection can stop
+	// them and wait before it removes the rows and files they add to.
+	imports map[uint]*importTracker
+	// Items being imported right now, by connection and item id: two picker
+	// sessions that overlap on an item must not download, record or clean
+	// up the same file at once.
+	inflight map[string]bool
 }
 
-func NewPickerService(client *googlephotos.Client, db *gorm.DB, dataDir string) *PickerService {
+// importTracker counts a connection's running imports and carries the stop
+// request to them: ctx is cancelled, which aborts their requests and body
+// reads, and they check cancelled between items.
+type importTracker struct {
+	wg        sync.WaitGroup
+	cancelled atomic.Bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+}
+
+func NewPickerService(db *gorm.DB, dataDir string) *PickerService {
 	return &PickerService{
-		client:   client,
 		db:       db,
 		dataDir:  dataDir,
 		progress: make(map[string]*PickerProgress),
+		imports:  make(map[uint]*importTracker),
+		inflight: make(map[string]bool),
+	}
+}
+
+// claimItem marks an item of a connection as being imported; false means
+// another import holds it and this one skips it. releaseItem gives it back.
+func (s *PickerService) claimItem(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inflight[key] {
+		return false
+	}
+	s.inflight[key] = true
+	return true
+}
+
+func (s *PickerService) releaseItem(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.inflight, key)
+}
+
+// beginImport registers a running import of connID; endImport releases it.
+func (s *PickerService) beginImport(connID uint) *importTracker {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.imports[connID]
+	if !ok {
+		t = &importTracker{}
+		t.ctx, t.cancel = context.WithCancel(context.Background())
+		s.imports[connID] = t
+	}
+	t.wg.Add(1)
+	return t
+}
+
+func (s *PickerService) endImport(t *importTracker) { t.wg.Done() }
+
+// CancelImports asks the running imports of connID to stop and waits until
+// they have. Called before a connection's photos and row are removed, so no
+// import keeps writing files and rows for a connection that is gone.
+func (s *PickerService) CancelImports(connID uint) {
+	s.mu.Lock()
+	t, ok := s.imports[connID]
+	if ok {
+		t.cancelled.Store(true)
+		t.cancel()
+		delete(s.imports, connID)
+	}
+	s.mu.Unlock()
+	if ok {
+		t.wg.Wait()
 	}
 }
 
@@ -91,8 +167,8 @@ func (s *PickerService) setProgress(sessionID string, fn func(p *PickerProgress)
 	fn(p)
 }
 
-func (s *PickerService) CreateSession() (string, string, error) {
-	httpClient, err := s.client.GetClient()
+func (s *PickerService) CreateSession(client *googlephotos.Client) (string, string, error) {
+	httpClient, err := client.GetClient()
 	if err != nil {
 		return "", "", err
 	}
@@ -124,8 +200,8 @@ func (s *PickerService) CreateSession() (string, string, error) {
 	return session.ID, session.PickerUri, nil
 }
 
-func (s *PickerService) PollSession(sessionID string) (bool, error) {
-	httpClient, err := s.client.GetClient()
+func (s *PickerService) PollSession(client *googlephotos.Client, sessionID string) (bool, error) {
+	httpClient, err := client.GetClient()
 	if err != nil {
 		return false, err
 	}
@@ -153,11 +229,15 @@ func (s *PickerService) PollSession(sessionID string) (bool, error) {
 	return session.MediaItemsSet, nil
 }
 
-func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
-	httpClient, err := s.client.GetClient()
+// ProcessSessionItems downloads the session's picked items and records them as
+// images of connection connID.
+func (s *PickerService) ProcessSessionItems(client *googlephotos.Client, connID uint, sessionID string) (int, error) {
+	httpClient, err := client.GetClient()
 	if err != nil {
 		return 0, err
 	}
+	tracker := s.beginImport(connID)
+	defer s.endImport(tracker)
 
 	// Initialize Progress
 	s.setProgress(sessionID, func(p *PickerProgress) {
@@ -183,7 +263,7 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 			url += "&pageToken=" + pageToken
 		}
 
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequestWithContext(tracker.ctx, "GET", url, nil)
 		if err != nil {
 			setError(err.Error())
 			return 0, err
@@ -247,6 +327,11 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 	}
 
 	for _, item := range allItems {
+		if tracker.cancelled.Load() {
+			errStr := "import stopped: the connection was deleted"
+			setError(errStr)
+			return count, errors.New(errStr)
+		}
 		// Download High Quality
 		if item.MediaFile.BaseUrl == "" {
 			markProcessed() // Count skipped as processed? yes
@@ -264,9 +349,21 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 		// is closed at the end of every iteration instead of stacking deferred
 		// closes until the whole function returns.
 		if func() bool {
+			itemKey := fmt.Sprintf("%d/%s", connID, item.ID)
+			if !s.claimItem(itemKey) {
+				fmt.Printf("Skipping %s: another import of this connection is fetching it\n", item.MediaFile.Filename)
+				return false
+			}
+			defer s.releaseItem(itemKey)
+
 			downloadUrl := item.MediaFile.BaseUrl + "=w1600-h1600"
 
-			resp, err := httpClient.Get(downloadUrl)
+			req, err := http.NewRequestWithContext(tracker.ctx, "GET", downloadUrl, nil)
+			if err != nil {
+				fmt.Printf("Failed to download %s: %v\n", item.MediaFile.Filename, err)
+				return false
+			}
+			resp, err := httpClient.Do(req)
 			if err != nil {
 				fmt.Printf("Failed to download %s: %v\n", item.MediaFile.Filename, err)
 				return false
@@ -278,15 +375,20 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 				return false
 			}
 
-			// Save to file
-			// Use ID to avoid collisions?
+			// One file per (connection, item): the same account connected
+			// twice, or two accounts that share a photo, each get their own
+			// copy, so one connection's clear never takes the other's photo.
+			// Imports from before connections kept the bare item id.
 			ext := ".jpg"
-			localFilename := fmt.Sprintf("%s%s", item.ID, ext)
+			localFilename := fmt.Sprintf("%d_%s%s", connID, item.ID, ext)
 			localPath := filepath.Join(photosDir, localFilename)
+			legacyPath := filepath.Join(photosDir, item.ID+ext)
 
-			// Check for duplicate in DB
+			// Check for duplicate in DB (this connection's rows only)
 			var existing model.Image
-			if err := s.db.Where("file_path = ?", localPath).First(&existing).Error; err == nil {
+			if err := s.db.Where("connection_id = ? AND file_path IN ?", connID, []string{localPath, legacyPath}).
+				First(&existing).Error; err == nil {
+				localPath = existing.FilePath
 				// Record exists. Check if file exists.
 				if _, err := os.Stat(localPath); err == nil {
 					// Both exist. Skip.
@@ -295,18 +397,25 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 				}
 				// File missing, delete old record so we can re-download and strictly create new one
 				s.db.Unscoped().Delete(&existing)
+				localPath = filepath.Join(photosDir, localFilename)
 			}
 
-			// Create file
-			out, err := os.Create(localPath)
+			// Download to a side file and move it into place once complete,
+			// so an aborted request or a cancelled import leaves no partial
+			// photo behind (nothing would ever list one for removal).
+			partPath := localPath + ".part"
+			out, err := os.Create(partPath)
 			if err != nil {
 				return false
 			}
-
-			// Write to file
 			_, err = io.Copy(out, resp.Body)
 			out.Close() // Close before opening for decode
 			if err != nil {
+				os.Remove(partPath)
+				return false
+			}
+			if err := os.Rename(partPath, localPath); err != nil {
+				os.Remove(partPath)
 				return false
 			}
 
@@ -338,18 +447,26 @@ func (s *PickerService) ProcessSessionItems(sessionID string) (int, error) {
 			}
 
 			// Add to DB queue
+			connRef := connID
 			image := model.Image{
-				FilePath:    localPath,
-				Source:      model.SourceGooglePhotos, // Set source to google
-				UserID:      1,                        // Default user
-				Status:      "pending",
-				CreatedAt:   time.Now(),
-				Caption:     "From Google Photos",
-				Width:       width,
-				Height:      height,
-				Orientation: orientation,
+				FilePath:     localPath,
+				Source:       model.SourceGooglePhotos,
+				ConnectionID: &connRef,
+				UserID:       1, // Default user
+				Status:       "pending",
+				CreatedAt:    time.Now(),
+				Caption:      "From Google Photos",
+				Width:        width,
+				Height:       height,
+				Orientation:  orientation,
 			}
-			s.db.Create(&image)
+			// A row that cannot be written (the connection is gone) leaves no
+			// file behind either: nothing would ever list it for removal.
+			if err := s.db.Create(&image).Error; err != nil {
+				fmt.Printf("Failed to record %s: %v\n", item.MediaFile.Filename, err)
+				os.Remove(localPath)
+				return false
+			}
 			return true
 		}() {
 			count++

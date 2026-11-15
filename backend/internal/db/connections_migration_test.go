@@ -3,10 +3,13 @@ package db
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	"gorm.io/gorm"
+
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 )
 
 // migratedTo opens a fresh database and applies the chain up to version v.
@@ -221,5 +224,109 @@ func TestConnectionsMigrationOnFreshInstall(t *testing.T) {
 	}
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		t.Fatalf("remaining migrations: %v", err)
+	}
+}
+
+// TestGoogleConnectionMigration seeds a v41 database with the single Google
+// Photos token and a few imported photos, the way gorm wrote them, and checks
+// that 000042 turns them into one Google connection whose state Go can decode,
+// and that the way back restores the token row.
+func TestGoogleConnectionMigration(t *testing.T) {
+	gdb, m := migratedTo(t, 41)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if err := gdb.Exec(q, args...).Error; err != nil {
+			t.Fatalf("exec %q: %v", q, err)
+		}
+	}
+	str := func(q string, args ...any) string {
+		t.Helper()
+		var s string
+		if err := gdb.Raw(q, args...).Scan(&s).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return s
+	}
+	num := func(q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := gdb.Raw(q, args...).Scan(&n).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return n
+	}
+
+	// gorm stores time.Time in this layout, with the local offset.
+	expiry := time.Date(2026, 11, 15, 10, 30, 0, 0, time.FixedZone("TPE", 8*3600))
+	exec("INSERT INTO google_auths(id, access_token, refresh_token, expiry) VALUES (1, 'acc', 'ref', ?)",
+		expiry.Format("2006-01-02 15:04:05.999999999-07:00"))
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (20, 'google_photos', '', '/data/photos/g1.jpg')")
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (21, 'google_photos', '', '/data/photos/g2.jpg')")
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (22, 'gallery', '', '/data/photos/u.jpg')")
+
+	if err := m.Migrate(42); err != nil {
+		t.Fatalf("migrate to 42: %v", err)
+	}
+
+	if got := num("SELECT COUNT(*) FROM connections WHERE source = 'google_photos'"); got != 1 {
+		t.Fatalf("google connections: got %d, want 1", got)
+	}
+	var conn model.Connection
+	if err := gdb.Where("source = ?", "google_photos").First(&conn).Error; err != nil {
+		t.Fatalf("load connection: %v", err)
+	}
+	if conn.Name != "Google Photos" || !conn.Enabled || conn.Config != "{}" {
+		t.Errorf("connection row: %+v", conn)
+	}
+	st := conn.GoogleState()
+	if st.AccessToken != "acc" || st.RefreshToken != "ref" {
+		t.Errorf("token not carried over: %+v", st)
+	}
+	if !st.Expiry.Equal(expiry) {
+		t.Errorf("expiry: got %v, want %v (state %s)", st.Expiry, expiry, conn.State)
+	}
+	if !st.Connected() {
+		t.Errorf("migrated account should count as connected")
+	}
+	if got := num("SELECT COUNT(*) FROM images WHERE source = 'google_photos' AND connection_id = ?", conn.ID); got != 2 {
+		t.Errorf("google images reparented: %d", got)
+	}
+	if got := num("SELECT COUNT(*) FROM images WHERE id = 22 AND connection_id IS NULL"); got != 1 {
+		t.Errorf("gallery upload must keep a NULL connection")
+	}
+	if got := num("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'google_auths'"); got != 0 {
+		t.Errorf("google_auths table should be gone")
+	}
+
+	// A second account fits beside the first.
+	exec("INSERT INTO connections(source, name, enabled) VALUES ('google_photos', 'Work', 1)")
+	second := num("SELECT MAX(id) FROM connections")
+	exec("INSERT INTO images(source, external_id, file_path, connection_id) VALUES ('google_photos', '', '/data/photos/w.jpg', ?)", second)
+
+	// Down: the first account's token is back in google_auths, every photo
+	// survives detached, the connection rows are gone.
+	if err := m.Migrate(41); err != nil {
+		t.Fatalf("migrate down to 41: %v", err)
+	}
+	if got := str("SELECT refresh_token FROM google_auths WHERE id = 1"); got != "ref" {
+		t.Errorf("down: refresh_token %q", got)
+	}
+	if got := num("SELECT COUNT(*) FROM images WHERE source = 'google_photos' AND connection_id IS NULL"); got != 3 {
+		t.Errorf("down: google images kept and detached: %d", got)
+	}
+	if got := num("SELECT COUNT(*) FROM connections WHERE source = 'google_photos'"); got != 0 {
+		t.Errorf("down: google connections left: %d", got)
+	}
+}
+
+// Without a token and without imported photos no Google connection is made.
+func TestGoogleConnectionMigrationOnFreshInstall(t *testing.T) {
+	gdb, _ := migratedTo(t, 42)
+	var n int
+	if err := gdb.Raw("SELECT COUNT(*) FROM connections WHERE source = 'google_photos'").Scan(&n).Error; err != nil {
+		t.Fatalf("connections table: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("fresh install created %d google connections", n)
 	}
 }

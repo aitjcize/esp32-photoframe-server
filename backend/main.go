@@ -134,7 +134,6 @@ func main() {
 	// Initialize Services
 	service.SetThumbnailDir(filepath.Join(dataDir, "thumbnails"))
 	settingsService := service.NewSettingsService(database)
-	tokenStore := service.NewDBTokenStore(database, "photos")
 	// Resolve the JWT secret: env → persisted setting → freshly generated.
 	// A fresh install is secure with no configuration instead of falling back
 	// to a hard-coded default.
@@ -143,12 +142,9 @@ func main() {
 
 	// Schema is owned by golang-migrate (db/migrations); no AutoMigrate here.
 
-	// Initialize Google Photos Client
-	// Pass settingsService as ConfigProvider so it fetches latest config on every request
-	googleClient := googlephotos.NewClient(settingsService, tokenStore)
-
-	// Initialize Google Calendar Client (separate OAuth, separate token)
-	calendarTokenStore := service.NewDBTokenStore(database, "calendar")
+	// Initialize Google Calendar Client (its own OAuth consent and token;
+	// Google Photos tokens live on their connections)
+	calendarTokenStore := service.NewDBTokenStore(database)
 	calendarConfigProvider := service.NewCalendarConfigProvider(settingsService)
 	googleCalendarClient := googlephotos.NewClient(calendarConfigProvider, calendarTokenStore)
 
@@ -162,9 +158,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize renderer: %v", err)
 	}
-	// Connection-backed sources (Immich servers, Synology accounts): one
-	// service per configured connection, built from the connections table.
-	connections := service.NewConnectionManager(database)
+	// Connection-backed sources (Immich servers, Synology accounts, Google
+	// accounts): one service per configured connection, built from the
+	// connections table. settingsService supplies the global Google OAuth app
+	// credentials, read fresh on every request.
+	pickerService := service.NewPickerService(database, dataDir)
+	connections := service.NewConnectionManager(database, settingsService, pickerService)
 	connections.Start()
 	// Initialize search-topic sources (each user topic becomes a synced album).
 	unsplashService := service.NewUnsplashService(database, settingsService)
@@ -192,16 +191,12 @@ func main() {
 	sourceRegistry.Register(service.NewFractalSource(generativeService))
 	sourceRegistry.Register(service.NewDLASource(generativeService))
 
-	// Initialize Picker Service
-	// dataDir already set from migration logic above
 	// Ensure dataDir exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("Failed to create data directory: %v", err)
 	}
 
 	cleanupTempThumbnails(dataDir)
-
-	pickerService := service.NewPickerService(googleClient, database, dataDir)
 
 	// Initialize Device Service
 	deviceService := service.NewDeviceService(service.DeviceServiceDeps{
@@ -228,8 +223,8 @@ func main() {
 	}
 
 	// Initialize Handlers
-	h := handler.NewHandler(settingsService, telegramService, googleClient, googleCalendarClient)
-	googleHandler := handler.NewGoogleHandler(googleClient, googleCalendarClient, pickerService, database, dataDir)
+	h := handler.NewHandler(settingsService, telegramService, googleCalendarClient)
+	googleHandler := handler.NewGoogleHandler(googleCalendarClient, connections)
 	connh := handler.NewConnectionsHandler(connections)
 	// Generic photo-sync endpoints (sync / sync-status / clear / count) shared
 	// across the settings-backed sources.
@@ -346,15 +341,9 @@ func main() {
 	protectedApi.PUT("/gallery/urls/:id", gh.UpdateURLSource)
 	protectedApi.DELETE("/gallery/urls/:id", gh.DeleteURLSource)
 
-	// Google Picker (Protected)
-	protectedApi.GET("/google/picker/session", googleHandler.CreatePickerSession)
-	protectedApi.GET("/google/picker/poll/:id", googleHandler.PollPickerSession)
-	protectedApi.GET("/google/picker/progress/:id", googleHandler.PollPickerProgress)
-	protectedApi.POST("/google/picker/process/:id", googleHandler.ProcessPickerSession)
-
-	// Connections (Protected): Immich servers and Synology accounts. One
-	// generic set of routes keyed by connection id replaces the per-type
-	// /synology/* and /immich/* families.
+	// Connections (Protected): Immich servers, Synology accounts, Google
+	// accounts. One generic set of routes keyed by connection id replaces the
+	// per-type /synology/*, /immich/* and /google/* families.
 	protectedApi.GET("/connections", connh.List)
 	protectedApi.POST("/connections", connh.Create)
 	protectedApi.GET("/connections/:id", connh.Get)
@@ -368,6 +357,12 @@ func main() {
 	protectedApi.POST("/connections/:id/clear", connh.Clear)
 	protectedApi.GET("/connections/:id/count", connh.Count)
 	protectedApi.POST("/connections/:id/logout", connh.Logout)
+	// Google connections: OAuth consent and the Photos Picker import flow
+	protectedApi.GET("/connections/:id/google/login", connh.GoogleLogin)
+	protectedApi.GET("/connections/:id/google/picker/session", connh.PickerSession)
+	protectedApi.GET("/connections/:id/google/picker/poll/:session", connh.PickerPoll)
+	protectedApi.POST("/connections/:id/google/picker/process/:session", connh.PickerProcess)
+	protectedApi.GET("/connections/:id/google/picker/progress/:session", connh.PickerProgress)
 
 	// Search-topic sources (Unsplash / Pexels). Topics are listed via
 	// the generic GET /albums?source=<src>; sync/count/clear reuse PhotoSyncHandler.
@@ -387,9 +382,8 @@ func main() {
 	// Calendar (Protected)
 	protectedApi.GET("/calendar/calendars", ch.ListCalendars)
 
-	// Google Auth (Photos + Calendar share the same callback via state parameter)
-	protectedApi.GET("/auth/google/login", googleHandler.Login)
-	protectedApi.POST("/auth/google/logout", googleHandler.Logout)
+	// Google Auth (Photos connections + Calendar share the same callback via
+	// the state parameter; Photos logins start under /connections/:id/google)
 	protectedApi.GET("/auth/google-calendar/login", googleHandler.CalendarLogin)
 	protectedApi.POST("/auth/google-calendar/logout", googleHandler.CalendarLogout)
 

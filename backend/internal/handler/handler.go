@@ -12,12 +12,11 @@ import (
 type Handler struct {
 	settings       *service.SettingsService
 	telegram       *service.TelegramService
-	google         *googlephotos.Client
 	googleCalendar *googlephotos.Client
 }
 
-func NewHandler(s *service.SettingsService, t *service.TelegramService, g *googlephotos.Client, gc *googlephotos.Client) *Handler {
-	return &Handler{settings: s, telegram: t, google: g, googleCalendar: gc}
+func NewHandler(s *service.SettingsService, t *service.TelegramService, gc *googlephotos.Client) *Handler {
+	return &Handler{settings: s, telegram: t, googleCalendar: gc}
 }
 
 // HealthCheck reports liveness plus the build-time server version (issue #6:
@@ -33,12 +32,6 @@ func (h *Handler) GetSettings(c echo.Context) error {
 	settings, err := h.settings.GetAll()
 	if err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	if h.google.IsConnected() {
-		settings["google_connected"] = "true"
-	} else {
-		settings["google_connected"] = "false"
 	}
 
 	if h.googleCalendar.IsConnected() {

@@ -14,10 +14,11 @@ import (
 )
 
 // ConnectionsHandler serves /api/connections: the configured instances of the
-// connection-backed sources (Immich servers, Synology accounts), plus the
-// per-connection actions that used to live under /api/immich and
-// /api/synology. Secrets never leave the server: responses carry has_* flags,
-// and an update keeps the stored secret when the field is sent empty.
+// connection-backed sources (Immich servers, Synology accounts, Google
+// accounts), plus the per-connection actions that used to live under
+// /api/immich, /api/synology and /api/google. Secrets never leave the server:
+// responses carry has_* flags, and an update keeps the stored secret when the
+// field is sent empty.
 type ConnectionsHandler struct {
 	conns *service.ConnectionManager
 }
@@ -74,6 +75,11 @@ func (h *ConnectionsHandler) view(c model.Connection) connectionResponse {
 			"auto_sync_enabled":          cfg.AutoSyncEnabled,
 			"auto_sync_interval_minutes": cfg.AutoSyncIntervalMinutes,
 		}
+	case model.SourceGooglePhotos:
+		st := c.GoogleState()
+		out.Connected = st.Connected()
+		// The account email is display state, not a secret.
+		out.Config = map[string]any{"email": st.Email}
 	}
 	return out
 }
@@ -181,6 +187,11 @@ func applyConfig(c *model.Connection, in map[string]any) error {
 			cfg.AutoSyncIntervalMinutes = 60
 		}
 		return c.EncodeConfig(cfg)
+	case model.SourceGooglePhotos:
+		// Nothing to configure: the account is chosen on Google's consent
+		// page and the OAuth app credentials are global settings.
+		c.Config = "{}"
+		return nil
 	}
 	return errors.New("unsupported source")
 }
@@ -198,6 +209,8 @@ func defaultName(source string) string {
 		return "Immich"
 	case model.SourceSynologyPhotos:
 		return "Synology Photos"
+	case model.SourceGooglePhotos:
+		return "Google Photos"
 	}
 	return source
 }
@@ -367,6 +380,8 @@ func (h *ConnectionsHandler) Test(c echo.Context) error {
 		if err := svc.TestConnection(req.OTPCode); err != nil {
 			return respondError(c, http.StatusBadRequest, err.Error())
 		}
+	case model.SourceGooglePhotos:
+		return respondError(c, http.StatusBadRequest, "Google connections are authorised through /google/login")
 	}
 	fresh, _ := h.conns.Store().Get(conn.ID)
 	return c.JSON(http.StatusOK, h.view(fresh))
@@ -449,24 +464,137 @@ func (h *ConnectionsHandler) SetSyncAlbums(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// Logout drops a Synology session.
+// Logout drops a Synology session or forgets a Google account's token. The
+// connection, its album selection and (for Google) its imported photos stay.
 // POST /api/connections/:id/logout
 func (h *ConnectionsHandler) Logout(c echo.Context) error {
 	conn, ok := h.load(c)
 	if !ok {
 		return nil
 	}
-	if conn.Source != model.SourceSynologyPhotos {
-		return respondError(c, http.StatusBadRequest, "only Synology connections have a session to log out of")
+	switch conn.Source {
+	case model.SourceSynologyPhotos:
+		svc, err := h.conns.Synology(conn.ID)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		if err := svc.Logout(); err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+	case model.SourceGooglePhotos:
+		svc, err := h.conns.Google(conn.ID)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		if err := svc.Logout(); err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+	default:
+		return respondError(c, http.StatusBadRequest, "only Synology and Google connections have a session to log out of")
 	}
-	svc, err := h.conns.Synology(conn.ID)
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// google resolves a Google connection's service or writes the error response.
+func (h *ConnectionsHandler) google(c echo.Context) (*service.GooglePhotosService, bool) {
+	conn, ok := h.load(c)
+	if !ok {
+		return nil, false
+	}
+	if conn.Source != model.SourceGooglePhotos {
+		_ = respondError(c, http.StatusBadRequest, "not a Google Photos connection")
+		return nil, false
+	}
+	svc, err := h.conns.Google(conn.ID)
+	if err != nil {
+		_ = respondError(c, http.StatusInternalServerError, err.Error())
+		return nil, false
+	}
+	return svc, true
+}
+
+// GoogleLogin starts the OAuth consent flow for a Google connection and
+// returns the URL to send the browser to. The callback lands on
+// /api/auth/google/callback and redirects back to the dashboard.
+// GET /api/connections/:id/google/login
+func (h *ConnectionsHandler) GoogleLogin(c echo.Context) error {
+	conn, ok := h.load(c)
+	if !ok {
+		return nil
+	}
+	if conn.Source != model.SourceGooglePhotos {
+		return respondError(c, http.StatusBadRequest, "not a Google Photos connection")
+	}
+	url, err := h.conns.BeginGoogleAuth(conn.ID, buildRedirectURL(c))
+	if err != nil {
+		return respondError(c, http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"url": url})
+}
+
+// PickerSession opens a Google Photos Picker session for the account.
+// GET /api/connections/:id/google/picker/session
+func (h *ConnectionsHandler) PickerSession(c echo.Context) error {
+	svc, ok := h.google(c)
+	if !ok {
+		return nil
+	}
+	id, uri, err := svc.CreatePickerSession()
 	if err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	if err := svc.Logout(); err != nil {
+	return c.JSON(http.StatusOK, map[string]string{"id": id, "pickerUri": uri})
+}
+
+// PickerPoll reports whether the user has finished picking.
+// GET /api/connections/:id/google/picker/poll/:session
+func (h *ConnectionsHandler) PickerPoll(c echo.Context) error {
+	svc, ok := h.google(c)
+	if !ok {
+		return nil
+	}
+	session := c.Param("session")
+	if session == "" {
+		return respondError(c, http.StatusBadRequest, "session id required")
+	}
+	complete, err := svc.PollPickerSession(session)
+	if err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	return c.JSON(http.StatusOK, map[string]bool{"complete": complete})
+}
+
+// PickerProcess starts downloading the picked items into the connection in the
+// background; PickerProgress reports how far it got.
+// POST /api/connections/:id/google/picker/process/:session
+func (h *ConnectionsHandler) PickerProcess(c echo.Context) error {
+	svc, ok := h.google(c)
+	if !ok {
+		return nil
+	}
+	session := c.Param("session")
+	if session == "" {
+		return respondError(c, http.StatusBadRequest, "session id required")
+	}
+	go func() {
+		// Failures are recorded in the session's progress state.
+		_, _ = svc.ProcessPickerSession(session)
+	}()
+	return c.JSON(http.StatusAccepted, map[string]string{"status": "processing"})
+}
+
+// PickerProgress returns the import progress of a picker session.
+// GET /api/connections/:id/google/picker/progress/:session
+func (h *ConnectionsHandler) PickerProgress(c echo.Context) error {
+	svc, ok := h.google(c)
+	if !ok {
+		return nil
+	}
+	progress := svc.PickerProgress(c.Param("session"))
+	if progress == nil {
+		return respondError(c, http.StatusNotFound, "session not found")
+	}
+	return c.JSON(http.StatusOK, progress)
 }
 
 // backend resolves the generic sync surface or writes the error response.

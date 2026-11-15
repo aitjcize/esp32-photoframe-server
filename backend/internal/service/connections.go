@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -10,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/googlephotos"
 )
 
 // ErrConnectionNotFound is returned for an unknown connection id.
@@ -96,25 +99,44 @@ func (st *ConnectionStore) Delete(id uint) error {
 
 // ConnectionManager owns one service per connection row: an ImmichService or
 // SynologyService with its own client cache, login state and auto-sync
-// scheduler. It builds them at startup, on create, and stops them on delete.
-// Handlers and the serving plugins look services up here by connection id,
-// never by source type.
+// scheduler, or a GooglePhotosService with its own OAuth token. It builds them
+// at startup, on create, and stops them on delete. Handlers and the serving
+// plugins look services up here by connection id, never by source type.
 type ConnectionManager struct {
-	db    *gorm.DB
-	store *ConnectionStore
+	db        *gorm.DB
+	store     *ConnectionStore
+	googleCfg googlephotos.ConfigProvider
+	picker    *PickerService
 
 	mu       sync.Mutex
 	immich   map[uint]*ImmichService
 	synology map[uint]*SynologyService
+	google   map[uint]*GooglePhotosService
+
+	// Pending Google OAuth flows by state nonce: the callback carries only
+	// the nonce, which names the connection the code belongs to.
+	oauth map[string]pendingOAuth
+}
+
+type pendingOAuth struct {
+	connectionID uint
+	redirectURL  string
+	expires      time.Time
 }
 
 // NewConnectionManager builds an empty manager; Start loads the rows.
-func NewConnectionManager(db *gorm.DB) *ConnectionManager {
+// googleCfg supplies the global Google OAuth client id and secret; picker
+// is the shared Google Photos Picker flow.
+func NewConnectionManager(db *gorm.DB, googleCfg googlephotos.ConfigProvider, picker *PickerService) *ConnectionManager {
 	return &ConnectionManager{
-		db:       db,
-		store:    NewConnectionStore(db),
-		immich:   map[uint]*ImmichService{},
-		synology: map[uint]*SynologyService{},
+		db:        db,
+		store:     NewConnectionStore(db),
+		googleCfg: googleCfg,
+		picker:    picker,
+		immich:    map[uint]*ImmichService{},
+		synology:  map[uint]*SynologyService{},
+		google:    map[uint]*GooglePhotosService{},
+		oauth:     map[string]pendingOAuth{},
 	}
 }
 
@@ -157,6 +179,13 @@ func (m *ConnectionManager) ensure(c model.Connection) (any, error) {
 		s.StartAutoSync()
 		m.synology[c.ID] = s
 		return s, nil
+	case model.SourceGooglePhotos:
+		if s, ok := m.google[c.ID]; ok {
+			return s, nil
+		}
+		s := NewGooglePhotosService(m.db, m.store, c.ID, m.googleCfg, m.picker)
+		m.google[c.ID] = s
+		return s, nil
 	}
 	return nil, fmt.Errorf("source %q has no connection service", c.Source)
 }
@@ -196,7 +225,23 @@ func (m *ConnectionManager) Delete(id uint) error {
 		s.Stop()
 		delete(m.synology, id)
 	}
+	g, isGoogle := m.google[id]
+	if isGoogle {
+		delete(m.google, id)
+	}
 	m.mu.Unlock()
+	// Outside the lock: stopping a Google account waits for its running
+	// imports to notice, and nothing else needs the manager meanwhile.
+	if isGoogle {
+		g.Stop()
+	}
+	// Google photos are local files; take them off disk before the cascade
+	// forgets where they are.
+	if isGoogle {
+		if err := g.ClearPhotos(); err != nil {
+			return err
+		}
+	}
 	if err := m.store.Delete(id); err != nil {
 		return err
 	}
@@ -248,6 +293,93 @@ func (m *ConnectionManager) Synology(id uint) (*SynologyService, error) {
 	return v.(*SynologyService), nil
 }
 
+// Google returns the service for a Google Photos connection.
+func (m *ConnectionManager) Google(id uint) (*GooglePhotosService, error) {
+	m.mu.Lock()
+	s, ok := m.google[id]
+	m.mu.Unlock()
+	if ok {
+		return s, nil
+	}
+	c, err := m.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if c.Source != model.SourceGooglePhotos {
+		return nil, fmt.Errorf("connection %d is %s, not google_photos", id, c.Source)
+	}
+	v, err := m.ensure(c)
+	if err != nil {
+		return nil, err
+	}
+	return v.(*GooglePhotosService), nil
+}
+
+// oauthStateTTL bounds how long a consent page may sit open before the
+// callback is refused.
+const oauthStateTTL = 15 * time.Minute
+
+// BeginGoogleAuth starts the consent flow for a Google connection and returns
+// the URL to send the browser to. redirectURL is the server's callback as the
+// browser reaches it. The state parameter is a random nonce remembered here,
+// so the callback can only complete a flow this server started.
+func (m *ConnectionManager) BeginGoogleAuth(id uint, redirectURL string) (string, error) {
+	svc, err := m.Google(id)
+	if err != nil {
+		return "", err
+	}
+	nonce, err := randomNonce()
+	if err != nil {
+		return "", err
+	}
+	url, err := svc.AuthURL(redirectURL, nonce)
+	if err != nil {
+		return "", err
+	}
+	m.mu.Lock()
+	now := time.Now()
+	for k, p := range m.oauth {
+		if p.expires.Before(now) {
+			delete(m.oauth, k)
+		}
+	}
+	m.oauth[nonce] = pendingOAuth{connectionID: id, redirectURL: redirectURL, expires: now.Add(oauthStateTTL)}
+	m.mu.Unlock()
+	return url, nil
+}
+
+// ErrUnknownOAuthState is returned for a callback whose state this server did
+// not issue or that has expired.
+var ErrUnknownOAuthState = errors.New("unknown or expired OAuth state")
+
+// CompleteGoogleAuth exchanges the callback's code for the connection the
+// state names and returns that connection's id.
+func (m *ConnectionManager) CompleteGoogleAuth(state, code string) (uint, error) {
+	m.mu.Lock()
+	p, ok := m.oauth[state]
+	delete(m.oauth, state)
+	m.mu.Unlock()
+	if !ok || p.expires.Before(time.Now()) {
+		return 0, ErrUnknownOAuthState
+	}
+	svc, err := m.Google(p.connectionID)
+	if err != nil {
+		return 0, err
+	}
+	if err := svc.Exchange(p.redirectURL, code); err != nil {
+		return 0, err
+	}
+	return p.connectionID, nil
+}
+
+func randomNonce() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
 // ImmichForImage resolves the Immich connection an image was synced from.
 func (m *ConnectionManager) ImmichForImage(img model.Image) (*ImmichService, error) {
 	if img.ConnectionID == nil {
@@ -285,6 +417,8 @@ func (m *ConnectionManager) Backend(id uint) (SyncBackend, error) {
 		return m.Immich(id)
 	case model.SourceSynologyPhotos:
 		return m.Synology(id)
+	case model.SourceGooglePhotos:
+		return m.Google(id)
 	}
 	return nil, fmt.Errorf("source %q has no sync backend", c.Source)
 }

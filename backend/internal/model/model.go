@@ -53,13 +53,6 @@ type Image struct {
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
-type GoogleAuth struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	AccessToken  string    `json:"-"`
-	RefreshToken string    `json:"-"`
-	Expiry       time.Time `json:"expiry"`
-}
-
 type GoogleCalendarAuth struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	AccessToken  string    `json:"-"`
@@ -236,11 +229,11 @@ type GenerativeState struct {
 }
 
 // Connection is one configured instance of a photo provider: one Immich
-// server, one Synology account. The source string stays the provider type;
-// albums and images hang off the connection, so several connections of the
-// same type can coexist. Config holds the user-entered settings (credentials
-// included) as JSON; State holds what the server learned on its own (a NAS
-// session) so a user edit never races it. Both stay out of JSON responses;
+// server, one Synology account, one Google account. The source string stays
+// the provider type; albums and images hang off the connection, so several
+// connections of the same type can coexist. Config holds the user-entered
+// settings (credentials included) as JSON; State holds what the server learned
+// on its own (a NAS session, an OAuth token) so a user edit never races it. Both stay out of JSON responses;
 // the handler reports a redacted view.
 type Connection struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
@@ -254,7 +247,7 @@ type Connection struct {
 }
 
 // ConnectionSources are the source types that are configured as connections.
-var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos}
+var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos, SourceGooglePhotos}
 
 // IsConnectionSource reports whether a source type is configured through
 // connections rather than through flat settings keys.
@@ -294,6 +287,26 @@ type SynologyState struct {
 	SID   string `json:"sid"`
 	DID   string `json:"did"`
 	Token string `json:"token"`
+}
+
+// GoogleState is Connection.State for a Google Photos connection: the OAuth
+// token Google issued for that account, refreshed in place, plus the account
+// email for display. A Google connection has no Config; the OAuth client id
+// and secret are global settings shared by every Google connection.
+type GoogleState struct {
+	AccessToken  string    `json:"access_token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	Expiry       time.Time `json:"expiry,omitempty"`
+	Email        string    `json:"email,omitempty"`
+}
+
+// Connected reports whether the token can still be used: valid now, or
+// refreshable.
+func (st GoogleState) Connected() bool {
+	if st.RefreshToken != "" {
+		return true
+	}
+	return st.AccessToken != "" && st.Expiry.After(time.Now())
 }
 
 // DecodeConfig unmarshals Config into v. An empty Config is the zero value.
@@ -339,6 +352,13 @@ func (c *Connection) SynologyConfig() SynologyConfig {
 // SynologyState decodes State for a Synology connection (zero value on error).
 func (c *Connection) SynologyState() SynologyState {
 	var st SynologyState
+	_ = c.DecodeState(&st)
+	return st
+}
+
+// GoogleState decodes State for a Google Photos connection (zero value on error).
+func (c *Connection) GoogleState() GoogleState {
+	var st GoogleState
 	_ = c.DecodeState(&st)
 	return st
 }
