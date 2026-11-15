@@ -90,7 +90,7 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
    - Enter a username and password
 
 2. **Configure a Source & Frame**:
-   - Set up a photo source under **Settings** → **Data Sources** (see [Supported Sources](#supported-sources) below).
+   - Add a photo source with the **+** button next to the source picker at the top of the dashboard (see [Supported Sources](#supported-sources) below). The picker lists the built-in sources and every connection you add, grouped by provider.
    - Configure your frame under **Settings** → **Devices**.
    - Device access tokens are issued and managed automatically — you no longer generate or copy them by hand.
 
@@ -119,13 +119,15 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
      ssh -L 9607:localhost:9607 root@homeassistant.local -p 22222
      ```
    - Access the dashboard at `http://localhost:9607`
-   - Go to **Settings** → **Data Sources** → **Google**
+   - Go to **Settings** → **System** → **Google**
    - Enter your **Client ID** and **Client Secret** and click **Save Credentials**
 
 3. **Connect a Google account**:
-   - Still on the **Google** tab, click **Add Google Photos** (or **Add another**
-     for a second account) and then **Connect Google account** on the new card
-   - You'll be redirected to Google OAuth (sign in if needed) and back to the card
+   - Click **+** next to the source picker, choose **Google Photos**, give the
+     connection a name (for example the account's owner) and click **Sign in
+     with Google**
+   - You'll be redirected to Google OAuth (sign in if needed) and back to the
+     new connection's card
    - The card shows which account is connected; rename it with the pencil if you like
    - Repeat for every Google account whose photos the frame should show — one
      set of OAuth credentials serves all of them
@@ -145,38 +147,37 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
 
 ### Synology Setup
 
-1. Go to **Settings** → **Data Sources** and open the **Synology** tab, then click **Add Synology Photos**.
-2. Enter your **NAS URL** (e.g., `https://192.168.1.10:5001`), **Account**, and **Password**.
-3. If using 2FA, enter the **OTP Code**, then click **Connect**.
+1. Click **+** next to the source picker and choose **Synology Photos**.
+2. Name the connection and enter your **NAS URL** (e.g., `https://192.168.1.10:5001`), **Account**, and **Password**, then click **Connect**.
+3. If using 2FA, the dialog asks for the **OTP Code**; enter it and click **Connect** again.
 4. Click **Refresh albums** and pick the albums to sync. Albums other DSM users shared with your account are listed too, badged **Shared with me**. Album and photo listings are paged, so large libraries (hundreds of albums, thousands of photos per album) sync in full.
 5. Click **Sync Now** to import metadata, or enable **Auto Sync Album** to keep it current.
-6. **Add another** connects a second NAS or account; each connection has its own albums and schedule, and a frame can show albums from any of them.
+6. Repeat with **+** for a second NAS or account; each connection has its own albums and schedule, and a frame can show albums from any of them.
 
 > [!NOTE]
 > Shared Space (FotoTeam) folders can't be picked as a source yet — see [#55](https://github.com/aitjcize/esp32-photoframe-server/issues/55). Photos from the Shared Space do sync when they are in an album.
 
 ### Immich Setup
 
-1. Go to **Settings** → **Data Sources** and open the **Immich** tab, then click **Add Immich**.
-2. Enter your **Server URL** (e.g., `https://immich.example.com`) and an **API Key** (in Immich: **Account Settings** → **API Keys**).
-3. Click **Connect** to validate, then choose the albums to sync — or the **All Photos**, **Favorites**, or **Memories** views.
+1. Click **+** next to the source picker and choose **Immich**.
+2. Name the connection and enter your **Server URL** (e.g., `https://immich.example.com`) and an **API Key** (in Immich: **Account Settings** → **API Keys**).
+3. Click **Connect** to validate, then choose the albums to sync on the connection's card — or the **All Photos**, **Favorites**, or **Memories** views.
 4. Click **Sync Now** to import.
-5. **Add another** connects a second Immich server. Each connection keeps its own albums and schedule; the per-frame album picker lists them all, prefixed with the connection name.
+5. Repeat with **+** for a second Immich server. Each connection keeps its own albums and schedule; the per-frame album picker lists them all, prefixed with the connection name.
 
 ### Telegram Bot (Gallery)
 
 A Telegram bot is an optional way to add photos to the **Gallery** source — send a photo to the bot and it's uploaded to your gallery.
 
 1. Create a new bot via [@BotFather](https://t.me/botfather) and copy its **Bot Token**.
-2. Go to **Settings** → **Data Sources** → **Gallery** and enter the **Telegram Bot Token**, then save.
+2. Pick **Gallery** in the source picker, scroll below the photos, enter the **Telegram Bot Token** and save.
 3. Send a photo to your bot. It's added to the Gallery, and frames using the Gallery source will show it.
 
 ### URL Proxy Setup
 
-1. Go to **Settings** → **Data Sources**.
-2. Select **Source: URL Proxy**.
-3. Add URLs to images you want to display.
-4. Assign URLs to specific devices.
+1. Pick **URL Proxy** in the source picker.
+2. Add URLs to images you want to display.
+3. Assign URLs to specific devices.
 
 ### AI Generation Setup
 
@@ -187,7 +188,7 @@ Generate unique AI artwork for your photo frame using OpenAI or Google Gemini.
    - **Google Gemini**: Get your key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
 
 2. **Configure API Keys**:
-   - Go to **Settings** → **Data Sources** → **AI Generation**
+   - Pick **AI Generation** in the source picker
    - Enter your API key(s) and click **Save API Keys**
 
 3. **Configure Per-Device**:
@@ -208,7 +209,7 @@ Turn any topic into a rotating album of free stock photography — great for a t
 1. **Get a free API key**:
    - **Unsplash**: create an app at [unsplash.com/developers](https://unsplash.com/developers) and copy the **Access Key** (the Secret Key is not needed).
    - **Pexels**: request a key at [pexels.com/api](https://www.pexels.com/api/).
-2. Go to **Settings** → **Data Sources**, open the **Unsplash** or **Pexels** tab, click **Add Unsplash** / **Add Pexels**, paste the key into the card, and click **Connect**. **Add another** adds a second key with its own topics.
+2. Click **+** next to the source picker, choose **Unsplash** or **Pexels**, name the connection, paste the key and click **Connect**. A second key is another **+**, with its own topics.
 3. Add one or more **topics** (e.g., `black and white`, `mountains`, `minimalist`). Each topic becomes a synced album and saves automatically.
 4. Click **Sync Now** to import, then assign the source (and specific topics) to a device under **Settings** → **Devices**.
 

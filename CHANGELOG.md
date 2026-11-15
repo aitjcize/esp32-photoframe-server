@@ -6,26 +6,29 @@
 
 - **Several connections per provider.** Two Immich servers, two Synology
   NAS accounts, two Google accounts, or two Unsplash or Pexels API keys can
-  now be connected at once. **Data Sources → Immich**, **→ Synology**,
-  **→ Google**, **→ Unsplash** and **→ Pexels** show one card per
-  connection, each with its own credentials (or Google sign-in), album or
-  topic selection, auto-sync schedule, photo count and Sync / Clear buttons;
-  **Add another** creates a new one, the pencil renames it, the bin deletes
-  it together with its photos. A frame on the Immich source
-  can draw from albums of any Immich connection: the per-frame album picker
+  now be connected at once. The provider tabs above the gallery are replaced
+  by a **source picker**: a dropdown listing the built-in sources (Gallery,
+  URL Proxy, AI Generation) and every connection, grouped by provider, with
+  a **+** button that adds one. **+** asks which provider, then for a name
+  and the credentials (or sends you to Google to sign in), verifies them and
+  opens the new connection. Picking a connection shows its card first, with
+  its credentials, album or topic selection, auto-sync schedule, photo count
+  and Sync / Clear buttons, and its photos below; the pencil renames it, the
+  bin deletes it together with its photos. A frame on the Immich source can
+  draw from albums of any Immich connection: the per-frame album picker
   lists every connection's albums, prefixed with the connection name when
-  there is more than one, and so do the gallery's album chips. Existing
-  installs are migrated on first start: the old Immich and Synology settings
-  become one connection each, named "Immich" and "Synology Photos", with
-  their albums, photos and session carried over, the Google Photos token
-  and imports become a "Google Photos" connection, and the Unsplash and
-  Pexels keys become one connection each with their topics; nothing needs
-  re-entering or re-authorising. The Google card shows which account is
-  signed in, and the Gallery's **Add Photos via Google** button asks which
-  account when there is more than one.
+  there is more than one. Existing installs are migrated on first start: the
+  old Immich and Synology settings become one connection each, named
+  "Immich" and "Synology Photos", with their albums, photos and session
+  carried over, the Google Photos token and imports become a "Google
+  Photos" connection, and the Unsplash and Pexels keys become one connection
+  each with their topics; nothing needs re-entering or re-authorising.
 
 ### Changed
 
+- **The Google OAuth client and the Calendar connection moved to Settings →
+  System → Google.** They serve every Google Photos account and are no longer
+  mixed in with the photo sources.
 - **Provider credentials no longer leave the server.** The Immich API key,
   the Synology password and the Unsplash and Pexels keys used to be returned
   by `GET /api/settings` in plain text to the dashboard. They now live in the
