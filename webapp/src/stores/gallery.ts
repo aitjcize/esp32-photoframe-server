@@ -27,6 +27,9 @@ export const useGalleryStore = defineStore('gallery', {
     // Bumped to ask the Gallery view to refetch photos + album chips
     // (e.g. after a Delete All from the source config tab).
     refreshSignal: 0,
+    // The gallery's own albums (folders for uploads), for the album manager,
+    // the Telegram target and the per-frame picker.
+    albums: [] as any[],
   }),
   getters: {
     totalPages: (state) => Math.ceil(state.totalPhotos / state.limit),
@@ -140,7 +143,52 @@ export const useGalleryStore = defineStore('gallery', {
       }
     },
 
-    async uploadFiles(files: FileList | File[], caption = '') {
+    // --- Gallery albums ---
+    async fetchAlbums() {
+      try {
+        const res = await api.get('/albums?source=gallery');
+        this.albums = res.data || [];
+      } catch (e) {
+        console.error('Failed to fetch gallery albums', e);
+      }
+    },
+
+    async createAlbum(name: string) {
+      const res = await api.post('/gallery/albums', { name });
+      await this.fetchAlbums();
+      this.triggerRefresh();
+      return res.data;
+    },
+
+    async renameAlbum(id: number, name: string) {
+      await api.put(`/gallery/albums/${id}`, { name });
+      await this.fetchAlbums();
+      this.triggerRefresh();
+    },
+
+    // Without withPhotos the album's photos stay in the gallery as unfiled.
+    async deleteAlbum(id: number, withPhotos: boolean) {
+      await api.delete(
+        `/gallery/albums/${id}${withPhotos ? '?photos=true' : ''}`
+      );
+      if (this.album === id) this.album = null;
+      await this.fetchAlbums();
+      this.triggerRefresh();
+    },
+
+    // Files one gallery photo under an album (null = unfiled).
+    async setPhotoAlbum(photoId: number, albumId: number | null) {
+      await api.put(`/gallery/photos/${photoId}/album`, { album_id: albumId });
+      await this.fetchAlbums();
+      await this.fetchPhotos();
+    },
+
+    // albumId files the uploads under that gallery album.
+    async uploadFiles(
+      files: FileList | File[],
+      caption = '',
+      albumId: number | null = null
+    ) {
       const list = Array.from(files);
       if (list.length === 0) return;
 
@@ -151,6 +199,7 @@ export const useGalleryStore = defineStore('gallery', {
           const fd = new FormData();
           fd.append('file', file);
           if (caption) fd.append('caption', caption);
+          if (albumId != null) fd.append('album_id', String(albumId));
           await api.post('/gallery/upload', fd, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
@@ -160,6 +209,7 @@ export const useGalleryStore = defineStore('gallery', {
         setTimeout(() => (this.importMessage = ''), 5000);
         this.page = 1;
         await this.fetchPhotos();
+        if (albumId != null) await this.fetchAlbums();
       } catch (e: any) {
         console.error('Upload failed', e);
         this.importMessage =

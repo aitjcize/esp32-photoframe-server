@@ -177,6 +177,106 @@
             <!-- Gallery -->
             <v-window-item value="gallery">
               <v-card-text>
+                <h3 class="text-subtitle-1 font-weight-bold mb-1">Albums</h3>
+                <div class="text-caption text-grey mb-3">
+                  Folders inside the gallery. Select an album above to upload
+                  into it, and pick albums per frame in the device dialog.
+                  Photos in no album still belong to the whole gallery.
+                </div>
+
+                <v-list
+                  v-if="galleryStore.albums.length > 0"
+                  density="compact"
+                  class="border rounded mb-3 py-0"
+                >
+                  <v-list-item
+                    v-for="album in galleryStore.albums"
+                    :key="album.id"
+                  >
+                    <template #prepend>
+                      <v-icon icon="mdi-folder-outline"></v-icon>
+                    </template>
+                    <v-list-item-title v-if="renamingAlbumId !== album.id">
+                      {{ album.name }}
+                    </v-list-item-title>
+                    <v-text-field
+                      v-else
+                      v-model="renamingAlbumName"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      autofocus
+                      class="my-1"
+                      style="max-width: 320px"
+                      @keyup.enter="saveAlbumName(album)"
+                      @keyup.esc="renamingAlbumId = null"
+                      @blur="saveAlbumName(album)"
+                    ></v-text-field>
+                    <v-list-item-subtitle>
+                      {{ album.asset_count }} photo{{
+                        album.asset_count === 1 ? '' : 's'
+                      }}
+                    </v-list-item-subtitle>
+                    <template #append>
+                      <v-btn
+                        icon="mdi-pencil"
+                        size="x-small"
+                        variant="text"
+                        title="Rename"
+                        @click="startRenameAlbum(album)"
+                      ></v-btn>
+                      <v-menu>
+                        <template #activator="{ props: menu }">
+                          <v-btn
+                            v-bind="menu"
+                            icon="mdi-delete-outline"
+                            size="small"
+                            variant="text"
+                            color="error"
+                            title="Delete album"
+                          ></v-btn>
+                        </template>
+                        <v-list density="compact">
+                          <v-list-item
+                            title="Delete album, keep its photos"
+                            subtitle="The photos stay in the gallery, unfiled"
+                            @click="deleteGalleryAlbum(album, false)"
+                          ></v-list-item>
+                          <v-list-item
+                            title="Delete album and its photos"
+                            base-color="error"
+                            @click="deleteGalleryAlbum(album, true)"
+                          ></v-list-item>
+                        </v-list>
+                      </v-menu>
+                    </template>
+                  </v-list-item>
+                </v-list>
+
+                <div class="d-flex align-center ga-2 mb-6">
+                  <v-text-field
+                    v-model="newAlbumName"
+                    label="New album"
+                    placeholder="e.g. Family, Art"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    style="max-width: 320px"
+                    @keyup.enter="createGalleryAlbum"
+                  ></v-text-field>
+                  <v-btn
+                    color="primary"
+                    variant="tonal"
+                    prepend-icon="mdi-plus"
+                    :disabled="!newAlbumName.trim()"
+                    :loading="creatingAlbum"
+                    @click="createGalleryAlbum"
+                    >Add</v-btn
+                  >
+                </div>
+
+                <v-divider class="mb-6"></v-divider>
+
                 <h3 class="text-subtitle-1 font-weight-bold mb-1">
                   Telegram Bot (Upload)
                 </h3>
@@ -206,6 +306,21 @@
                     pushed to the selected devices immediately. They are added
                     to the gallery either way.
                   </div>
+
+                  <v-select
+                    v-if="galleryStore.albums.length > 0"
+                    v-model="form.telegram_album_id"
+                    :items="telegramAlbumOptions"
+                    item-title="name"
+                    item-value="id"
+                    label="Upload to album"
+                    variant="outlined"
+                    density="compact"
+                    hint="Photos sent to the bot are filed under this album"
+                    persistent-hint
+                    class="mb-4"
+                    @update:model-value="saveSettingsInternal()"
+                  ></v-select>
 
                   <v-checkbox
                     v-model="form.telegram_push_enabled"
@@ -1240,6 +1355,26 @@
                             <!-- Per-frame album selection for the chosen source -->
                             <div
                               v-if="
+                                useThisServer && selectedSource === 'gallery'
+                              "
+                              class="mb-2 ml-8"
+                            >
+                              <div class="text-caption text-grey mb-1">
+                                Albums for this frame — leave all unchecked to
+                                use every gallery photo.
+                              </div>
+                              <AlbumPicker
+                                v-model="deviceGalleryAlbumIds"
+                                :albums="deviceGalleryAlbumOptions"
+                                label-field="name"
+                                :max-height="220"
+                                :disabled="!deviceConfig.auto_rotate"
+                                empty-text="No gallery albums yet — every gallery photo is used. Create albums under Settings → Gallery → Albums."
+                              ></AlbumPicker>
+                            </div>
+
+                            <div
+                              v-if="
                                 useThisServer &&
                                 selectedSource === 'immich' &&
                                 hasConnections('immich')
@@ -2215,6 +2350,9 @@ const showAddConnection = ref(false);
 // The Google connection the OAuth callback just connected (?connection=),
 // so its card is scrolled into view.
 const focusConnectionId = ref<number | undefined>(undefined);
+// Per-device gallery album bindings (the gallery's own folders).
+const deviceGalleryAlbumIds = ref<number[]>([]);
+const deviceGallerySyncedAlbums = ref<any[]>([]);
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
 const deviceImmichSyncedAlbums = ref<any[]>([]);
@@ -3369,6 +3507,7 @@ const editDevice = async (device: Device) => {
   resetFramePasswordState();
   deviceDialogTab.value = 'general';
   showEditDeviceDialog.value = true;
+  deviceGalleryAlbumIds.value = [];
   deviceImmichAlbumIds.value = [];
   deviceSynologyAlbumIds.value = [];
   deviceUnsplashAlbumIds.value = [];
@@ -3389,6 +3528,7 @@ const editDevice = async (device: Device) => {
     typeof deviceImmichAlbumIds,
     typeof deviceImmichSyncedAlbums,
   ][] = [
+    ['gallery', deviceGalleryAlbumIds, deviceGallerySyncedAlbums],
     ['immich', deviceImmichAlbumIds, deviceImmichSyncedAlbums],
     ['synology_photos', deviceSynologyAlbumIds, deviceSynologySyncedAlbums],
     ['unsplash', deviceUnsplashAlbumIds, deviceUnsplashSyncedAlbums],
@@ -3396,7 +3536,8 @@ const editDevice = async (device: Device) => {
   ];
   await Promise.all(
     connectionBindings.map(async ([source, ids, synced]) => {
-      if (!hasConnections(source)) return;
+      // The gallery has albums without connections.
+      if (source !== 'gallery' && !hasConnections(source)) return;
       try {
         const albums = await api.get(`/albums?source=${source}&synced=true`);
         synced.value = albums.data || [];
@@ -3650,6 +3791,20 @@ const saveDevice = async () => {
           : { ...devicePalette },
       });
 
+      // Persist per-device gallery album bindings (best-effort).
+      try {
+        await api.put(`/devices/${editingDevice.id}/albums`, {
+          source: 'gallery',
+          album_ids: deviceGalleryAlbumIds.value,
+        });
+      } catch (e: any) {
+        showMessage(
+          'Device saved, but failed to save gallery album bindings: ' +
+            (e.response?.data?.error || e.message),
+          true
+        );
+      }
+
       // Persist per-device Immich album bindings (best-effort).
       if (hasConnections('immich')) {
         try {
@@ -3823,6 +3978,7 @@ const form = reactive({
   telegram_bot_token: '',
   telegram_push_enabled: false,
   telegram_target_device_id: [] as number[],
+  telegram_album_id: '',
   openai_api_key: '',
   google_api_key: '',
   // Device-facing base URL for image requests (e.g. http://homeassistant.local:9608).
@@ -3847,9 +4003,76 @@ const connectionAlbumOptions = (source: string, synced: any[]) => {
           : a.name,
     }));
 };
+const deviceGalleryAlbumOptions = computed(() =>
+  connectionAlbumOptions('gallery', deviceGallerySyncedAlbums.value)
+);
 const deviceImmichAlbumOptions = computed(() =>
   connectionAlbumOptions('immich', deviceImmichSyncedAlbums.value)
 );
+
+// --- Gallery albums (folders inside the local gallery) ---
+const newAlbumName = ref('');
+const creatingAlbum = ref(false);
+const renamingAlbumId = ref<number | null>(null);
+const renamingAlbumName = ref('');
+const telegramAlbumOptions = computed(() => [
+  { id: '', name: 'No album (unfiled)' },
+  ...galleryStore.albums.map((a: any) => ({ id: String(a.id), name: a.name })),
+]);
+const createGalleryAlbum = async () => {
+  const name = newAlbumName.value.trim();
+  if (!name) return;
+  creatingAlbum.value = true;
+  try {
+    await galleryStore.createAlbum(name);
+    newAlbumName.value = '';
+  } catch (e: any) {
+    showMessage(
+      'Failed to create album: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  } finally {
+    creatingAlbum.value = false;
+  }
+};
+const startRenameAlbum = (album: any) => {
+  renamingAlbumId.value = album.id;
+  renamingAlbumName.value = album.name;
+};
+const saveAlbumName = async (album: any) => {
+  if (renamingAlbumId.value !== album.id) return;
+  renamingAlbumId.value = null;
+  const name = renamingAlbumName.value.trim();
+  if (!name || name === album.name) return;
+  try {
+    await galleryStore.renameAlbum(album.id, name);
+  } catch (e: any) {
+    showMessage(
+      'Failed to rename album: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+const deleteGalleryAlbum = async (album: any, withPhotos: boolean) => {
+  const n = album.asset_count || 0;
+  const what = withPhotos
+    ? `Delete the album "${album.name}" and its ${n} photo${n === 1 ? '' : 's'}? The photos are removed from this server.`
+    : `Delete the album "${album.name}"? Its ${n} photo${n === 1 ? '' : 's'} stay in the gallery, unfiled.`;
+  if (!(await confirmDialog.value.open(what))) return;
+  try {
+    await galleryStore.deleteAlbum(album.id, withPhotos);
+    if (String(album.id) === String(form.telegram_album_id)) {
+      form.telegram_album_id = '';
+      await saveSettingsInternal();
+    }
+    showMessage(withPhotos ? 'Album and photos deleted.' : 'Album deleted.');
+  } catch (e: any) {
+    showMessage(
+      'Failed to delete album: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
 const deviceSynologyAlbumOptions = computed(() =>
   connectionAlbumOptions('synology_photos', deviceSynologySyncedAlbums.value)
 );
@@ -3927,6 +4150,7 @@ onMounted(async () => {
     google_calendar_connected:
       store.settings.google_calendar_connected || 'false',
     telegram_bot_token: store.settings.telegram_bot_token || '',
+    telegram_album_id: store.settings.telegram_album_id || '',
     telegram_push_enabled: store.settings.telegram_push_enabled === 'true',
     telegram_target_device_id: store.settings.telegram_target_device_id
       ? store.settings.telegram_target_device_id
@@ -3942,7 +4166,10 @@ onMounted(async () => {
   });
 
   // Run independent fetches in parallel
-  const parallelFetches: Promise<void>[] = [loadDevices()];
+  const parallelFetches: Promise<void>[] = [
+    loadDevices(),
+    galleryStore.fetchAlbums(),
+  ];
 
   // Connections (the cards load their own albums, topics and counts).
   parallelFetches.push(
@@ -3998,6 +4225,7 @@ const saveSettingsInternal = async () => {
     google_client_id: form.google_client_id,
     google_client_secret: form.google_client_secret,
     telegram_bot_token: form.telegram_bot_token,
+    telegram_album_id: String(form.telegram_album_id ?? ''),
     telegram_push_enabled: String(form.telegram_push_enabled),
     telegram_target_device_id: Array.isArray(form.telegram_target_device_id)
       ? form.telegram_target_device_id.join(',')

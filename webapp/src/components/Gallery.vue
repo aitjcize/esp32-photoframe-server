@@ -40,7 +40,11 @@
             prepend-icon="mdi-upload"
             @click="triggerUpload"
           >
-            Upload Photos
+            {{
+              selectedAlbum
+                ? `Upload to ${selectedAlbum.name}`
+                : 'Upload Photos'
+            }}
           </v-btn>
           <input
             ref="uploadInput"
@@ -173,6 +177,20 @@
                 @click.stop="requestDeletePhoto(photo)"
               />
             </div>
+            <div
+              v-if="galleryStore.source === 'gallery' && albumChips.length > 0"
+              class="move-hotspot"
+            >
+              <v-btn
+                icon="mdi-folder-move-outline"
+                size="x-small"
+                color="primary"
+                class="delete-overlay"
+                title="Move to album"
+                aria-label="Move to album"
+                @click.stop="requestMovePhoto(photo)"
+              />
+            </div>
           </v-card>
         </v-col>
       </v-row>
@@ -205,6 +223,40 @@
               @click="confirmDeletePhoto"
             >
               Delete
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
+      <!-- Move to album (gallery only) -->
+      <v-dialog v-model="moveDialog.show" max-width="400">
+        <v-card>
+          <v-card-title>
+            <v-icon icon="mdi-folder-move-outline" class="mr-2" />
+            Move to Album
+          </v-card-title>
+          <v-card-text>
+            <v-radio-group v-model="moveDialog.albumId" hide-details>
+              <v-radio label="No album" :value="0"></v-radio>
+              <v-radio
+                v-for="album in albumChips"
+                :key="album.id"
+                :label="album.name"
+                :value="album.id"
+              ></v-radio>
+            </v-radio-group>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" @click="moveDialog.show = false">
+              Cancel
+            </v-btn>
+            <v-btn
+              color="primary"
+              :loading="moveDialog.loading"
+              @click="confirmMovePhoto"
+            >
+              Move
             </v-btn>
           </v-card-actions>
         </v-card>
@@ -308,6 +360,10 @@
           <span v-if="galleryStore.source === 'google_photos'">
             Get started by adding photos from Google Photos.
           </span>
+          <span v-else-if="galleryStore.source === 'gallery' && selectedAlbum">
+            This album is empty. Upload photos into it, or move some here with
+            the folder button on a photo.
+          </span>
           <span v-else-if="galleryStore.source === 'gallery'">
             Upload photos here, or send them to your Telegram bot.
           </span>
@@ -373,12 +429,26 @@
   z-index: 1;
 }
 
+.move-hotspot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 48px;
+  height: 48px;
+  z-index: 1;
+}
+
 .delete-overlay {
   position: absolute;
   top: 4px;
   right: 4px;
   opacity: 0;
   transition: opacity 0.2s;
+}
+
+.move-hotspot .delete-overlay {
+  right: auto;
+  left: 4px;
 }
 
 /* Reveal the button as soon as the thumbnail itself is hovered or focused,
@@ -448,9 +518,16 @@ const startPicker = () =>
 const albumChips = ref<any[]>([]);
 
 // Sources whose photos are grouped in albums (topic sources' synced topics
-// behave exactly like albums).
-const showAlbumChips = computed(() =>
-  SYNCING_SOURCES.includes(galleryStore.source)
+// behave exactly like albums; the gallery's albums are the user's folders).
+const showAlbumChips = computed(
+  () =>
+    SYNCING_SOURCES.includes(galleryStore.source) ||
+    galleryStore.source === 'gallery'
+);
+const selectedAlbum = computed(() =>
+  galleryStore.album != null
+    ? albumChips.value.find((a: any) => a.id === galleryStore.album)
+    : undefined
 );
 
 const fetchAlbumChips = async () => {
@@ -464,10 +541,13 @@ const fetchAlbumChips = async () => {
         ? `connection_id=${galleryStore.connectionId}`
         : `source=${galleryStore.source}`;
     const res = await api.get(`/albums?${scope}&synced=true`);
-    // Only show albums that currently have photos — hide ones emptied upstream.
-    albumChips.value = (res.data || []).filter(
-      (a: any) => (a.asset_count ?? 0) > 0
-    );
+    // Only show albums that currently have photos — hide ones emptied
+    // upstream. A gallery album is shown empty: it is a folder to fill.
+    const albums = res.data || [];
+    albumChips.value =
+      galleryStore.source === 'gallery'
+        ? albums
+        : albums.filter((a: any) => (a.asset_count ?? 0) > 0);
   } catch (e) {
     console.error('Failed to fetch album chips', e);
     albumChips.value = [];
@@ -581,8 +661,40 @@ const triggerUpload = () => {
 const onFilesSelected = async (e: Event) => {
   const target = e.target as HTMLInputElement;
   if (!target.files || target.files.length === 0) return;
-  await galleryStore.uploadFiles(target.files);
+  // Uploads land in the album being viewed, or unfiled under "All".
+  await galleryStore.uploadFiles(target.files, '', galleryStore.album);
   target.value = '';
+  await fetchAlbumChips();
+};
+
+// Move a gallery photo into another album (or out of every album).
+const moveDialog = reactive({
+  show: false,
+  photo: null as any,
+  albumId: 0,
+  loading: false,
+});
+const requestMovePhoto = (photo: any) => {
+  moveDialog.photo = photo;
+  moveDialog.albumId = galleryStore.album ?? 0;
+  moveDialog.show = true;
+};
+const confirmMovePhoto = async () => {
+  if (!moveDialog.photo) return;
+  moveDialog.loading = true;
+  try {
+    await galleryStore.setPhotoAlbum(
+      moveDialog.photo.id,
+      moveDialog.albumId || null
+    );
+    await fetchAlbumChips();
+    moveDialog.show = false;
+  } catch (e: any) {
+    galleryStore.importMessage =
+      'Failed to move photo: ' + (e.response?.data?.error || e.message);
+  } finally {
+    moveDialog.loading = false;
+  }
 };
 
 const deleteDialog = reactive({
