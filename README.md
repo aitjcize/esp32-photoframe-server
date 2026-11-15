@@ -208,7 +208,7 @@ Turn any topic into a rotating album of free stock photography — great for a t
 1. **Get a free API key**:
    - **Unsplash**: create an app at [unsplash.com/developers](https://unsplash.com/developers) and copy the **Access Key** (the Secret Key is not needed).
    - **Pexels**: request a key at [pexels.com/api](https://www.pexels.com/api/).
-2. Go to **Settings** → **Data Sources**, open the **Unsplash** or **Pexels** tab, paste the key, and click **Connect**.
+2. Go to **Settings** → **Data Sources**, open the **Unsplash** or **Pexels** tab, click **Add Unsplash** / **Add Pexels**, paste the key into the card, and click **Connect**. **Add another** adds a second key with its own topics.
 3. Add one or more **topics** (e.g., `black and white`, `mountains`, `minimalist`). Each topic becomes a synced album and saves automatically.
 4. Click **Sync Now** to import, then assign the source (and specific topics) to a device under **Settings** → **Devices**.
 

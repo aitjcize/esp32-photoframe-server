@@ -5,10 +5,11 @@
 ### Added
 
 - **Several connections per provider.** Two Immich servers, two Synology
-  NAS accounts, or two Google accounts can now be connected at once.
-  **Data Sources → Immich**, **→ Synology** and **→ Google** show one card
-  per connection, each with its own credentials (or Google sign-in), album
-  selection, auto-sync schedule, photo count and Sync / Clear buttons;
+  NAS accounts, two Google accounts, or two Unsplash or Pexels API keys can
+  now be connected at once. **Data Sources → Immich**, **→ Synology**,
+  **→ Google**, **→ Unsplash** and **→ Pexels** show one card per
+  connection, each with its own credentials (or Google sign-in), album or
+  topic selection, auto-sync schedule, photo count and Sync / Clear buttons;
   **Add another** creates a new one, the pencil renames it, the bin deletes
   it together with its photos. A frame on the Immich source
   can draw from albums of any Immich connection: the per-frame album picker
@@ -16,35 +17,39 @@
   there is more than one, and so do the gallery's album chips. Existing
   installs are migrated on first start: the old Immich and Synology settings
   become one connection each, named "Immich" and "Synology Photos", with
-  their albums, photos and session carried over, and the Google Photos token
-  and imports become a "Google Photos" connection; nothing needs re-entering
-  or re-authorising. The Google card shows which account is signed in, and
-  the Gallery's **Add Photos via Google** button asks which account when
-  there is more than one.
+  their albums, photos and session carried over, the Google Photos token
+  and imports become a "Google Photos" connection, and the Unsplash and
+  Pexels keys become one connection each with their topics; nothing needs
+  re-entering or re-authorising. The Google card shows which account is
+  signed in, and the Gallery's **Add Photos via Google** button asks which
+  account when there is more than one.
 
 ### Changed
 
-- **Provider credentials no longer leave the server.** The Immich API key and
-  the Synology password used to be returned by `GET /api/settings` in plain
-  text to the dashboard. They now live in the connections table, the
-  `/api/connections` responses only say whether a secret is stored, and an
-  update that sends an empty secret keeps the stored one.
+- **Provider credentials no longer leave the server.** The Immich API key,
+  the Synology password and the Unsplash and Pexels keys used to be returned
+  by `GET /api/settings` in plain text to the dashboard. They now live in the
+  connections table, the `/api/connections` responses only say whether a
+  secret is stored, and an update that sends an empty secret keeps the
+  stored one.
 - **Google sign-in is tied to the dashboard that started it.** The OAuth
   callback used to accept any authorisation code; it now only completes a
   sign-in this server began in the last 15 minutes, for the connection that
   began it.
-- **API: `/api/immich/*`, `/api/synology/*`, `/api/google/picker/*` and
+- **API: `/api/immich/*`, `/api/synology/*`, `/api/unsplash/*`,
+  `/api/pexels/*`, `/api/google/picker/*` and
   `/api/auth/google/{login,logout}` are replaced by `/api/connections`**
   (list, create, get, update, delete),
-  `/api/connections/:id/{test,remote-albums,sync-albums,sync,sync-status,clear,count,logout}`
-  and, for Google connections,
+  `/api/connections/:id/{test,remote-albums,sync-albums,sync,sync-status,clear,count,logout}`,
+  `/api/connections/:id/topics` (get and set an Unsplash or Pexels
+  connection's topics) and, for Google connections,
   `/api/connections/:id/google/{login,picker/session,picker/poll/:s,picker/process/:s,picker/progress/:s}`.
   `GET /api/settings` no longer reports `google_connected`.
   `GET /api/albums` and `GET /api/gallery/photos` take a `connection_id`
   filter, albums carry `connection_id` and `connection_name`, and
   `DELETE /api/gallery/photos?connection_id=` clears one connection. The
-  `immich_*` and `synology_*` settings keys and the `google_auths` table are
-  gone.
+  `immich_*`, `synology_*`, `unsplash_*` and `pexels_*` settings keys and
+  the `google_auths` table are gone.
 
 ## v1.18.0
 
