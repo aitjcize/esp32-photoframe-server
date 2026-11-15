@@ -2,7 +2,7 @@
   <div>
     <div class="d-flex align-center justify-space-between mb-1">
       <h3 class="text-subtitle-1 font-weight-bold">{{ title }}</h3>
-      <span class="text-caption text-grey">{{ store.count }} photos</span>
+      <span class="text-caption text-grey">{{ count }} photos</span>
     </div>
     <div v-if="hint" class="text-caption text-grey mb-2">{{ hint }}</div>
 
@@ -85,7 +85,7 @@
       <v-btn
         color="primary"
         variant="tonal"
-        :loading="store.loading"
+        :loading="loading"
         @click="emit('sync')"
         >Sync Now</v-btn
       >
@@ -97,14 +97,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch } from 'vue';
 
+// The topic editor of one Unsplash / Pexels connection. The card owns the
+// data: it passes the stored topics in and saves the edited set.
 const props = defineProps<{
   title: string;
   hint?: string;
-  // A topic-source store instance (createSourceStore). Read count/loading and
-  // seed topics from its syncedAlbums.
-  store: any;
+  topics: string[];
+  count: number;
+  loading: boolean;
   randomizeResults: boolean;
   autoSyncEnabled: boolean;
   autoSyncInterval: number;
@@ -120,30 +122,15 @@ const emit = defineEmits<{
   'update:autoSyncInterval': [number];
 }>();
 
-const topics = ref<string[]>([]);
+const topics = ref<string[]>([...props.topics]);
 const newTopic = ref('');
 
-// Seed the topic list from the store's synced albums (external_id = topic text).
-const seedFromStore = () => {
-  topics.value = (props.store.syncedAlbums || [])
-    .map((a: any) => a.external_id)
-    .filter((t: string) => !!t);
-};
-
-onMounted(async () => {
-  try {
-    await props.store.fetchSyncedAlbums();
-    await props.store.fetchCount();
-  } catch (e) {
-    // Non-fatal: start with an empty topic list.
-  }
-  seedFromStore();
-});
-
-// Re-seed if the synced albums change out from under us (e.g. after clear).
+// Follow the stored set when the card reloads it (after a save, a clear).
 watch(
-  () => props.store.syncedAlbums,
-  () => seedFromStore()
+  () => props.topics,
+  (stored) => {
+    topics.value = [...stored];
+  }
 );
 
 const addTopic = () => {

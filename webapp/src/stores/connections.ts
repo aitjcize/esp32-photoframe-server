@@ -2,13 +2,19 @@ import { defineStore } from 'pinia';
 import { api } from '../api';
 
 // One configured instance of a connection-backed source: an Immich server, a
-// Synology Photos account or a Google account. `config` is the server's
-// redacted view (URLs and flags, never secrets; `has_api_key` /
-// `has_password` say whether one is stored; Google: the account `email`) and
-// `connected` is whether it can be used right now.
+// Synology Photos account, a Google account, or an Unsplash / Pexels API key.
+// `config` is the server's redacted view (URLs and flags, never secrets;
+// `has_api_key` / `has_password` say whether one is stored; Google: the
+// account `email`) and `connected` is whether it can be used right now.
 export interface Connection {
   id: number;
-  source: 'immich' | 'synology_photos' | 'google_photos' | string;
+  source:
+    | 'immich'
+    | 'synology_photos'
+    | 'google_photos'
+    | 'unsplash'
+    | 'pexels'
+    | string;
   name: string;
   enabled: boolean;
   connected: boolean;
@@ -20,15 +26,21 @@ export const CONNECTION_SOURCES = [
   'immich',
   'synology_photos',
   'google_photos',
+  'unsplash',
+  'pexels',
 ];
+// The connection sources whose albums are search topics typed by the user.
+export const TOPIC_SOURCES = ['unsplash', 'pexels'];
 // The connection sources that sync albums in the background (Google imports
 // through the picker instead and has no sync status).
-export const SYNCING_SOURCES = ['immich', 'synology_photos'];
+export const SYNCING_SOURCES = ['immich', 'synology_photos', ...TOPIC_SOURCES];
 
 export const SOURCE_LABELS: Record<string, string> = {
   immich: 'Immich',
   synology_photos: 'Synology Photos',
   google_photos: 'Google Photos',
+  unsplash: 'Unsplash',
+  pexels: 'Pexels',
 };
 
 export const useConnectionsStore = defineStore('connections', {
@@ -162,6 +174,19 @@ export const useConnectionsStore = defineStore('connections', {
       await api.post(`/connections/${id}/sync-albums`, payload);
     },
 
+    // Unsplash / Pexels: the connection's search topics, each a synced album.
+    async topics(id: number): Promise<string[]> {
+      const res = await api.get(`/connections/${id}/topics`);
+      return res.data?.topics || [];
+    },
+
+    // Replaces the topic set; a removed topic's photos go with it. Nothing is
+    // imported until the next sync.
+    async setTopics(id: number, topics: string[]): Promise<string[]> {
+      const res = await api.post(`/connections/${id}/topics`, { topics });
+      return res.data?.topics || [];
+    },
+
     async sync(id: number) {
       await api.post(`/connections/${id}/sync`);
     },
@@ -181,6 +206,13 @@ export const useConnectionsStore = defineStore('connections', {
     // auto-sync does not re-import them (same as the gallery's Delete All).
     async clearPhotos(id: number) {
       await api.delete(`/gallery/photos?connection_id=${id}`);
+      this.counts[id] = 0;
+    },
+
+    // Deletes the connection's photos but leaves its albums (topics) syncing,
+    // so the next sync fills them again.
+    async clearPhotosKeepSync(id: number) {
+      await api.post(`/connections/${id}/clear`);
       this.counts[id] = 0;
     },
   },

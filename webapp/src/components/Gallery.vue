@@ -351,12 +351,12 @@
             <b>Sync Now</b> to import photos.
           </span>
           <span v-else-if="galleryStore.source === 'unsplash'">
-            Open the <b>Unsplash</b> tab under Data Sources below, add some
-            topics and click <b>Sync Now</b> to import photos.
+            Open the <b>Unsplash</b> tab under Data Sources below, add your API
+            key and some topics, and click <b>Sync Now</b> to import photos.
           </span>
           <span v-else-if="galleryStore.source === 'pexels'">
-            Open the <b>Pexels</b> tab under Data Sources below, add some topics
-            and click <b>Sync Now</b> to import photos.
+            Open the <b>Pexels</b> tab under Data Sources below, add your API
+            key and some topics, and click <b>Sync Now</b> to import photos.
           </span>
         </p>
         <v-btn
@@ -448,7 +448,7 @@
 import { onMounted, onUnmounted, ref, reactive, computed, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
-import { useConnectionsStore } from '../stores/connections';
+import { SYNCING_SOURCES, useConnectionsStore } from '../stores/connections';
 import { api, listDevices, pushToDevice, type Device } from '../api';
 import { useFramePasswordPrompt } from '../composables/useFramePasswordPrompt';
 import { isFrameAuthRefusal } from '../utils/frameAuth';
@@ -465,14 +465,10 @@ const googleAccounts = computed(() => connectionsStore.googleConnected());
 // Album chips (only shown for Immich / Synology sources).
 const albumChips = ref<any[]>([]);
 
-// Topic-based sources whose synced topics behave exactly like albums.
-const TOPIC_SOURCES = ['unsplash', 'pexels'];
-
-const showAlbumChips = computed(
-  () =>
-    galleryStore.source === 'immich' ||
-    galleryStore.source === 'synology_photos' ||
-    TOPIC_SOURCES.includes(galleryStore.source)
+// Sources whose photos are grouped in albums (topic sources' synced topics
+// behave exactly like albums).
+const showAlbumChips = computed(() =>
+  SYNCING_SOURCES.includes(galleryStore.source)
 );
 
 const fetchAlbumChips = async () => {
@@ -534,25 +530,15 @@ const dismissedSyncError = ref('');
 let syncPollTimer: number | null = null;
 let prevSyncing = false;
 
-const CONNECTION_SOURCES = ['immich', 'synology_photos'];
-
-// Sync state of the current source: for a connection-backed source the
-// status of every connection of that type, folded into one (any running;
-// errors joined, named by connection when there is more than one).
+// Sync state of the current source: the status of every connection of that
+// type, folded into one (any running; errors joined, named by connection when
+// there is more than one).
 const fetchSyncStatus = async (): Promise<{
   running: boolean;
   last_error: string;
 } | null> => {
   const source = galleryStore.source;
-  if (TOPIC_SOURCES.includes(source)) {
-    const res = await api.get(`/${source}/sync-status`);
-    return {
-      running: !!res.data?.running,
-      last_error:
-        typeof res.data?.last_error === 'string' ? res.data.last_error : '',
-    };
-  }
-  if (!CONNECTION_SOURCES.includes(source)) return null;
+  if (!SYNCING_SOURCES.includes(source)) return null;
   const conns = (await api.get(`/connections?source=${source}`)).data || [];
   const statuses = await Promise.all(
     conns.map(async (c: any) => {
@@ -572,10 +558,7 @@ const fetchSyncStatus = async (): Promise<{
 };
 
 const checkSyncStatus = async () => {
-  if (
-    !TOPIC_SOURCES.includes(galleryStore.source) &&
-    !CONNECTION_SOURCES.includes(galleryStore.source)
-  ) {
+  if (!SYNCING_SOURCES.includes(galleryStore.source)) {
     syncing.value = false;
     prevSyncing = false;
     syncError.value = '';

@@ -20,6 +20,15 @@
           Connect a Google account to pick photos from its Google Photos
           library. You can add more than one account.
         </span>
+        <span v-else-if="source === 'unsplash'">
+          Unsplash provides free high-resolution photos. Add your Unsplash API
+          access key, then add search topics — each topic becomes a synced
+          album.
+        </span>
+        <span v-else-if="source === 'pexels'">
+          Pexels provides free stock photos. Add your Pexels API key, then add
+          search topics — each topic becomes a synced album.
+        </span>
         <span v-else>
           Connect a Synology Photos account to sync its albums. You can add more
           than one NAS or account.
@@ -27,7 +36,7 @@
       </v-alert>
 
       <component
-        :is="source === 'google_photos' ? GoogleConnectionCard : ConnectionCard"
+        :is="cardComponent"
         v-for="c in connections"
         :key="c.id"
         :ref="(el: any) => setCardRef(c.id, el)"
@@ -57,10 +66,20 @@
 import { computed, onMounted, ref } from 'vue';
 import ConnectionCard from './ConnectionCard.vue';
 import GoogleConnectionCard from './GoogleConnectionCard.vue';
-import { SOURCE_LABELS, useConnectionsStore } from '../stores/connections';
+import TopicConnectionCard from './TopicConnectionCard.vue';
+import {
+  SOURCE_LABELS,
+  TOPIC_SOURCES,
+  useConnectionsStore,
+} from '../stores/connections';
 
 const props = defineProps<{
-  source: 'immich' | 'synology_photos' | 'google_photos';
+  source:
+    | 'immich'
+    | 'synology_photos'
+    | 'google_photos'
+    | 'unsplash'
+    | 'pexels';
   confirm: (message: string) => Promise<boolean>;
   showMessage: (message: string, isError?: boolean) => void;
   // Google cards: runs before leaving for Google's consent page.
@@ -74,6 +93,11 @@ const emit = defineEmits<{ synced: [source: string] }>();
 const store = useConnectionsStore();
 const connections = computed(() => store.bySource(props.source));
 const label = computed(() => SOURCE_LABELS[props.source] || props.source);
+const cardComponent = computed(() => {
+  if (props.source === 'google_photos') return GoogleConnectionCard;
+  if (TOPIC_SOURCES.includes(props.source)) return TopicConnectionCard;
+  return ConnectionCard;
+});
 
 const adding = ref(false);
 const add = async () => {

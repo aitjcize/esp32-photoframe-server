@@ -279,167 +279,26 @@
             ></ConnectionList>
           </v-window-item>
 
-          <!-- Unsplash -->
+          <!-- Unsplash: one card per API key -->
           <v-window-item value="unsplash">
-            <v-card-text>
-              <v-alert
-                type="info"
-                variant="tonal"
-                class="mb-4"
-                density="compact"
-              >
-                Unsplash provides free high-resolution photos. Enter your
-                Unsplash API access key, then add search topics — each topic
-                becomes a synced album.
-              </v-alert>
-
-              <div v-if="unsplashConnected">
-                <v-alert
-                  type="success"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                  icon="mdi-check-circle"
-                >
-                  Connected to Unsplash
-                </v-alert>
-
-                <TopicManager
-                  title="Search topics"
-                  :store="unsplashStore"
-                  hint="Each topic becomes an album of matching photos."
-                  :randomize-results="form.unsplash_randomize_results"
-                  :auto-sync-enabled="form.unsplash_auto_sync_enabled"
-                  :auto-sync-interval="form.unsplash_auto_sync_interval_minutes"
-                  :auto-sync-options="autoSyncIntervalOptions"
-                  @update:randomize-results="
-                    form.unsplash_randomize_results = $event;
-                    saveSettingsInternal();
-                  "
-                  @update:auto-sync-enabled="
-                    form.unsplash_auto_sync_enabled = $event;
-                    saveSettingsInternal();
-                  "
-                  @update:auto-sync-interval="
-                    form.unsplash_auto_sync_interval_minutes = $event;
-                    saveSettingsInternal();
-                  "
-                  @save="(topics) => saveTopics('unsplash', topics)"
-                  @sync="syncTopicSource('unsplash')"
-                  @clear="clearTopicSource('unsplash')"
-                >
-                  <template #actions>
-                    <v-btn
-                      color="error"
-                      variant="text"
-                      @click="disconnectUnsplash"
-                      >Disconnect</v-btn
-                    >
-                  </template>
-                </TopicManager>
-              </div>
-
-              <div v-else>
-                <v-text-field
-                  v-model="form.unsplash_api_key"
-                  label="Unsplash Access Key"
-                  hint="Your app's Access Key — the Secret Key is not needed"
-                  persistent-hint
-                  type="password"
-                  variant="outlined"
-                  density="compact"
-                  class="mb-4"
-                ></v-text-field>
-
-                <v-btn
-                  color="primary"
-                  :disabled="!form.unsplash_api_key"
-                  @click="connectUnsplash"
-                >
-                  Connect
-                </v-btn>
-              </div>
-            </v-card-text>
+            <ConnectionList
+              ref="unsplashList"
+              source="unsplash"
+              :confirm="confirmPrompt"
+              :show-message="showMessage"
+              @synced="onConnectionSynced"
+            ></ConnectionList>
           </v-window-item>
 
-          <!-- Pexels -->
+          <!-- Pexels: one card per API key -->
           <v-window-item value="pexels">
-            <v-card-text>
-              <v-alert
-                type="info"
-                variant="tonal"
-                class="mb-4"
-                density="compact"
-              >
-                Pexels provides free stock photos. Enter your Pexels API key,
-                then add search topics — each topic becomes a synced album.
-              </v-alert>
-
-              <div v-if="pexelsConnected">
-                <v-alert
-                  type="success"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                  icon="mdi-check-circle"
-                >
-                  Connected to Pexels
-                </v-alert>
-
-                <TopicManager
-                  title="Search topics"
-                  :store="pexelsStore"
-                  hint="Each topic becomes an album of matching photos."
-                  :randomize-results="form.pexels_randomize_results"
-                  :auto-sync-enabled="form.pexels_auto_sync_enabled"
-                  :auto-sync-interval="form.pexels_auto_sync_interval_minutes"
-                  :auto-sync-options="autoSyncIntervalOptions"
-                  @update:randomize-results="
-                    form.pexels_randomize_results = $event;
-                    saveSettingsInternal();
-                  "
-                  @update:auto-sync-enabled="
-                    form.pexels_auto_sync_enabled = $event;
-                    saveSettingsInternal();
-                  "
-                  @update:auto-sync-interval="
-                    form.pexels_auto_sync_interval_minutes = $event;
-                    saveSettingsInternal();
-                  "
-                  @save="(topics) => saveTopics('pexels', topics)"
-                  @sync="syncTopicSource('pexels')"
-                  @clear="clearTopicSource('pexels')"
-                >
-                  <template #actions>
-                    <v-btn
-                      color="error"
-                      variant="text"
-                      @click="disconnectPexels"
-                      >Disconnect</v-btn
-                    >
-                  </template>
-                </TopicManager>
-              </div>
-
-              <div v-else>
-                <v-text-field
-                  v-model="form.pexels_api_key"
-                  label="Pexels API Key"
-                  type="password"
-                  variant="outlined"
-                  density="compact"
-                  class="mb-4"
-                ></v-text-field>
-
-                <v-btn
-                  color="primary"
-                  :disabled="!form.pexels_api_key"
-                  @click="connectPexels"
-                >
-                  Connect
-                </v-btn>
-              </div>
-            </v-card-text>
+            <ConnectionList
+              ref="pexelsList"
+              source="pexels"
+              :confirm="confirmPrompt"
+              :show-message="showMessage"
+              @synced="onConnectionSynced"
+            ></ConnectionList>
           </v-window-item>
 
           <!-- Gallery -->
@@ -2317,7 +2176,6 @@ import { onMounted, nextTick, reactive, ref, computed, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
 import { useConnectionsStore } from '../stores/connections';
-import { useUnsplashStore, usePexelsStore } from '../stores/createSourceStore';
 import { useGalleryStore } from '../stores/gallery';
 import { useAuthStore } from '../stores/auth';
 import { useSnackbar } from '../composables/useSnackbar';
@@ -2349,7 +2207,6 @@ import ConnectionList from './ConnectionList.vue';
 import { newFramePasswordProblem } from '../utils/framePassword';
 import { getApiError } from '../utils/errors';
 import AlbumPicker from './AlbumPicker.vue';
-import TopicManager from './TopicManager.vue';
 import SecurityTab from './SecurityTab.vue';
 import RotationSchedule from './RotationSchedule.vue';
 import { intervalToCron, cronToInterval, isValidCron } from '../utils/cron';
@@ -2366,46 +2223,39 @@ import {
 const { smAndDown } = useDisplay(); // true on phones / small tablets
 const store = useSettingsStore();
 const connectionsStore = useConnectionsStore();
-const unsplashStore = useUnsplashStore();
-const pexelsStore = usePexelsStore();
-// Whether a connection-backed source (Immich, Synology) has at least one
-// connection; drives the per-frame album pickers.
+// Whether a connection-backed source has at least one connection; drives the
+// per-frame album pickers.
 const hasConnections = (source: string) =>
   connectionsStore.bySource(source).length > 0;
-const unsplashConnected = ref(false);
-const pexelsConnected = ref(false);
 
-// Topic-source store lookup by source key (unsplash/pexels).
-const topicStores: Record<string, any> = {
-  unsplash: unsplashStore,
-  pexels: pexelsStore,
-};
-
-// The Immich / Synology connection lists (one card per connection). Their
-// album selections live in the cards; Settings only asks them to offer a sync
-// when the user leaves the tab.
+// The connection lists (one card per connection). Their album and topic
+// selections live in the cards; Settings only asks them to offer a sync when
+// the user leaves the tab.
 const immichList = ref<any>(null);
 const synologyList = ref<any>(null);
 const googleList = ref<any>(null);
+const unsplashList = ref<any>(null);
+const pexelsList = ref<any>(null);
+const connectionLists: Record<string, typeof immichList> = {
+  immich: immichList,
+  synology_photos: synologyList,
+  unsplash: unsplashList,
+  pexels: pexelsList,
+};
 // The Google connection the OAuth callback just connected (?connection=),
 // so its card is scrolled into view.
 const focusConnectionId = ref<number | undefined>(undefined);
-// Topic sources (Unsplash/Pexels): topics auto-save on add/remove but do not
-// import until the user syncs or is prompted on leaving the source.
-const topicSyncDirty = reactive<Record<string, boolean>>({
-  unsplash: false,
-  pexels: false,
-});
-
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
 const deviceImmichSyncedAlbums = ref<any[]>([]);
 // Per-device Synology album bindings (Part C)
 const deviceSynologyAlbumIds = ref<number[]>([]);
 const deviceSynologySyncedAlbums = ref<any[]>([]);
-// Per-device topic-source (unsplash/pexels) album bindings.
+// Per-device topic bindings (Unsplash / Pexels topics are albums too).
 const deviceUnsplashAlbumIds = ref<number[]>([]);
+const deviceUnsplashSyncedAlbums = ref<any[]>([]);
 const devicePexelsAlbumIds = ref<number[]>([]);
+const devicePexelsSyncedAlbums = ref<any[]>([]);
 const galleryStore = useGalleryStore();
 // Only to know whether the session is still on when a load finishes: a
 // list requested before a logout must not open the password prompt after.
@@ -3532,8 +3382,8 @@ const editDevice = async (device: Device) => {
   devicePexelsAlbumIds.value = [];
   // Load device remote config
   await loadDeviceConfig(device.id);
-  // Load the synced albums of every Immich / Synology connection plus this
-  // device's bindings (best-effort).
+  // Load the synced albums of every connection plus this device's bindings
+  // (best-effort).
   if (!connectionsStore.loaded) {
     try {
       await connectionsStore.fetch();
@@ -3548,6 +3398,8 @@ const editDevice = async (device: Device) => {
   ][] = [
     ['immich', deviceImmichAlbumIds, deviceImmichSyncedAlbums],
     ['synology_photos', deviceSynologyAlbumIds, deviceSynologySyncedAlbums],
+    ['unsplash', deviceUnsplashAlbumIds, deviceUnsplashSyncedAlbums],
+    ['pexels', devicePexelsAlbumIds, devicePexelsSyncedAlbums],
   ];
   await Promise.all(
     connectionBindings.map(async ([source, ids, synced]) => {
@@ -3559,24 +3411,6 @@ const editDevice = async (device: Device) => {
           `/devices/${device.id}/albums?source=${source}`
         );
         ids.value = res.data?.album_ids || [];
-      } catch (e) {
-        // Non-fatal: leave bindings empty
-      }
-    })
-  );
-  // Load topic-source album options + this device's bindings (best-effort).
-  const topicBindingRefs: Record<string, typeof deviceUnsplashAlbumIds> = {
-    unsplash: deviceUnsplashAlbumIds,
-    pexels: devicePexelsAlbumIds,
-  };
-  await Promise.all(
-    Object.keys(topicStores).map(async (source) => {
-      try {
-        await topicStores[source].fetchSyncedAlbums();
-        const res = await api.get(
-          `/devices/${device.id}/albums?source=${source}`
-        );
-        topicBindingRefs[source].value = res.data?.album_ids || [];
       } catch (e) {
         // Non-fatal: leave bindings empty
       }
@@ -3855,12 +3689,13 @@ const saveDevice = async () => {
         }
       }
 
-      // Persist per-device topic-source album bindings (best-effort).
+      // Persist per-device topic bindings (best-effort).
       const topicBindings: Record<string, number[]> = {
         unsplash: deviceUnsplashAlbumIds.value,
         pexels: devicePexelsAlbumIds.value,
       };
       for (const [source, album_ids] of Object.entries(topicBindings)) {
+        if (!hasConnections(source)) continue;
         try {
           await api.put(`/devices/${editingDevice.id}/albums`, {
             source,
@@ -3995,15 +3830,6 @@ const form = reactive({
   telegram_target_device_id: [] as number[],
   openai_api_key: '',
   google_api_key: '',
-  // Topic sources.
-  unsplash_api_key: '',
-  pexels_api_key: '',
-  unsplash_auto_sync_enabled: false,
-  unsplash_auto_sync_interval_minutes: 60,
-  unsplash_randomize_results: false,
-  pexels_auto_sync_enabled: false,
-  pexels_auto_sync_interval_minutes: 60,
-  pexels_randomize_results: false,
   // Device-facing base URL for image requests (e.g. http://homeassistant.local:9608).
   // Empty = derive from the browser's location.
   device_image_base_url: '',
@@ -4033,24 +3859,20 @@ const deviceSynologyAlbumOptions = computed(() =>
   connectionAlbumOptions('synology_photos', deviceSynologySyncedAlbums.value)
 );
 
-// Synced topic albums available for per-device binding (topic sources).
-const topicAlbumOptions = (store: any) =>
-  (store.syncedAlbums || [])
-    .filter((a: any) => a.sync_enabled)
-    .map((a: any) => ({ id: a.id, name: a.name }));
 const deviceUnsplashAlbumOptions = computed(() =>
-  topicAlbumOptions(unsplashStore)
+  connectionAlbumOptions('unsplash', deviceUnsplashSyncedAlbums.value)
 );
-const devicePexelsAlbumOptions = computed(() => topicAlbumOptions(pexelsStore));
+const devicePexelsAlbumOptions = computed(() =>
+  connectionAlbumOptions('pexels', devicePexelsSyncedAlbums.value)
+);
 
 // Album search + checked-first sorting now live in <AlbumPicker>.
 
-// When the user leaves the Immich/Synology config (sub-tab or the whole Data
-// Sources tab) with unsynced selection changes, the connection cards offer to
+// When the user leaves a source's config (sub-tab or the whole Data Sources
+// tab) with unsynced album or topic changes, the connection cards offer to
 // sync now.
-const maybePromptSync = async (source: 'immich' | 'synology_photos') => {
-  const list = source === 'immich' ? immichList.value : synologyList.value;
-  await list?.promptIfDirty?.();
+const maybePromptSync = async (source: string) => {
+  await connectionLists[source]?.value?.promptIfDirty?.();
 };
 // A connection card started a sync or cleared photos: refresh the gallery
 // above, switching it to that source so the change is visible.
@@ -4062,41 +3884,14 @@ const onConnectionSynced = async (source: string) => {
     sourceTab.value = source;
   }
 };
-// When the user leaves a topic source (Unsplash/Pexels) after changing topics,
-// offer to sync now to import photos for them.
-const maybePromptTopicSync = async (source: string) => {
-  if (!topicSyncDirty[source]) return;
-  topicSyncDirty[source] = false; // ask once
-  const ok = await confirmDialog.value.open(
-    'You changed topics. Sync now to import photos for them?'
-  );
-  if (!ok) return;
-  await syncTopicSource(source);
-};
 watch(sourceTab, (_newVal, oldVal) => {
-  if (oldVal === 'immich') maybePromptSync('immich');
-  if (oldVal === 'synology_photos') maybePromptSync('synology_photos');
-  if (oldVal === 'unsplash' || oldVal === 'pexels')
-    maybePromptTopicSync(oldVal);
+  if (oldVal) maybePromptSync(oldVal);
 });
 watch(activeMainTab, (_newVal, oldVal) => {
   if (oldVal === 'datasources') {
-    maybePromptSync('immich');
-    maybePromptSync('synology_photos');
-    maybePromptTopicSync('unsplash');
-    maybePromptTopicSync('pexels');
+    for (const source of Object.keys(connectionLists)) maybePromptSync(source);
   }
 });
-
-const autoSyncIntervalOptions = [
-  { title: 'Every 15 minutes', value: 15 },
-  { title: 'Every 30 minutes', value: 30 },
-  { title: 'Every 1 hour', value: 60 },
-  { title: 'Every 3 hours', value: 180 },
-  { title: 'Every 6 hours', value: 360 },
-  { title: 'Every 12 hours', value: 720 },
-  { title: 'Every 24 hours', value: 1440 },
-];
 
 // Delete all photos for a given image source. Also disables that source's
 // album sync on the backend, so refresh the sync-selection UI afterwards.
@@ -4154,28 +3949,12 @@ onMounted(async () => {
     device_image_base_url: store.settings.device_image_base_url || '',
     openai_api_key: store.settings.openai_api_key || '',
     google_api_key: store.settings.google_api_key || '',
-    unsplash_api_key: store.settings.unsplash_api_key || '',
-    pexels_api_key: store.settings.pexels_api_key || '',
-    unsplash_auto_sync_enabled:
-      store.settings.unsplash_auto_sync_enabled === 'true',
-    unsplash_auto_sync_interval_minutes: parseInt(
-      store.settings.unsplash_auto_sync_interval || '60'
-    ),
-    unsplash_randomize_results:
-      store.settings.unsplash_randomize_results === 'true',
-    pexels_auto_sync_enabled:
-      store.settings.pexels_auto_sync_enabled === 'true',
-    pexels_auto_sync_interval_minutes: parseInt(
-      store.settings.pexels_auto_sync_interval || '60'
-    ),
-    pexels_randomize_results:
-      store.settings.pexels_randomize_results === 'true',
   });
 
   // Run independent fetches in parallel
   const parallelFetches: Promise<void>[] = [loadDevices()];
 
-  // Immich / Synology connections (the cards load their own albums + counts).
+  // Connections (the cards load their own albums, topics and counts).
   parallelFetches.push(
     (async () => {
       try {
@@ -4185,24 +3964,6 @@ onMounted(async () => {
       }
     })()
   );
-
-  // Topic-source connection state (key present => connected).
-  unsplashConnected.value = !!store.settings.unsplash_api_key;
-  pexelsConnected.value = !!store.settings.pexels_api_key;
-
-  // Topic sources: load counts + synced topics (best-effort, non-blocking).
-  for (const source of Object.keys(topicStores)) {
-    parallelFetches.push(
-      (async () => {
-        try {
-          await topicStores[source].fetchCount();
-          await topicStores[source].fetchSyncedAlbums();
-        } catch (e) {
-          // Non-fatal
-        }
-      })()
-    );
-  }
 
   await Promise.all(parallelFetches);
 
@@ -4250,16 +4011,6 @@ const saveSettingsInternal = async () => {
     weather_lon: form.weather_lon,
     openai_api_key: form.openai_api_key,
     google_api_key: form.google_api_key,
-    unsplash_api_key: form.unsplash_api_key,
-    pexels_api_key: form.pexels_api_key,
-    unsplash_auto_sync_enabled: String(form.unsplash_auto_sync_enabled),
-    unsplash_auto_sync_interval: String(
-      form.unsplash_auto_sync_interval_minutes
-    ),
-    unsplash_randomize_results: String(form.unsplash_randomize_results),
-    pexels_auto_sync_enabled: String(form.pexels_auto_sync_enabled),
-    pexels_auto_sync_interval: String(form.pexels_auto_sync_interval_minutes),
-    pexels_randomize_results: String(form.pexels_randomize_results),
     device_image_base_url: form.device_image_base_url,
   });
 };
@@ -4313,119 +4064,6 @@ const disconnectTelegram = async () => {
   form.telegram_push_enabled = false;
   await saveSettingsInternal();
   showMessage('Telegram bot disconnected.');
-};
-
-const connectUnsplash = async () => {
-  // The test endpoint validates the currently-saved key, so persist first.
-  await saveSettingsInternal();
-  try {
-    await api.post('/unsplash/test');
-    unsplashConnected.value = true;
-    showMessage('Connection Successful!');
-  } catch (e: any) {
-    showMessage(
-      'Connection Failed: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
-};
-
-const disconnectUnsplash = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to disconnect Unsplash?'
-    ))
-  )
-    return;
-  form.unsplash_api_key = '';
-  await saveSettingsInternal();
-  unsplashConnected.value = false;
-  showMessage('Disconnected from Unsplash.');
-};
-
-const connectPexels = async () => {
-  // The test endpoint validates the currently-saved key, so persist first.
-  await saveSettingsInternal();
-  try {
-    await api.post('/pexels/test');
-    pexelsConnected.value = true;
-    showMessage('Connection Successful!');
-  } catch (e: any) {
-    showMessage(
-      'Connection Failed: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
-};
-
-const disconnectPexels = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to disconnect Pexels?'
-    ))
-  )
-    return;
-  form.pexels_api_key = '';
-  await saveSettingsInternal();
-  pexelsConnected.value = false;
-  showMessage('Disconnected from Pexels.');
-};
-
-// --- Topic sources (Unsplash / Pexels) ---
-// Replace the synced topic set, then offer to sync (topics have no photos
-// until imported).
-const saveTopics = async (source: string, topics: string[]) => {
-  const st = topicStores[source];
-  try {
-    await st.setSyncTopics(topics);
-    topicSyncDirty[source] = true;
-  } catch (e: any) {
-    showMessage(
-      'Failed to save topics: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
-};
-
-const syncTopicSource = async (source: string) => {
-  const st = topicStores[source];
-  topicSyncDirty[source] = false;
-  await saveSettingsInternal();
-  try {
-    await st.sync();
-    showMessage('Sync started — importing in the background.');
-    galleryStore.triggerRefresh();
-    if (sourceTab.value === source) {
-      await galleryStore.fetchPhotos();
-    } else {
-      sourceTab.value = source;
-    }
-  } catch (e: any) {
-    showMessage(
-      'Sync Failed: ' + (e.response?.data?.error || 'Unknown error'),
-      true
-    );
-  }
-};
-
-const clearTopicSource = async (source: string) => {
-  const st = topicStores[source];
-  if (
-    !(await confirmDialog.value.open(
-      'Delete all photos for this source? Your topics stay, but their photos are removed.'
-    ))
-  )
-    return;
-  try {
-    await st.clear();
-    showMessage('All photos deleted.');
-    galleryStore.triggerRefresh();
-  } catch (e: any) {
-    showMessage(
-      'Failed to delete photos: ' + (e.response?.data?.error || e.message),
-      true
-    );
-  }
 };
 
 // Get image endpoint URL
