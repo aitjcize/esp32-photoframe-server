@@ -165,13 +165,22 @@ Access the dashboard at `http://localhost:9607` (or your server IP, or via Home 
 4. Click **Sync Now** to import.
 5. Repeat with **+** for a second Immich server. Each connection keeps its own albums and schedule; the per-frame album picker lists them all, prefixed with the connection name.
 
+### Gallery Albums
+
+The Gallery is the server's own photo store: uploads from the dashboard and photos sent to the Telegram bot. Albums are folders inside it.
+
+1. Pick **Gallery** in the source picker and scroll to **Albums** below the photos. Type a name and click **Add**.
+2. Select an album chip above the photos and click **Upload to <album>** to upload into it. The folder button on a photo moves it to another album, or out of every album.
+3. Under **Settings** → **Devices**, a frame on the Gallery source can be limited to some albums; with none ticked it shows the whole gallery, unfiled photos included.
+4. Deleting an album offers to keep its photos (they stay in the gallery, unfiled) or to delete them too.
+
 ### Telegram Bot (Gallery)
 
 A Telegram bot is an optional way to add photos to the **Gallery** source — send a photo to the bot and it's uploaded to your gallery.
 
 1. Create a new bot via [@BotFather](https://t.me/botfather) and copy its **Bot Token**.
 2. Pick **Gallery** in the source picker, scroll below the photos, enter the **Telegram Bot Token** and save.
-3. Send a photo to your bot. It's added to the Gallery, and frames using the Gallery source will show it.
+3. Send a photo to your bot. It's added to the Gallery, and frames using the Gallery source will show it. With albums set up, **Upload to album** in the same section chooses which album the bot files photos under.
 
 ### URL Proxy Setup
 

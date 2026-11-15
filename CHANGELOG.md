@@ -24,6 +24,20 @@
   Photos" connection, and the Unsplash and Pexels keys become one connection
   each with their topics; nothing needs re-entering or re-authorising.
 
+- **Albums inside the Gallery.** The local gallery (dashboard uploads and
+  Telegram photos) can be split into albums: create and rename them under
+  the gallery's photos, upload into the selected album, move a photo between
+  albums with the folder button on its thumbnail, and limit a frame on the
+  Gallery source to some albums in the device dialog, exactly like Immich
+  albums. The Telegram bot can file what it receives under one album.
+  Deleting an album keeps its photos unfiled unless you choose to delete
+  them too. API: `POST /api/gallery/albums`, `PUT`/`DELETE
+  /api/gallery/albums/:id` (`?photos=true` deletes the photos as well),
+  `PUT /api/gallery/photos/:id/album`, an optional `album_id` form field on
+  `POST /api/gallery/upload`, and the `telegram_album_id` setting; the
+  albums are listed by `GET /api/albums?source=gallery` and bound per frame
+  through the existing `/api/devices/:id/albums`.
+
 ### Changed
 
 - **The Google OAuth client and the Calendar connection moved to Settings →
