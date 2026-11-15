@@ -1,155 +1,383 @@
 <template>
   <div class="pa-1 pa-sm-4">
-    <!-- Sources Card (gallery on top, settings below) -->
+    <!-- Sources Card: one source at a time, picked from the dropdown. A
+         connection shows its card first and its photos below; the built-in
+         sources show their photos (Gallery) or their settings. -->
     <v-card class="mb-6">
-      <v-tabs v-model="sourceTab" color="primary" show-arrows>
-        <v-tab value="gallery">Gallery</v-tab>
-        <v-tab value="immich">Immich</v-tab>
-        <v-tab value="synology_photos">Synology</v-tab>
-        <v-tab value="google_photos">Google</v-tab>
-        <v-tab value="unsplash">Unsplash</v-tab>
-        <v-tab value="pexels">Pexels</v-tab>
-        <v-tab value="url">URL Proxy</v-tab>
-        <v-tab value="ai_generation">AI Generation</v-tab>
-      </v-tabs>
       <v-card-text>
-        <div v-if="sourceHasGallery">
-          <Gallery />
+        <SourcePicker
+          v-model="sourceKey"
+          class="mb-4"
+          @add="showAddConnection = true"
+        ></SourcePicker>
+
+        <v-alert
+          v-if="
+            connectionsStore.loaded && connectionsStore.connections.length === 0
+          "
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+        >
+          No photo sources connected yet. Click <b>+</b> to add an Immich
+          server, a Synology Photos or Google account, or an Unsplash or Pexels
+          key.
+        </v-alert>
+
+        <template v-if="activeConnection">
+          <component
+            :is="cardComponentFor(activeConnection.source)"
+            :key="activeConnection.id"
+            ref="activeCard"
+            v-bind="activeCardProps"
+            :connection="activeConnection"
+            :confirm="confirmPrompt"
+            :show-message="showMessage"
+            @synced="onConnectionSynced"
+          ></component>
           <v-divider class="my-6"></v-divider>
-        </div>
-        <v-window v-model="sourceTab" :touch="false">
-          <!-- URL Proxy -->
-          <v-window-item value="url">
-            <v-card-text>
-              <v-alert
-                type="info"
-                variant="tonal"
-                class="mb-4"
-                density="compact"
-              >
-                Add external image URLs to be served by the photoframe. You can
-                bind URLs to specific devices or leave them global.
-              </v-alert>
+          <Gallery />
+        </template>
 
-              <div class="d-flex justify-end mb-4">
-                <v-btn
-                  color="primary"
-                  prepend-icon="mdi-plus"
-                  class="mb-4"
-                  @click="openAddURLDialog"
-                >
-                  Add URL Source
-                </v-btn>
-              </div>
-
-              <v-table density="comfortable" class="border rounded">
-                <thead>
-                  <tr>
-                    <th>URL</th>
-                    <th>Bound Devices</th>
-                    <th class="text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="src in urlSources" :key="src.id">
-                    <td class="text-truncate" style="max-width: 300px">
-                      <a :href="src.url" target="_blank">{{ src.url }}</a>
-                    </td>
-                    <td>
-                      <div v-if="src.device_ids && src.device_ids.length">
-                        <v-chip
-                          v-for="did in src.device_ids"
-                          :key="did"
-                          size="x-small"
-                          class="mr-1"
-                        >
-                          {{ getDeviceName(did) }}
-                        </v-chip>
-                      </div>
-                      <span v-else class="text-grey text-caption">Global</span>
-                    </td>
-                    <td class="text-right">
-                      <v-btn
-                        color="primary"
-                        variant="text"
-                        size="small"
-                        icon="mdi-pencil"
-                        class="mr-2"
-                        @click="openEditURLDialog(src)"
-                      ></v-btn>
-                      <v-btn
-                        color="error"
-                        variant="text"
-                        size="small"
-                        icon="mdi-delete"
-                        @click="deleteURLSourceWrapper(src.id)"
-                      ></v-btn>
-                    </td>
-                  </tr>
-                  <tr v-if="urlSources.length === 0">
-                    <td colspan="4" class="text-center text-grey py-4">
-                      No URL sources added.
-                    </td>
-                  </tr>
-                </tbody>
-              </v-table>
-            </v-card-text>
-          </v-window-item>
-
-          <!-- Add/Edit URL Dialog -->
-          <v-dialog v-model="showAddURLDialog" max-width="500px">
-            <v-card>
-              <v-card-title>{{
-                isEditingURL ? 'Edit URL Source' : 'Add URL Source'
-              }}</v-card-title>
+        <template v-else>
+          <div v-if="sourceHasGallery">
+            <Gallery />
+            <v-divider class="my-6"></v-divider>
+          </div>
+          <v-window v-model="sourceKey" :touch="false">
+            <!-- URL Proxy -->
+            <v-window-item value="url">
               <v-card-text>
-                <v-form @submit.prevent="saveURLSource">
+                <v-alert
+                  type="info"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
+                >
+                  Add external image URLs to be served by the photoframe. You
+                  can bind URLs to specific devices or leave them global.
+                </v-alert>
+
+                <div class="d-flex justify-end mb-4">
+                  <v-btn
+                    color="primary"
+                    prepend-icon="mdi-plus"
+                    class="mb-4"
+                    @click="openAddURLDialog"
+                  >
+                    Add URL Source
+                  </v-btn>
+                </div>
+
+                <v-table density="comfortable" class="border rounded">
+                  <thead>
+                    <tr>
+                      <th>URL</th>
+                      <th>Bound Devices</th>
+                      <th class="text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="src in urlSources" :key="src.id">
+                      <td class="text-truncate" style="max-width: 300px">
+                        <a :href="src.url" target="_blank">{{ src.url }}</a>
+                      </td>
+                      <td>
+                        <div v-if="src.device_ids && src.device_ids.length">
+                          <v-chip
+                            v-for="did in src.device_ids"
+                            :key="did"
+                            size="x-small"
+                            class="mr-1"
+                          >
+                            {{ getDeviceName(did) }}
+                          </v-chip>
+                        </div>
+                        <span v-else class="text-grey text-caption"
+                          >Global</span
+                        >
+                      </td>
+                      <td class="text-right">
+                        <v-btn
+                          color="primary"
+                          variant="text"
+                          size="small"
+                          icon="mdi-pencil"
+                          class="mr-2"
+                          @click="openEditURLDialog(src)"
+                        ></v-btn>
+                        <v-btn
+                          color="error"
+                          variant="text"
+                          size="small"
+                          icon="mdi-delete"
+                          @click="deleteURLSourceWrapper(src.id)"
+                        ></v-btn>
+                      </td>
+                    </tr>
+                    <tr v-if="urlSources.length === 0">
+                      <td colspan="4" class="text-center text-grey py-4">
+                        No URL sources added.
+                      </td>
+                    </tr>
+                  </tbody>
+                </v-table>
+              </v-card-text>
+            </v-window-item>
+
+            <!-- Add/Edit URL Dialog -->
+            <v-dialog v-model="showAddURLDialog" max-width="500px">
+              <v-card>
+                <v-card-title>{{
+                  isEditingURL ? 'Edit URL Source' : 'Add URL Source'
+                }}</v-card-title>
+                <v-card-text>
+                  <v-form @submit.prevent="saveURLSource">
+                    <v-text-field
+                      v-model="newURL.url"
+                      label="Image URL"
+                      placeholder="https://example.com/image.jpg"
+                      variant="outlined"
+                      class="mb-2"
+                      :rules="[(v) => !!v || 'URL is required']"
+                    ></v-text-field>
+
+                    <v-select
+                      v-model="newURL.device_ids"
+                      :items="availableDevices"
+                      item-title="name"
+                      item-value="id"
+                      label="Bind to Devices (Optional)"
+                      placeholder="Leave empty for Global"
+                      variant="outlined"
+                      multiple
+                      chips
+                      class="mb-4"
+                      hint="If selected, only these devices will see this image."
+                      persistent-hint
+                    ></v-select>
+                  </v-form>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer></v-spacer>
+                  <v-btn
+                    color="grey"
+                    variant="text"
+                    @click="showAddURLDialog = false"
+                    >Cancel</v-btn
+                  >
+                  <v-btn color="primary" @click="saveURLSource">Save</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
+            <!-- Gallery -->
+            <v-window-item value="gallery">
+              <v-card-text>
+                <h3 class="text-subtitle-1 font-weight-bold mb-1">
+                  Telegram Bot (Upload)
+                </h3>
+                <div class="text-caption text-grey mb-3">
+                  Optional. Configure a Telegram bot to upload photos into the
+                  gallery from your phone.
+                </div>
+
+                <div v-if="form.telegram_bot_token">
+                  <v-alert
+                    type="success"
+                    variant="tonal"
+                    class="mb-4"
+                    density="compact"
+                    icon="mdi-check-circle"
+                  >
+                    Telegram Bot Configured
+                  </v-alert>
+
+                  <v-divider class="my-4"></v-divider>
+
+                  <h3 class="text-subtitle-1 font-weight-bold mb-2">
+                    Push to Device
+                  </h3>
+                  <div class="text-caption text-grey mb-2">
+                    When enabled, photos uploaded via the Telegram bot are also
+                    pushed to the selected devices immediately. They are added
+                    to the gallery either way.
+                  </div>
+
+                  <v-checkbox
+                    v-model="form.telegram_push_enabled"
+                    label="Enable Push to Device"
+                    color="primary"
+                    hide-details
+                    density="compact"
+                    @update:model-value="saveSettingsInternal()"
+                  ></v-checkbox>
+
+                  <v-expand-transition>
+                    <div v-if="form.telegram_push_enabled" class="mt-2">
+                      <v-select
+                        v-model="form.telegram_target_device_id"
+                        :items="availableDevices"
+                        item-title="name"
+                        item-value="id"
+                        label="Target Devices"
+                        variant="outlined"
+                        density="compact"
+                        hint="Select the devices to display photos on"
+                        persistent-hint
+                        multiple
+                        chips
+                        closable-chips
+                        @update:model-value="saveSettingsInternal()"
+                      ></v-select>
+                    </div>
+                  </v-expand-transition>
+
+                  <div class="d-flex flex-wrap ga-2 mt-4">
+                    <v-btn
+                      color="warning"
+                      :loading="deletingAllPhotos"
+                      @click="deleteAllPhotosForSource('gallery')"
+                      >Clear All Photos</v-btn
+                    >
+                    <v-btn
+                      color="error"
+                      variant="text"
+                      @click="disconnectTelegram"
+                      >Disconnect</v-btn
+                    >
+                  </div>
+                </div>
+
+                <div v-else>
                   <v-text-field
-                    v-model="newURL.url"
-                    label="Image URL"
-                    placeholder="https://example.com/image.jpg"
+                    v-model="form.telegram_bot_token"
+                    label="Telegram Bot Token"
+                    placeholder="Enter Bot Token"
                     variant="outlined"
-                    class="mb-2"
-                    :rules="[(v) => !!v || 'URL is required']"
+                    hint="Send photos to your bot to add them to the gallery."
+                    persistent-hint
                   ></v-text-field>
 
-                  <v-select
-                    v-model="newURL.device_ids"
-                    :items="availableDevices"
-                    item-title="name"
-                    item-value="id"
-                    label="Bind to Devices (Optional)"
-                    placeholder="Leave empty for Global"
-                    variant="outlined"
-                    multiple
-                    chips
-                    class="mb-4"
-                    hint="If selected, only these devices will see this image."
-                    persistent-hint
-                  ></v-select>
-                </v-form>
+                  <v-btn color="primary" class="mt-4" @click="save"
+                    >Save Token</v-btn
+                  >
+                </div>
               </v-card-text>
-              <v-card-actions>
-                <v-spacer></v-spacer>
-                <v-btn
-                  color="grey"
-                  variant="text"
-                  @click="showAddURLDialog = false"
-                  >Cancel</v-btn
+            </v-window-item>
+
+            <!-- AI Generation -->
+            <v-window-item value="ai_generation">
+              <v-card-text>
+                <v-alert
+                  type="info"
+                  variant="tonal"
+                  class="mb-4"
+                  density="compact"
                 >
-                <v-btn color="primary" @click="saveURLSource">Save</v-btn>
-              </v-card-actions>
-            </v-card>
-          </v-dialog>
+                  Generate images using AI (OpenAI or Google Gemini). Configure
+                  API keys below, then set the prompt/model per-device in the
+                  Edit Device dialog.
+                </v-alert>
 
-          <!-- Google (Photos + Calendar) -->
-          <v-window-item value="google_photos">
+                <v-text-field
+                  v-model="form.openai_api_key"
+                  label="OpenAI API Key"
+                  type="password"
+                  variant="outlined"
+                  class="mb-1"
+                  hint="sk-..."
+                  persistent-hint
+                ></v-text-field>
+                <div class="text-caption text-grey ml-2 mb-4">
+                  Get your API key at
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    class="text-primary text-decoration-none"
+                    >platform.openai.com</a
+                  >
+                </div>
+
+                <v-text-field
+                  v-model="form.google_api_key"
+                  label="Google Gemini API Key"
+                  type="password"
+                  variant="outlined"
+                  class="mb-1"
+                  persistent-hint
+                ></v-text-field>
+                <div class="text-caption text-grey ml-2 mb-4">
+                  Get your API key at
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    class="text-primary text-decoration-none"
+                    >aistudio.google.com</a
+                  >
+                </div>
+
+                <v-btn color="primary" @click="save">Save API Keys</v-btn>
+              </v-card-text>
+            </v-window-item>
+          </v-window>
+        </template>
+      </v-card-text>
+    </v-card>
+
+    <AddConnectionDialog
+      v-model="showAddConnection"
+      :google-ready="!!(form.google_client_id && form.google_client_secret)"
+      :before-google-connect="saveSettingsInternal"
+      @created="onConnectionCreated"
+      @open-system="openSystemTab"
+    ></AddConnectionDialog>
+
+    <!-- Settings Card -->
+    <v-card>
+      <v-card-title class="d-flex align-center">
+        <v-icon icon="mdi-cog" class="mr-2" />
+        Settings
+      </v-card-title>
+
+      <div
+        v-if="store.loading"
+        class="d-flex justify-center align-center pa-10"
+      >
+        <v-progress-circular
+          indeterminate
+          color="primary"
+        ></v-progress-circular>
+      </div>
+
+      <div v-else>
+        <v-tabs v-model="activeMainTab" color="primary" grow>
+          <v-tab value="devices">Devices</v-tab>
+          <v-tab value="security">System</v-tab>
+        </v-tabs>
+
+        <v-window v-model="activeMainTab" :touch="false">
+          <!-- System Tab (server + security) -->
+          <v-window-item value="security">
             <v-card-text>
-              <!-- Shared Google API Credentials -->
-              <h3 class="text-subtitle-1 font-weight-bold mb-3">
-                Google API Credentials
-              </h3>
+              <h3 class="text-h6 mb-3">Server</h3>
+              <v-text-field
+                v-model="form.device_image_base_url"
+                label="Server URL for devices"
+                :placeholder="derivedServerBase"
+                persistent-placeholder
+                hint="Base address your photo frames use to reach this server. Leave empty to derive it from your browser's address. Set this for Tailscale, reverse proxies, or custom domains."
+                persistent-hint
+                variant="outlined"
+                density="compact"
+                clearable
+                @update:model-value="saveSettingsInternal()"
+              ></v-text-field>
 
+              <v-divider class="my-6"></v-divider>
+
+              <h3 class="text-h6 mb-3">Google</h3>
               <v-alert
                 type="info"
                 variant="tonal"
@@ -157,7 +385,7 @@
                 density="compact"
               >
                 <div class="text-body-2">
-                  These credentials are shared by Google Photos and Google
+                  One OAuth client serves every Google Photos account and Google
                   Calendar. Create a project in
                   <a href="https://console.cloud.google.com/" target="_blank"
                     >Google Cloud Console</a
@@ -189,23 +417,10 @@
                 >Save Credentials</v-btn
               >
 
-              <!-- Photos: one card per connected Google account -->
-              <v-divider class="my-6"></v-divider>
-              <h3 class="text-subtitle-1 font-weight-bold mb-3">Photos</h3>
-            </v-card-text>
-            <ConnectionList
-              ref="googleList"
-              source="google_photos"
-              :confirm="confirmPrompt"
-              :show-message="showMessage"
-              :before-connect="saveSettingsInternal"
-              :focus-id="focusConnectionId"
-              @synced="onConnectionSynced"
-            ></ConnectionList>
-            <v-card-text>
               <!-- Calendar Section -->
-              <v-divider class="my-6"></v-divider>
-              <h3 class="text-subtitle-1 font-weight-bold mb-3">Calendar</h3>
+              <h3 class="text-subtitle-1 font-weight-bold mt-6 mb-3">
+                Calendar
+              </h3>
 
               <div v-if="form.google_calendar_connected === 'true'">
                 <v-alert
@@ -254,246 +469,6 @@
                   Enter Google API credentials above first.
                 </v-alert>
               </div>
-            </v-card-text>
-          </v-window-item>
-
-          <!-- Synology: one card per connected NAS/account -->
-          <v-window-item value="synology_photos">
-            <ConnectionList
-              ref="synologyList"
-              source="synology_photos"
-              :confirm="confirmPrompt"
-              :show-message="showMessage"
-              @synced="onConnectionSynced"
-            ></ConnectionList>
-          </v-window-item>
-
-          <!-- Immich: one card per connected server -->
-          <v-window-item value="immich">
-            <ConnectionList
-              ref="immichList"
-              source="immich"
-              :confirm="confirmPrompt"
-              :show-message="showMessage"
-              @synced="onConnectionSynced"
-            ></ConnectionList>
-          </v-window-item>
-
-          <!-- Unsplash: one card per API key -->
-          <v-window-item value="unsplash">
-            <ConnectionList
-              ref="unsplashList"
-              source="unsplash"
-              :confirm="confirmPrompt"
-              :show-message="showMessage"
-              @synced="onConnectionSynced"
-            ></ConnectionList>
-          </v-window-item>
-
-          <!-- Pexels: one card per API key -->
-          <v-window-item value="pexels">
-            <ConnectionList
-              ref="pexelsList"
-              source="pexels"
-              :confirm="confirmPrompt"
-              :show-message="showMessage"
-              @synced="onConnectionSynced"
-            ></ConnectionList>
-          </v-window-item>
-
-          <!-- Gallery -->
-          <v-window-item value="gallery">
-            <v-card-text>
-              <h3 class="text-subtitle-1 font-weight-bold mb-1">
-                Telegram Bot (Upload)
-              </h3>
-              <div class="text-caption text-grey mb-3">
-                Optional. Configure a Telegram bot to upload photos into the
-                gallery from your phone.
-              </div>
-
-              <div v-if="form.telegram_bot_token">
-                <v-alert
-                  type="success"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                  icon="mdi-check-circle"
-                >
-                  Telegram Bot Configured
-                </v-alert>
-
-                <v-divider class="my-4"></v-divider>
-
-                <h3 class="text-subtitle-1 font-weight-bold mb-2">
-                  Push to Device
-                </h3>
-                <div class="text-caption text-grey mb-2">
-                  When enabled, photos uploaded via the Telegram bot are also
-                  pushed to the selected devices immediately. They are added to
-                  the gallery either way.
-                </div>
-
-                <v-checkbox
-                  v-model="form.telegram_push_enabled"
-                  label="Enable Push to Device"
-                  color="primary"
-                  hide-details
-                  density="compact"
-                  @update:model-value="saveSettingsInternal()"
-                ></v-checkbox>
-
-                <v-expand-transition>
-                  <div v-if="form.telegram_push_enabled" class="mt-2">
-                    <v-select
-                      v-model="form.telegram_target_device_id"
-                      :items="availableDevices"
-                      item-title="name"
-                      item-value="id"
-                      label="Target Devices"
-                      variant="outlined"
-                      density="compact"
-                      hint="Select the devices to display photos on"
-                      persistent-hint
-                      multiple
-                      chips
-                      closable-chips
-                      @update:model-value="saveSettingsInternal()"
-                    ></v-select>
-                  </div>
-                </v-expand-transition>
-
-                <div class="d-flex flex-wrap ga-2 mt-4">
-                  <v-btn
-                    color="warning"
-                    :loading="deletingAllPhotos"
-                    @click="deleteAllPhotosForSource('gallery')"
-                    >Clear All Photos</v-btn
-                  >
-                  <v-btn
-                    color="error"
-                    variant="text"
-                    @click="disconnectTelegram"
-                    >Disconnect</v-btn
-                  >
-                </div>
-              </div>
-
-              <div v-else>
-                <v-text-field
-                  v-model="form.telegram_bot_token"
-                  label="Telegram Bot Token"
-                  placeholder="Enter Bot Token"
-                  variant="outlined"
-                  hint="Send photos to your bot to add them to the gallery."
-                  persistent-hint
-                ></v-text-field>
-
-                <v-btn color="primary" class="mt-4" @click="save"
-                  >Save Token</v-btn
-                >
-              </div>
-            </v-card-text>
-          </v-window-item>
-
-          <!-- AI Generation -->
-          <v-window-item value="ai_generation">
-            <v-card-text>
-              <v-alert
-                type="info"
-                variant="tonal"
-                class="mb-4"
-                density="compact"
-              >
-                Generate images using AI (OpenAI or Google Gemini). Configure
-                API keys below, then set the prompt/model per-device in the Edit
-                Device dialog.
-              </v-alert>
-
-              <v-text-field
-                v-model="form.openai_api_key"
-                label="OpenAI API Key"
-                type="password"
-                variant="outlined"
-                class="mb-1"
-                hint="sk-..."
-                persistent-hint
-              ></v-text-field>
-              <div class="text-caption text-grey ml-2 mb-4">
-                Get your API key at
-                <a
-                  href="https://platform.openai.com/api-keys"
-                  target="_blank"
-                  class="text-primary text-decoration-none"
-                  >platform.openai.com</a
-                >
-              </div>
-
-              <v-text-field
-                v-model="form.google_api_key"
-                label="Google Gemini API Key"
-                type="password"
-                variant="outlined"
-                class="mb-1"
-                persistent-hint
-              ></v-text-field>
-              <div class="text-caption text-grey ml-2 mb-4">
-                Get your API key at
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  class="text-primary text-decoration-none"
-                  >aistudio.google.com</a
-                >
-              </div>
-
-              <v-btn color="primary" @click="save">Save API Keys</v-btn>
-            </v-card-text>
-          </v-window-item>
-        </v-window>
-      </v-card-text>
-    </v-card>
-
-    <!-- Settings Card -->
-    <v-card>
-      <v-card-title class="d-flex align-center">
-        <v-icon icon="mdi-cog" class="mr-2" />
-        Settings
-      </v-card-title>
-
-      <div
-        v-if="store.loading"
-        class="d-flex justify-center align-center pa-10"
-      >
-        <v-progress-circular
-          indeterminate
-          color="primary"
-        ></v-progress-circular>
-      </div>
-
-      <div v-else>
-        <v-tabs v-model="activeMainTab" color="primary" grow>
-          <v-tab value="devices">Devices</v-tab>
-          <v-tab value="security">System</v-tab>
-        </v-tabs>
-
-        <v-window v-model="activeMainTab" :touch="false">
-          <!-- System Tab (server + security) -->
-          <v-window-item value="security">
-            <v-card-text>
-              <h3 class="text-h6 mb-3">Server</h3>
-              <v-text-field
-                v-model="form.device_image_base_url"
-                label="Server URL for devices"
-                :placeholder="derivedServerBase"
-                persistent-placeholder
-                hint="Base address your photo frames use to reach this server. Leave empty to derive it from your browser's address. Set this for Tailscale, reverse proxies, or custom domains."
-                persistent-hint
-                variant="outlined"
-                density="compact"
-                clearable
-                @update:model-value="saveSettingsInternal()"
-              ></v-text-field>
 
               <v-divider class="my-6"></v-divider>
 
@@ -2175,7 +2150,7 @@
 import { onMounted, nextTick, reactive, ref, computed, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
-import { useConnectionsStore } from '../stores/connections';
+import { useConnectionsStore, type Connection } from '../stores/connections';
 import { useGalleryStore } from '../stores/gallery';
 import { useAuthStore } from '../stores/auth';
 import { useSnackbar } from '../composables/useSnackbar';
@@ -2203,7 +2178,9 @@ import {
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
-import ConnectionList from './ConnectionList.vue';
+import SourcePicker from './SourcePicker.vue';
+import AddConnectionDialog from './AddConnectionDialog.vue';
+import { cardComponentFor } from './connectionCards';
 import { newFramePasswordProblem } from '../utils/framePassword';
 import { getApiError } from '../utils/errors';
 import AlbumPicker from './AlbumPicker.vue';
@@ -2228,20 +2205,11 @@ const connectionsStore = useConnectionsStore();
 const hasConnections = (source: string) =>
   connectionsStore.bySource(source).length > 0;
 
-// The connection lists (one card per connection). Their album and topic
-// selections live in the cards; Settings only asks them to offer a sync when
-// the user leaves the tab.
-const immichList = ref<any>(null);
-const synologyList = ref<any>(null);
-const googleList = ref<any>(null);
-const unsplashList = ref<any>(null);
-const pexelsList = ref<any>(null);
-const connectionLists: Record<string, typeof immichList> = {
-  immich: immichList,
-  synology_photos: synologyList,
-  unsplash: unsplashList,
-  pexels: pexelsList,
-};
+// The card of the connection being viewed. Its album or topic selection
+// lives in the card; Settings only asks it to offer a sync when the user
+// moves to another source.
+const activeCard = ref<any>(null);
+const showAddConnection = ref(false);
 // The Google connection the OAuth callback just connected (?connection=),
 // so its card is scrolled into view.
 const focusConnectionId = ref<number | undefined>(undefined);
@@ -2261,18 +2229,28 @@ const galleryStore = useGalleryStore();
 // list requested before a logout must not open the password prompt after.
 const authStore = useAuthStore();
 const activeMainTab = ref('devices');
-// Unified source selector for the top card (per-source gallery + settings).
-const sourceTab = ref('gallery');
-const sourceHasGallery = computed(() =>
-  [
-    'gallery',
-    'immich',
-    'synology_photos',
-    'google_photos',
-    'unsplash',
-    'pexels',
-  ].includes(sourceTab.value)
+// The source picked at the top of the page: a built-in one ('gallery',
+// 'url', 'ai_generation') or one connection ('conn:<id>').
+const sourceKey = ref('gallery');
+const activeConnectionId = computed(() => {
+  const m = /^conn:(\d+)$/.exec(sourceKey.value);
+  return m ? Number(m[1]) : null;
+});
+const activeConnection = computed(() =>
+  activeConnectionId.value != null
+    ? connectionsStore.byId(activeConnectionId.value)
+    : undefined
 );
+// Props only the Google card takes (its OAuth round trip).
+const activeCardProps = computed(() =>
+  activeConnection.value?.source === 'google_photos'
+    ? {
+        beforeConnect: saveSettingsInternal,
+        focus: activeConnection.value.id === focusConnectionId.value,
+      }
+    : {}
+);
+const sourceHasGallery = computed(() => sourceKey.value === 'gallery');
 const confirmDialog = ref();
 // Passed to the connection cards so they ask through the same dialog.
 const confirmPrompt = (message: string): Promise<boolean> =>
@@ -3244,22 +3222,35 @@ const getDeviceName = (id: number) => {
   return dev ? dev.name : `Device ${id}`;
 };
 
-watch(sourceTab, (val) => {
-  // Drive the top gallery for gallery-capable sources.
-  if (sourceHasGallery.value) {
+// The gallery follows the picked source. A connection that is not (or no
+// longer) known falls back to the gallery once the list has loaded.
+let appliedSource = '';
+const applySource = () => {
+  const conn = activeConnection.value;
+  if (activeConnectionId.value != null && !conn) {
+    if (connectionsStore.loaded) sourceKey.value = 'gallery';
+    return;
+  }
+  const key = sourceKey.value;
+  if (key === appliedSource) return;
+  appliedSource = key;
+  if (conn) {
     galleryStore.setSource(
-      val as 'gallery' | 'immich' | 'synology_photos' | 'google_photos'
+      conn.source as 'immich' | 'synology_photos' | 'google_photos',
+      conn.id
     );
-  }
-  // Lazy-load per-source data the first time its tab is opened.
-  if (val === 'url') {
+  } else if (key === 'gallery') {
+    galleryStore.setSource('gallery');
+  } else if (key === 'url') {
     loadURLSources();
-  } else if (val === 'google_photos') {
-    loadCalendars();
   }
-  // Persist the active source tab in the URL hash so a refresh restores it.
-  if (val) window.location.hash = 'gtab=' + val;
-});
+  // Persist the pick in the URL hash so a refresh restores it.
+  window.location.hash = 'src=' + key;
+};
+watch(
+  [sourceKey, activeConnection, () => connectionsStore.loaded],
+  applySource
+);
 
 // Devices State
 const availableDevices = ref<Device[]>([]);
@@ -3793,21 +3784,23 @@ const removeDevice = async (id: number) => {
   }
 };
 
-const SOURCE_TABS = [
-  'gallery',
-  'immich',
-  'synology_photos',
-  'google_photos',
-  'unsplash',
-  'pexels',
-  'url',
-  'ai_generation',
-];
-// Restore the active source tab from the URL hash (#gtab=<tab>) on load.
-const restoreGalleryTabFromHash = () => {
-  const m = window.location.hash.match(/gtab=([\w-]+)/);
-  if (m && SOURCE_TABS.includes(m[1])) {
-    sourceTab.value = m[1];
+// Restore the picked source from the URL hash on load: #src=<key>, or the
+// older #gtab=<provider>, which now means that provider's first connection
+// (resolved once the connections have loaded).
+let pendingProvider = '';
+const restoreSourceFromHash = () => {
+  const h = window.location.hash;
+  const src = h.match(/src=([\w:-]+)/);
+  if (src) {
+    sourceKey.value = src[1];
+    return;
+  }
+  const tab = h.match(/gtab=([\w-]+)/);
+  if (!tab) return;
+  if (['gallery', 'url', 'ai_generation'].includes(tab[1])) {
+    sourceKey.value = tab[1];
+  } else {
+    pendingProvider = tab[1];
   }
 };
 
@@ -3868,30 +3861,25 @@ const devicePexelsAlbumOptions = computed(() =>
 
 // Album search + checked-first sorting now live in <AlbumPicker>.
 
-// When the user leaves a source's config (sub-tab or the whole Data Sources
-// tab) with unsynced album or topic changes, the connection cards offer to
-// sync now.
-const maybePromptSync = async (source: string) => {
-  await connectionLists[source]?.value?.promptIfDirty?.();
-};
-// A connection card started a sync or cleared photos: refresh the gallery
-// above, switching it to that source so the change is visible.
-const onConnectionSynced = async (source: string) => {
+// The connection card started a sync or cleared photos: refresh the photos
+// shown below it.
+const onConnectionSynced = () => {
   galleryStore.triggerRefresh();
-  if (sourceTab.value === source) {
-    await galleryStore.fetchPhotos();
-  } else {
-    sourceTab.value = source;
-  }
 };
-watch(sourceTab, (_newVal, oldVal) => {
-  if (oldVal) maybePromptSync(oldVal);
+// Leaving a connection with unsynced album or topic changes: its card offers
+// to sync now. The card is taken before the switch re-renders, while it is
+// still mounted; the prompt itself only needs the store.
+watch(sourceKey, () => {
+  activeCard.value?.promptIfDirty?.();
 });
-watch(activeMainTab, (_newVal, oldVal) => {
-  if (oldVal === 'datasources') {
-    for (const source of Object.keys(connectionLists)) maybePromptSync(source);
-  }
-});
+// The add dialog connected a new source: show it.
+const onConnectionCreated = (conn: Connection) => {
+  sourceKey.value = `conn:${conn.id}`;
+};
+const openSystemTab = () => {
+  showAddConnection.value = false;
+  activeMainTab.value = 'security';
+};
 
 // Delete all photos for a given image source. Also disables that source's
 // album sync on the backend, so refresh the sync-selection UI afterwards.
@@ -3923,7 +3911,7 @@ const deleteAllPhotosForSource = async (source: 'gallery') => {
 };
 
 onMounted(async () => {
-  restoreGalleryTabFromHash();
+  restoreSourceFromHash();
   await store.fetchSettings();
   Object.assign(form, {
     Orientation: store.settings.orientation || 'landscape',
@@ -3976,14 +3964,19 @@ onMounted(async () => {
   if (tab && tab !== 'datasources') {
     activeMainTab.value = tab;
   }
-  if (source) {
-    sourceTab.value = source === 'google' ? 'google_photos' : source;
-  }
   if (connection > 0) {
     focusConnectionId.value = connection;
     // Fresh from the OAuth callback: the connection list must not show the
     // state it cached before the redirect.
     await connectionsStore.fetch();
+    sourceKey.value = `conn:${connection}`;
+  } else {
+    // A provider named by the callback (an aborted sign-in) or by an old
+    // #gtab= link: show its first connection.
+    const provider =
+      source === 'google' ? 'google_photos' : source || pendingProvider;
+    const first = provider ? connectionsStore.bySource(provider)[0] : null;
+    if (first) sourceKey.value = `conn:${first.id}`;
   }
 
   // Clean up URL if params were present

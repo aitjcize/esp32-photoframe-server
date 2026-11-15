@@ -20,6 +20,9 @@ export const useGalleryStore = defineStore('gallery', {
       | 'pexels'
       | 'gallery'
       | 'url_proxy',
+    // The connection whose photos are shown (connection-backed sources are
+    // always viewed one connection at a time); null for the built-in sources.
+    connectionId: null as number | null,
     album: null as number | null,
     // Bumped to ask the Gallery view to refetch photos + album chips
     // (e.g. after a Delete All from the source config tab).
@@ -37,9 +40,11 @@ export const useGalleryStore = defineStore('gallery', {
         | 'unsplash'
         | 'pexels'
         | 'gallery'
-        | 'url_proxy'
+        | 'url_proxy',
+      connectionId: number | null = null
     ) {
       this.source = source;
+      this.connectionId = connectionId;
       this.page = 1;
       this.album = null;
       this.photos = [];
@@ -65,15 +70,20 @@ export const useGalleryStore = defineStore('gallery', {
       // source/album/page doesn't clobber a newer one (e.g. on load, the
       // default 'gallery' fetch racing the hash-restored source).
       const reqSource = this.source;
+      const reqConnection = this.connectionId;
       const reqAlbum = this.album;
       const reqPage = this.page;
       const isCurrent = () =>
         this.source === reqSource &&
+        this.connectionId === reqConnection &&
         this.album === reqAlbum &&
         this.page === reqPage;
       try {
         const offset = (reqPage - 1) * this.limit;
         let url = `/gallery/photos?source=${reqSource}&limit=${this.limit}&offset=${offset}`;
+        if (reqConnection != null) {
+          url += `&connection_id=${reqConnection}`;
+        }
         if (reqAlbum != null) {
           url += `&album=${reqAlbum}`;
         }
@@ -114,7 +124,11 @@ export const useGalleryStore = defineStore('gallery', {
 
     async deleteAllPhotos() {
       try {
-        const res = await api.delete(`/gallery/photos?source=${this.source}`);
+        const scope =
+          this.connectionId != null
+            ? `connection_id=${this.connectionId}`
+            : `source=${this.source}`;
+        const res = await api.delete(`/gallery/photos?${scope}`);
         this.importMessage =
           res.data.message || 'All photos deleted successfully!';
         setTimeout(() => (this.importMessage = ''), 5000);

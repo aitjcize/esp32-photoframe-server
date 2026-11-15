@@ -43,6 +43,41 @@ export const SOURCE_LABELS: Record<string, string> = {
   pexels: 'Pexels',
 };
 
+export const SOURCE_ICONS: Record<string, string> = {
+  immich: 'mdi-server',
+  synology_photos: 'mdi-nas',
+  google_photos: 'mdi-google',
+  unsplash: 'mdi-camera-iris',
+  pexels: 'mdi-camera',
+};
+
+// What adding a connection of each source gets you (the add dialog's list).
+export const SOURCE_DESCRIPTIONS: Record<string, string> = {
+  immich: 'Sync albums and collections from an Immich server',
+  synology_photos: 'Sync albums from a Synology Photos account',
+  google_photos: 'Pick photos from a Google account',
+  unsplash: 'Search topics on Unsplash with your API access key',
+  pexels: 'Search topics on Pexels with your API key',
+};
+
+// One line telling two connections of the same source apart: the server,
+// the account, or (for an API key) nothing better than the source name.
+export function connectionSubtitle(c: Connection): string {
+  const cfg = c.config || {};
+  switch (c.source) {
+    case 'immich':
+      return cfg.url || '';
+    case 'synology_photos':
+      return cfg.account && cfg.url
+        ? `${cfg.account} @ ${cfg.url}`
+        : cfg.url || '';
+    case 'google_photos':
+      return cfg.email || '';
+    default:
+      return '';
+  }
+}
+
 export const useConnectionsStore = defineStore('connections', {
   state: () => ({
     connections: [] as Connection[],
@@ -52,6 +87,7 @@ export const useConnectionsStore = defineStore('connections', {
     counts: {} as Record<number, number>,
   }),
   getters: {
+    byId: (state) => (id: number) => state.connections.find((c) => c.id === id),
     bySource: (state) => (source: string) =>
       state.connections.filter((c) => c.source === source),
     // Albums of a source can come from several connections; the pickers

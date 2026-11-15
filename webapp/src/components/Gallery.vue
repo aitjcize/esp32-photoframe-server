@@ -7,8 +7,8 @@
         class="d-flex flex-column flex-sm-row justify-space-between align-start align-sm-center ga-2 mb-4"
       >
         <div>
-          <h2 class="text-h6 text-capitalize">
-            {{ galleryStore.source.replace('_', ' ') }} Gallery
+          <h2 class="text-h6" :class="{ 'text-capitalize': !activeConnection }">
+            {{ galleryTitle }}
           </h2>
           <div class="text-caption text-grey">
             {{ galleryStore.totalPhotos }} photo{{
@@ -50,47 +50,16 @@
             class="d-none"
             @change="onFilesSelected"
           />
-          <!-- Google: one connected account picks directly; several offer a
-               menu of accounts to import into. -->
-          <v-menu
-            v-if="
-              galleryStore.source === 'google_photos' &&
-              googleAccounts.length > 1
-            "
-          >
-            <template #activator="{ props: menu }">
-              <v-btn
-                v-bind="menu"
-                color="primary"
-                variant="flat"
-                height="40"
-                :loading="galleryStore.loading"
-                :disabled="galleryStore.loading"
-                prepend-icon="mdi-google"
-                append-icon="mdi-menu-down"
-              >
-                Add Photos via Google
-              </v-btn>
-            </template>
-            <v-list density="compact">
-              <v-list-item
-                v-for="acc in googleAccounts"
-                :key="acc.id"
-                :title="acc.name"
-                :subtitle="acc.config.email"
-                @click="galleryStore.startPicker(acc.id)"
-              ></v-list-item>
-            </v-list>
-          </v-menu>
+          <!-- Google: the picker imports into the account being viewed. -->
           <v-btn
-            v-else-if="galleryStore.source === 'google_photos'"
+            v-if="galleryStore.source === 'google_photos'"
             color="primary"
             variant="flat"
             height="40"
             :loading="galleryStore.loading"
             :disabled="galleryStore.loading"
             prepend-icon="mdi-google"
-            @click="galleryStore.startPicker()"
+            @click="startPicker"
           >
             Add Photos via Google
           </v-btn>
@@ -342,31 +311,30 @@
           <span v-else-if="galleryStore.source === 'gallery'">
             Upload photos here, or send them to your Telegram bot.
           </span>
-          <span v-else-if="galleryStore.source === 'synology_photos'">
-            Open the <b>Synology</b> tab under Data Sources below and click
-            <b>Sync Now</b> to import photos.
+          <span
+            v-else-if="
+              galleryStore.source === 'synology_photos' ||
+              galleryStore.source === 'immich'
+            "
+          >
+            Choose the albums to sync above and click <b>Sync Now</b> to import
+            photos.
           </span>
-          <span v-else-if="galleryStore.source === 'immich'">
-            Open the <b>Immich</b> tab under Data Sources below and click
-            <b>Sync Now</b> to import photos.
-          </span>
-          <span v-else-if="galleryStore.source === 'unsplash'">
-            Open the <b>Unsplash</b> tab under Data Sources below, add your API
-            key and some topics, and click <b>Sync Now</b> to import photos.
-          </span>
-          <span v-else-if="galleryStore.source === 'pexels'">
-            Open the <b>Pexels</b> tab under Data Sources below, add your API
-            key and some topics, and click <b>Sync Now</b> to import photos.
+          <span
+            v-else-if="
+              galleryStore.source === 'unsplash' ||
+              galleryStore.source === 'pexels'
+            "
+          >
+            Add some search topics above and click <b>Sync Now</b> to import
+            photos.
           </span>
         </p>
         <v-btn
-          v-if="
-            galleryStore.source === 'google_photos' &&
-            googleAccounts.length <= 1
-          "
+          v-if="galleryStore.source === 'google_photos'"
           color="primary"
           prepend-icon="mdi-plus"
-          @click="galleryStore.startPicker()"
+          @click="startPicker"
         >
           Add Photos
         </v-btn>
@@ -459,8 +427,22 @@ const galleryStore = useGalleryStore();
 const connectionsStore = useConnectionsStore();
 const { promptFramePassword } = useFramePasswordPrompt();
 
-// The connected Google accounts a picker can import into.
-const googleAccounts = computed(() => connectionsStore.googleConnected());
+// The connection being viewed, when the source is one (the gallery shows a
+// connection-backed source one connection at a time).
+const activeConnection = computed(() =>
+  galleryStore.connectionId != null
+    ? connectionsStore.byId(galleryStore.connectionId)
+    : undefined
+);
+const galleryTitle = computed(() =>
+  activeConnection.value
+    ? activeConnection.value.name
+    : `${galleryStore.source.replace('_', ' ')} Gallery`
+);
+
+// Google: import into the account being viewed.
+const startPicker = () =>
+  galleryStore.startPicker(galleryStore.connectionId ?? undefined);
 
 // Album chips (only shown for Immich / Synology sources).
 const albumChips = ref<any[]>([]);
@@ -477,27 +459,15 @@ const fetchAlbumChips = async () => {
     return;
   }
   try {
-    const res = await api.get(
-      `/albums?source=${galleryStore.source}&synced=true`
-    );
+    const scope =
+      galleryStore.connectionId != null
+        ? `connection_id=${galleryStore.connectionId}`
+        : `source=${galleryStore.source}`;
+    const res = await api.get(`/albums?${scope}&synced=true`);
     // Only show albums that currently have photos — hide ones emptied upstream.
-    const albums = (res.data || []).filter(
+    albumChips.value = (res.data || []).filter(
       (a: any) => (a.asset_count ?? 0) > 0
     );
-    // Albums of a source may come from several connections (two Immich
-    // servers); say which one when that is the case.
-    const connectionIDs = new Set(
-      albums.map((a: any) => a.connection_id).filter((id: any) => id != null)
-    );
-    albumChips.value =
-      connectionIDs.size > 1
-        ? albums.map((a: any) => ({
-            ...a,
-            name: a.connection_name
-              ? `${a.connection_name} · ${a.name}`
-              : a.name,
-          }))
-        : albums;
   } catch (e) {
     console.error('Failed to fetch album chips', e);
     albumChips.value = [];
@@ -508,9 +478,10 @@ const selectAlbum = (id: number | null) => {
   galleryStore.setAlbum(id);
 };
 
-// When the source tab changes, reset album selection and refetch chips.
+// When the viewed source or connection changes, reset album selection and
+// refetch chips.
 watch(
-  () => galleryStore.source,
+  () => [galleryStore.source, galleryStore.connectionId],
   () => {
     prevSyncing = false;
     syncError.value = '';
@@ -530,15 +501,18 @@ const dismissedSyncError = ref('');
 let syncPollTimer: number | null = null;
 let prevSyncing = false;
 
-// Sync state of the current source: the status of every connection of that
-// type, folded into one (any running; errors joined, named by connection when
-// there is more than one).
+// Sync state of the connection being viewed. Without one (a source viewed as
+// a whole) the status of every connection of that type is folded into one:
+// any running; errors joined, named by connection when there is more than one.
 const fetchSyncStatus = async (): Promise<{
   running: boolean;
   last_error: string;
 } | null> => {
   const source = galleryStore.source;
   if (!SYNCING_SOURCES.includes(source)) return null;
+  if (galleryStore.connectionId != null) {
+    return connectionsStore.syncStatus(galleryStore.connectionId);
+  }
   const conns = (await api.get(`/connections?source=${source}`)).data || [];
   const statuses = await Promise.all(
     conns.map(async (c: any) => {
