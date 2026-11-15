@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,6 +103,20 @@ func (bot *Bot) handlePhoto(c tele.Context) error {
 	if err := bot.db.Create(&img).Error; err != nil {
 		os.Remove(destPath)
 		return c.Send("Failed to save photo: " + err.Error())
+	}
+	// File the photo under the gallery album chosen in Settings, if any. A
+	// stale setting (album deleted) leaves the photo unfiled rather than
+	// failing the upload.
+	if albumStr, _ := bot.settings.Get("telegram_album_id"); albumStr != "" {
+		if albumID, err := strconv.Atoi(albumStr); err == nil && albumID > 0 {
+			var n int64
+			bot.db.Model(&model.Album{}).Where("id = ? AND source = ?", albumID, model.SourceGallery).Count(&n)
+			if n == 1 {
+				if err := bot.db.Create(&model.ImageAlbumMembership{ImageID: img.ID, AlbumID: uint(albumID)}).Error; err != nil {
+					log.Printf("telegram: file photo %d under album %d: %v", img.ID, albumID, err)
+				}
+			}
+		}
 	}
 
 	pushEnabled, _ := bot.settings.Get("telegram_push_enabled")

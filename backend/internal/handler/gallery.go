@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
@@ -123,11 +124,27 @@ func (h *GalleryHandler) ListPhotos(c echo.Context) error {
 }
 
 // UploadPhoto accepts a multipart upload and stores it in the gallery.
-// Form fields: file (required), caption (optional).
+// Form fields: file (required), caption (optional), album_id (optional: a
+// gallery album to file the photo under).
 func (h *GalleryHandler) UploadPhoto(c echo.Context) error {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		return respondError(c, http.StatusBadRequest, "file is required")
+	}
+	var albumID *uint
+	if v := strings.TrimSpace(c.FormValue("album_id")); v != "" {
+		id, err := strconv.Atoi(v)
+		if err != nil || id <= 0 {
+			return respondError(c, http.StatusBadRequest, "invalid album_id")
+		}
+		if _, err := service.GalleryAlbum(h.db, uint(id)); err != nil {
+			if errors.Is(err, service.ErrGalleryAlbumNotFound) {
+				return respondError(c, http.StatusNotFound, "gallery album not found")
+			}
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		u := uint(id)
+		albumID = &u
 	}
 
 	galleryDir := filepath.Join(h.dataDir, "photos", "gallery")
@@ -177,7 +194,16 @@ func (h *GalleryHandler) UploadPhoto(c echo.Context) error {
 		Height:      height,
 		Orientation: orientation,
 	}
-	if err := h.db.Create(&img).Error; err != nil {
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		if e := tx.Create(&img).Error; e != nil {
+			return e
+		}
+		if albumID == nil {
+			return nil
+		}
+		return tx.Create(&model.ImageAlbumMembership{ImageID: img.ID, AlbumID: *albumID}).Error
+	})
+	if err != nil {
 		os.Remove(destPath)
 		return respondError(c, http.StatusInternalServerError, "failed to save photo")
 	}
@@ -189,9 +215,125 @@ func (h *GalleryHandler) UploadPhoto(c echo.Context) error {
 		"height":        img.Height,
 		"orientation":   img.Orientation,
 		"source":        img.Source,
+		"album_id":      albumID,
 		"created_at":    img.CreatedAt,
 		"thumbnail_url": fmt.Sprintf("api/gallery/thumbnail/%d", img.ID),
 	})
+}
+
+// --- Gallery albums: folders inside the local gallery ---
+
+func (h *GalleryHandler) galleryAlbumID(c echo.Context) (uint, bool) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		_ = respondError(c, http.StatusBadRequest, "invalid album id")
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func (h *GalleryHandler) galleryAlbumError(c echo.Context, err error) error {
+	if errors.Is(err, service.ErrGalleryAlbumNotFound) {
+		return respondError(c, http.StatusNotFound, "gallery album not found")
+	}
+	if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "not found") {
+		return respondError(c, http.StatusBadRequest, err.Error())
+	}
+	return respondError(c, http.StatusInternalServerError, err.Error())
+}
+
+// CreateGalleryAlbum adds an empty album to the gallery. The list is served
+// by GET /api/albums?source=gallery like every other source's albums.
+// POST /api/gallery/albums  body: {name}
+func (h *GalleryHandler) CreateGalleryAlbum(c echo.Context) error {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return respondError(c, http.StatusBadRequest, "invalid request")
+	}
+	album, err := service.CreateGalleryAlbum(h.db, req.Name)
+	if err != nil {
+		return h.galleryAlbumError(c, err)
+	}
+	return c.JSON(http.StatusCreated, album)
+}
+
+// UpdateGalleryAlbum renames an album.
+// PUT /api/gallery/albums/:id  body: {name}
+func (h *GalleryHandler) UpdateGalleryAlbum(c echo.Context) error {
+	id, ok := h.galleryAlbumID(c)
+	if !ok {
+		return nil
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return respondError(c, http.StatusBadRequest, "invalid request")
+	}
+	album, err := service.RenameGalleryAlbum(h.db, id, req.Name)
+	if err != nil {
+		return h.galleryAlbumError(c, err)
+	}
+	return c.JSON(http.StatusOK, album)
+}
+
+// DeleteGalleryAlbum removes an album. Its photos stay in the gallery unless
+// ?photos=true, which deletes them with their files.
+// DELETE /api/gallery/albums/:id
+func (h *GalleryHandler) DeleteGalleryAlbum(c echo.Context) error {
+	id, ok := h.galleryAlbumID(c)
+	if !ok {
+		return nil
+	}
+	withPhotos := c.QueryParam("photos") == "true"
+	removed, err := service.DeleteGalleryAlbum(h.db, id, withPhotos)
+	if err != nil {
+		return h.galleryAlbumError(c, err)
+	}
+	h.removePhotoFiles(removed)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"status":         "deleted",
+		"photos_deleted": len(removed),
+	})
+}
+
+// SetPhotoAlbum files a gallery photo under one album, or under none.
+// PUT /api/gallery/photos/:id/album  body: {album_id} (null or 0 = unfiled)
+func (h *GalleryHandler) SetPhotoAlbum(c echo.Context) error {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		return respondError(c, http.StatusBadRequest, "invalid photo id")
+	}
+	var req struct {
+		AlbumID *uint `json:"album_id"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return respondError(c, http.StatusBadRequest, "invalid request")
+	}
+	albumID := req.AlbumID
+	if albumID != nil && *albumID == 0 {
+		albumID = nil
+	}
+	if err := service.SetGalleryPhotoAlbum(h.db, uint(id), albumID); err != nil {
+		return h.galleryAlbumError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// removePhotoFiles deletes the files behind image rows that are already gone
+// from the database: the originals of local sources (gallery uploads, Google
+// imports) and any cached thumbnail.
+func (h *GalleryHandler) removePhotoFiles(items []model.Image) {
+	for _, item := range items {
+		if item.Source == model.SourceGooglePhotos || item.Source == model.SourceGallery {
+			if item.FilePath != "" {
+				os.Remove(item.FilePath)
+			}
+		}
+		os.Remove(filepath.Join(h.dataDir, "thumbnails", fmt.Sprintf("%d.jpg", item.ID)))
+	}
 }
 
 func decodeImageDimensions(path string) (int, int, string) {
@@ -450,7 +592,9 @@ func (h *GalleryHandler) DeletePhotos(c echo.Context) error {
 
 	// Disable sync for the affected albums so an auto-sync doesn't immediately
 	// re-import what was just deleted (no-op for sources without albums).
-	if source != "" || connectionID != 0 {
+	// Gallery albums are the user's folders, not a sync selection: they stay
+	// listed, empty, to be filled again.
+	if (source != "" && source != model.SourceGallery) || connectionID != 0 {
 		filter(h.db.Model(&model.Album{})).Update("sync_enabled", false)
 	}
 

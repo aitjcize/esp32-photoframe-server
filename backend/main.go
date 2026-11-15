@@ -326,6 +326,11 @@ func main() {
 	protectedApi.GET("/gallery/thumbnail/:id", gh.GetThumbnail)
 	protectedApi.DELETE("/gallery/photos/:id", gh.DeletePhoto)
 	protectedApi.DELETE("/gallery/photos", gh.DeletePhotos)
+	// Gallery albums (folders inside the local gallery); listed via /albums?source=gallery
+	protectedApi.POST("/gallery/albums", gh.CreateGalleryAlbum)
+	protectedApi.PUT("/gallery/albums/:id", gh.UpdateGalleryAlbum)
+	protectedApi.DELETE("/gallery/albums/:id", gh.DeleteGalleryAlbum)
+	protectedApi.PUT("/gallery/photos/:id/album", gh.SetPhotoAlbum)
 	// URL Proxy
 	protectedApi.POST("/gallery/urls", gh.CreateURLSource)
 	protectedApi.GET("/gallery/urls", gh.ListURLSources)
