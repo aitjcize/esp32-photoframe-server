@@ -99,8 +99,9 @@ func (st *ConnectionStore) Delete(id uint) error {
 
 // ConnectionManager owns one service per connection row: an ImmichService or
 // SynologyService with its own client cache, login state and auto-sync
-// scheduler, or a GooglePhotosService with its own OAuth token. It builds them
-// at startup, on create, and stops them on delete. Handlers and the serving
+// scheduler, a GooglePhotosService with its own OAuth token, or a TopicSource
+// (Unsplash, Pexels) with its own API key and topics. It builds them at
+// startup, on create, and stops them on delete. Handlers and the serving
 // plugins look services up here by connection id, never by source type.
 type ConnectionManager struct {
 	db        *gorm.DB
@@ -112,6 +113,7 @@ type ConnectionManager struct {
 	immich   map[uint]*ImmichService
 	synology map[uint]*SynologyService
 	google   map[uint]*GooglePhotosService
+	topics   map[uint]*TopicSource
 
 	// Pending Google OAuth flows by state nonce: the callback carries only
 	// the nonce, which names the connection the code belongs to.
@@ -136,6 +138,7 @@ func NewConnectionManager(db *gorm.DB, googleCfg googlephotos.ConfigProvider, pi
 		immich:    map[uint]*ImmichService{},
 		synology:  map[uint]*SynologyService{},
 		google:    map[uint]*GooglePhotosService{},
+		topics:    map[uint]*TopicSource{},
 		oauth:     map[string]pendingOAuth{},
 	}
 }
@@ -186,6 +189,17 @@ func (m *ConnectionManager) ensure(c model.Connection) (any, error) {
 		s := NewGooglePhotosService(m.db, m.store, c.ID, m.googleCfg, m.picker)
 		m.google[c.ID] = s
 		return s, nil
+	case model.SourceUnsplash, model.SourcePexels:
+		if s, ok := m.topics[c.ID]; ok {
+			return s, nil
+		}
+		s, err := NewTopicSource(m.db, m.store, c.ID, c.Source)
+		if err != nil {
+			return nil, err
+		}
+		s.StartAutoSync()
+		m.topics[c.ID] = s
+		return s, nil
 	}
 	return nil, fmt.Errorf("source %q has no connection service", c.Source)
 }
@@ -203,13 +217,16 @@ func (m *ConnectionManager) Create(c *model.Connection) error {
 // rebuilt on next use and the auto-sync timer is re-armed.
 func (m *ConnectionManager) Updated(id uint) {
 	m.mu.Lock()
-	im, sy := m.immich[id], m.synology[id]
+	im, sy, tp := m.immich[id], m.synology[id], m.topics[id]
 	m.mu.Unlock()
 	if im != nil {
 		im.Reconfigure()
 	}
 	if sy != nil {
 		sy.Reconfigure()
+	}
+	if tp != nil {
+		tp.Reconfigure()
 	}
 }
 
@@ -224,6 +241,10 @@ func (m *ConnectionManager) Delete(id uint) error {
 	if s, ok := m.synology[id]; ok {
 		s.Stop()
 		delete(m.synology, id)
+	}
+	if s, ok := m.topics[id]; ok {
+		s.Stop()
+		delete(m.topics, id)
 	}
 	g, isGoogle := m.google[id]
 	if isGoogle {
@@ -315,6 +336,28 @@ func (m *ConnectionManager) Google(id uint) (*GooglePhotosService, error) {
 	return v.(*GooglePhotosService), nil
 }
 
+// Topic returns the service for an Unsplash or Pexels connection.
+func (m *ConnectionManager) Topic(id uint) (*TopicSource, error) {
+	m.mu.Lock()
+	s, ok := m.topics[id]
+	m.mu.Unlock()
+	if ok {
+		return s, nil
+	}
+	c, err := m.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if !model.IsTopicSource(c.Source) {
+		return nil, fmt.Errorf("connection %d is %s, not a topic source", id, c.Source)
+	}
+	v, err := m.ensure(c)
+	if err != nil {
+		return nil, err
+	}
+	return v.(*TopicSource), nil
+}
+
 // oauthStateTTL bounds how long a consent page may sit open before the
 // callback is refused.
 const oauthStateTTL = 15 * time.Minute
@@ -397,7 +440,7 @@ func (m *ConnectionManager) SynologyForImage(img model.Image) (*SynologyService,
 }
 
 // SyncBackend is the per-connection surface the generic sync endpoints use.
-// Both connection services implement it (it matches handler.PhotoSyncBackend).
+// Every connection service implements it (it matches handler.PhotoSyncBackend).
 type SyncBackend interface {
 	ClearAndResync() error
 	IsSyncing() bool
@@ -419,6 +462,8 @@ func (m *ConnectionManager) Backend(id uint) (SyncBackend, error) {
 		return m.Synology(id)
 	case model.SourceGooglePhotos:
 		return m.Google(id)
+	case model.SourceUnsplash, model.SourcePexels:
+		return m.Topic(id)
 	}
 	return nil, fmt.Errorf("source %q has no sync backend", c.Source)
 }

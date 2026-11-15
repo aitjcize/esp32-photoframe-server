@@ -1,14 +1,15 @@
 package service
 
-// topicSource is the shared base for "search-topic" image sources (Unsplash
-// and Pexels). Each user-entered topic is stored as a synced album
-// (kind=real); a sync runs the source's search API for each topic and upserts
-// the results as images via the shared album-sync engine. The three sources
-// differ only in their search closure and whether they need an API key, so
-// almost everything lives here.
+// TopicSource is the shared implementation of the "search-topic" sources
+// (Unsplash and Pexels), one instance per connection: the connection's config
+// holds the API key, each user-entered topic is stored as a synced album
+// (kind=real) of the connection, and a sync runs the source's search API for
+// each topic and upserts the results as images via the shared album-sync
+// engine. The two sources differ only in their search function.
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"math/rand/v2"
 	"net/http"
@@ -101,19 +102,24 @@ func searchTopicPages(perPage, limit int, randomize bool, fetch func(page int) (
 	return assets, nil
 }
 
-// topicSource implements AlbumSource and the photo-sync backend surface for a
-// search-topic source.
-type topicSource struct {
-	db       *gorm.DB
-	settings *SettingsService
-	source   string
-	// search runs the source's search API for one topic (query) and maps the
-	// results to source-agnostic RemoteAssets.
-	search func(query string, limit int) ([]RemoteAsset, error)
-	// apiKeyName is the settings key holding the source's API key. Empty when
-	// requiresKey is false.
-	apiKeyName  string
-	requiresKey bool
+// topicSearchFunc runs a source's search API for one topic with the given
+// key and maps the results to source-agnostic RemoteAssets.
+type topicSearchFunc func(apiKey string, randomize bool, query string, limit int) ([]RemoteAsset, error)
+
+// topicSearchers maps a topic source to its search function.
+var topicSearchers = map[string]topicSearchFunc{
+	model.SourceUnsplash: unsplashSearch,
+	model.SourcePexels:   pexelsSearch,
+}
+
+// TopicSource implements AlbumSource and the photo-sync backend surface for
+// one Unsplash or Pexels connection.
+type TopicSource struct {
+	db     *gorm.DB
+	conns  *ConnectionStore
+	id     uint
+	source string
+	search topicSearchFunc
 
 	autoSync *AutoSyncScheduler
 
@@ -121,70 +127,87 @@ type topicSource struct {
 	syncing bool
 }
 
-// newTopicSource wires the shared base and its auto-sync scheduler.
-func newTopicSource(db *gorm.DB, settings *SettingsService, source, apiKeyName string, requiresKey bool, search func(query string, limit int) ([]RemoteAsset, error)) *topicSource {
-	t := &topicSource{
-		db:          db,
-		settings:    settings,
-		source:      source,
-		search:      search,
-		apiKeyName:  apiKeyName,
-		requiresKey: requiresKey,
+// NewTopicSource builds the service for connection id of the given topic
+// source and wires its auto-sync scheduler.
+func NewTopicSource(db *gorm.DB, conns *ConnectionStore, id uint, source string) (*TopicSource, error) {
+	search, ok := topicSearchers[source]
+	if !ok {
+		return nil, fmt.Errorf("source %q is not a topic source", source)
 	}
+	t := &TopicSource{db: db, conns: conns, id: id, source: source, search: search}
 	t.autoSync = NewAutoSyncScheduler(AutoSyncSchedulerOptions{
-		Name:     source,
-		Settings: settings,
-		IsRelevantKey: func(key string) bool {
-			switch key {
-			case source + "_auto_sync_enabled", source + "_auto_sync_interval":
-				return true
-			}
-			return requiresKey && key == apiKeyName
-		},
+		Name:         fmt.Sprintf("%s#%d", source, id),
 		IsConfigured: t.isAutoSyncConfigured,
 		GetConfig:    t.getAutoSyncConfig,
 		RunSync:      t.resyncInternal,
 	})
-	return t
+	return t, nil
+}
+
+// StartAutoSync starts the background auto-sync loop.
+func (t *TopicSource) StartAutoSync() { t.autoSync.Start() }
+
+// Stop ends the auto-sync loop; used when the connection is deleted.
+func (t *TopicSource) Stop() { t.autoSync.Stop() }
+
+// Reconfigure re-arms the auto-sync timer after the connection row changed.
+func (t *TopicSource) Reconfigure() { t.autoSync.TriggerReset() }
+
+// config loads the connection row and its decoded config.
+func (t *TopicSource) config() (model.Connection, model.TopicConfig, error) {
+	c, err := t.conns.Get(t.id)
+	if err != nil {
+		return c, model.TopicConfig{}, err
+	}
+	return c, c.TopicConfig(), nil
 }
 
 // --- AlbumSource ---
 
 // Source implements AlbumSource.
-func (t *topicSource) Source() string { return t.source }
+func (t *TopicSource) Source() string { return t.source }
 
-// ConnectionID implements AlbumSource: topic sources have no connections.
-func (t *topicSource) ConnectionID() uint { return 0 }
+// ConnectionID implements AlbumSource.
+func (t *TopicSource) ConnectionID() uint { return t.id }
 
-// scope is the topic source's album/image pool.
-func (t *topicSource) scope() sourceScope { return sourceScope{Source: t.source} }
+// scope is this connection's album/image pool.
+func (t *TopicSource) scope() sourceScope {
+	return sourceScope{Source: t.source, ConnectionID: t.id}
+}
 
 // ListRemoteAlbums implements AlbumSource. Topics are named locally (the topic
 // text is the album name), so there is nothing remote to list.
-func (t *topicSource) ListRemoteAlbums() ([]RemoteAlbum, error) { return nil, nil }
+func (t *TopicSource) ListRemoteAlbums() ([]RemoteAlbum, error) { return nil, nil }
 
 // FetchAlbumAssets implements AlbumSource: run the search API for the topic
-// (stored in the album's ExternalID).
-func (t *topicSource) FetchAlbumAssets(album model.Album) ([]RemoteAsset, error) {
-	return t.search(album.ExternalID, topicSyncLimit)
+// (stored in the album's ExternalID) with the connection's key.
+func (t *TopicSource) FetchAlbumAssets(album model.Album) ([]RemoteAsset, error) {
+	_, cfg, err := t.config()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.APIKey == "" {
+		return nil, errors.New(t.source + " api key not configured")
+	}
+	return t.search(cfg.APIKey, cfg.RandomizeResults, album.ExternalID, topicSyncLimit)
 }
 
 // --- topic management ---
 
 // ImportPhotos syncs every enabled topic into the local DB via the shared
 // album-sync engine.
-func (t *topicSource) ImportPhotos() error {
+func (t *TopicSource) ImportPhotos() error {
 	_, err := SyncAlbumSource(t.db, t)
 	return err
 }
 
-// SetSyncTopics makes the synced topic set EXACTLY the given topics: it creates
-// new topic albums, keeps existing ones enabled, and DELETES removed ones (with
-// their memberships), then GCs any now-orphaned images. Unlike remote-album
-// sources (Immich/Synology), a removed topic is gone for good rather than merely
-// disabled -- there is nothing remote to re-enable, and a disabled row would
-// otherwise reappear in the topic list.
-func (t *topicSource) SetSyncTopics(topics []string) error {
+// SetSyncTopics makes the connection's synced topic set EXACTLY the given
+// topics: it creates new topic albums, keeps existing ones enabled, and DELETES
+// removed ones (with their memberships), then GCs any now-orphaned images.
+// Unlike remote-album sources (Immich/Synology), a removed topic is gone for
+// good rather than merely disabled -- there is nothing remote to re-enable, and
+// a disabled row would otherwise reappear in the topic list.
+func (t *TopicSource) SetSyncTopics(topics []string) error {
 	seen := map[string]bool{}
 	want := make([]string, 0, len(topics))
 	for _, topic := range topics {
@@ -196,9 +219,10 @@ func (t *topicSource) SetSyncTopics(topics []string) error {
 		want = append(want, trimmed)
 	}
 
+	sc := t.scope()
 	err := t.db.Transaction(func(tx *gorm.DB) error {
 		// Delete topic albums no longer wanted, plus their memberships.
-		q := tx.Where("source = ?", t.source)
+		q := sc.where(tx)
 		if len(want) > 0 {
 			q = q.Where("external_id NOT IN ?", want)
 		}
@@ -217,12 +241,13 @@ func (t *topicSource) SetSyncTopics(topics []string) error {
 		// Upsert wanted topics as sync-enabled real albums.
 		for _, topic := range want {
 			var existing model.Album
-			e := tx.Where("source = ? AND external_id = ?", t.source, topic).First(&existing).Error
+			e := sc.where(tx).Where("external_id = ?", topic).First(&existing).Error
 			switch {
 			case e == gorm.ErrRecordNotFound:
 				if ce := tx.Create(&model.Album{
 					Source: t.source, ExternalID: topic, Name: topic,
 					Kind: model.AlbumKindReal, SyncEnabled: true,
+					ConnectionID: sc.connectionRef(),
 				}).Error; ce != nil {
 					return ce
 				}
@@ -241,20 +266,34 @@ func (t *topicSource) SetSyncTopics(topics []string) error {
 		return err
 	}
 	// Drop images orphaned by the deleted topic albums.
-	gcOrphanImagesForSource(t.db, t.scope())
+	gcOrphanImagesForSource(t.db, sc)
 	return nil
 }
 
-// TestConnection validates the source's API key by running a trivial search.
-// Key-less sources are always considered connected.
-func (t *topicSource) TestConnection() error {
-	if !t.requiresKey {
-		return nil
+// Topics lists the connection's synced topics, oldest first.
+func (t *TopicSource) Topics() ([]string, error) {
+	var albums []model.Album
+	if err := t.scope().where(t.db.Model(&model.Album{})).Order("id").Find(&albums).Error; err != nil {
+		return nil, err
 	}
-	if key, _ := t.settings.Get(t.apiKeyName); strings.TrimSpace(key) == "" {
+	out := make([]string, 0, len(albums))
+	for _, a := range albums {
+		out = append(out, a.ExternalID)
+	}
+	return out, nil
+}
+
+// TestConnection validates the connection's API key by running a trivial
+// search.
+func (t *TopicSource) TestConnection() error {
+	_, cfg, err := t.config()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" {
 		return errors.New("api key not configured")
 	}
-	if _, err := t.search("landscape", 1); err != nil {
+	if _, err := t.search(cfg.APIKey, false, "landscape", 1); err != nil {
 		return err
 	}
 	return nil
@@ -262,33 +301,33 @@ func (t *topicSource) TestConnection() error {
 
 // --- PhotoSyncBackend surface (mirrors ImmichService) ---
 
-// GetPhotoCount returns the number of locally-stored photos for the source.
-func (t *topicSource) GetPhotoCount() (int64, error) {
+// GetPhotoCount returns the number of photos synced into this connection.
+func (t *TopicSource) GetPhotoCount() (int64, error) {
 	return sourcePhotoCount(t.db, t.scope())
 }
 
-// ClearPhotos deletes all of the source's photos from the database.
-func (t *topicSource) ClearPhotos() error {
+// ClearPhotos deletes all of the connection's photos from the database.
+func (t *TopicSource) ClearPhotos() error {
 	return clearSourcePhotos(t.db, t.scope())
 }
 
 // ClearAndResync runs an incremental resync in the background, returning
 // promptly. Despite the name (kept for the PhotoSyncBackend interface), it does
 // NOT clear first — see resyncInternal.
-func (t *topicSource) ClearAndResync() error {
+func (t *TopicSource) ClearAndResync() error {
 	t.autoSync.SyncNowAsync()
 	return nil
 }
 
 // IsSyncing reports whether a sync is currently running.
-func (t *topicSource) IsSyncing() bool {
+func (t *TopicSource) IsSyncing() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.syncing || t.autoSync.IsRunning()
 }
 
 // LastSyncError reports the most recent sync run's failure ("" on success).
-func (t *topicSource) LastSyncError() string {
+func (t *TopicSource) LastSyncError() string {
 	return t.autoSync.LastError()
 }
 
@@ -298,7 +337,7 @@ func (t *topicSource) LastSyncError() string {
 // rate limits, transient network, a key not yet available at startup) would
 // wipe the gallery and leave it empty. This is the auto-sync/manual-sync path;
 // the explicit Clear button (ClearPhotos) is the only destructive one.
-func (t *topicSource) resyncInternal() error {
+func (t *TopicSource) resyncInternal() error {
 	t.mu.Lock()
 	t.syncing = true
 	t.mu.Unlock()
@@ -313,32 +352,30 @@ func (t *topicSource) resyncInternal() error {
 
 // --- auto-sync ---
 
-// StartAutoSync starts the background auto-sync loop.
-func (t *topicSource) StartAutoSync() {
-	t.autoSync.Start()
-}
-
-// isAutoSyncConfigured reports whether the source is ready to auto-sync: for
-// key-requiring sources the API key must be present; key-less ones are ready.
-func (t *topicSource) isAutoSyncConfigured() bool {
-	if t.requiresKey {
-		key, _ := t.settings.Get(t.apiKeyName)
-		if strings.TrimSpace(key) == "" {
-			return false
-		}
+// isAutoSyncConfigured reports whether the connection is ready to auto-sync:
+// enabled, with an API key and at least one topic.
+func (t *TopicSource) isAutoSyncConfigured() bool {
+	c, cfg, err := t.config()
+	if err != nil || !c.Enabled || strings.TrimSpace(cfg.APIKey) == "" {
+		return false
 	}
-	return true
+	_, enabled := countAlbums(t.db, t.scope())
+	return enabled > 0
 }
 
-func (t *topicSource) getAutoSyncConfig() (bool, time.Duration) {
-	return parseAutoSyncConfig(t.settings,
-		t.source+"_auto_sync_enabled", t.source+"_auto_sync_interval")
+func (t *TopicSource) getAutoSyncConfig() (bool, time.Duration) {
+	_, cfg, err := t.config()
+	if err != nil {
+		return false, 0
+	}
+	return autoSyncConfig(cfg.AutoSyncEnabled, cfg.AutoSyncIntervalMinutes)
 }
 
 // NewTopicSourcePlugin constructs the shared registry plugin for a topic
-// source. All three topic sources store the image URL in FilePath, so one
-// plugin implementation serves every source — it just picks a random DB photo
-// for the source's albums and fetches the bytes over HTTP.
+// source. Both topic sources store the image URL in FilePath, so one plugin
+// implementation serves every source — it just picks a random DB photo for
+// the source's albums (across all of its connections) and fetches the bytes
+// over HTTP.
 func NewTopicSourcePlugin(db *gorm.DB, source string) imagesource.Source {
 	return &topicSourcePlugin{db: db, source: source}
 }

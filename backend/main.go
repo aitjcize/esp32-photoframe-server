@@ -165,11 +165,6 @@ func main() {
 	pickerService := service.NewPickerService(database, dataDir)
 	connections := service.NewConnectionManager(database, settingsService, pickerService)
 	connections.Start()
-	// Initialize search-topic sources (each user topic becomes a synced album).
-	unsplashService := service.NewUnsplashService(database, settingsService)
-	unsplashService.StartAutoSync()
-	pexelsService := service.NewPexelsService(database, settingsService)
-	pexelsService.StartAutoSync()
 	// Initialize AI Generation Service
 	aiGenerationService := service.NewAIGenerationService(settingsService)
 	// Initialize Generative (procedural) Service — fractal / DLA / …
@@ -228,10 +223,6 @@ func main() {
 	connh := handler.NewConnectionsHandler(connections)
 	// Generic photo-sync endpoints (sync / sync-status / clear / count) shared
 	// across the settings-backed sources.
-	unsplashSync := handler.NewPhotoSyncHandler(unsplashService)
-	unsplashTopics := handler.NewTopicSourceHandler(unsplashService)
-	pexelsSync := handler.NewPhotoSyncHandler(pexelsService)
-	pexelsTopics := handler.NewTopicSourceHandler(pexelsService)
 	gh := handler.NewGalleryHandler(database, connections, dataDir)
 	ih := handler.NewImageHandler(handler.ImageHandlerDeps{
 		Settings:       settingsService,
@@ -363,21 +354,9 @@ func main() {
 	protectedApi.GET("/connections/:id/google/picker/poll/:session", connh.PickerPoll)
 	protectedApi.POST("/connections/:id/google/picker/process/:session", connh.PickerProcess)
 	protectedApi.GET("/connections/:id/google/picker/progress/:session", connh.PickerProgress)
-
-	// Search-topic sources (Unsplash / Pexels). Topics are listed via
-	// the generic GET /albums?source=<src>; sync/count/clear reuse PhotoSyncHandler.
-	protectedApi.POST("/unsplash/sync", unsplashSync.Sync)
-	protectedApi.GET("/unsplash/sync-status", unsplashSync.SyncStatus)
-	protectedApi.POST("/unsplash/clear", unsplashSync.Clear)
-	protectedApi.GET("/unsplash/count", unsplashSync.Count)
-	protectedApi.POST("/unsplash/sync-topics", unsplashTopics.SetSyncTopics)
-	protectedApi.POST("/unsplash/test", unsplashTopics.TestConnection)
-	protectedApi.POST("/pexels/sync", pexelsSync.Sync)
-	protectedApi.GET("/pexels/sync-status", pexelsSync.SyncStatus)
-	protectedApi.POST("/pexels/clear", pexelsSync.Clear)
-	protectedApi.GET("/pexels/count", pexelsSync.Count)
-	protectedApi.POST("/pexels/sync-topics", pexelsTopics.SetSyncTopics)
-	protectedApi.POST("/pexels/test", pexelsTopics.TestConnection)
+	// Unsplash / Pexels connections: the search topics (each one a synced album)
+	protectedApi.GET("/connections/:id/topics", connh.Topics)
+	protectedApi.POST("/connections/:id/topics", connh.SetTopics)
 
 	// Calendar (Protected)
 	protectedApi.GET("/calendar/calendars", ch.ListCalendars)

@@ -330,3 +330,130 @@ func TestGoogleConnectionMigrationOnFreshInstall(t *testing.T) {
 		t.Errorf("fresh install created %d google connections", n)
 	}
 }
+
+// TestTopicConnectionsMigration seeds a v42 database with the flat Unsplash
+// and Pexels settings, topic albums and photos, and checks that 000043 turns
+// each source into one connection with its config, topics and photos, and
+// that the down migration writes the first connection back to the keys.
+func TestTopicConnectionsMigration(t *testing.T) {
+	gdb, m := migratedTo(t, 42)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if err := gdb.Exec(q, args...).Error; err != nil {
+			t.Fatalf("exec %q: %v", q, err)
+		}
+	}
+	str := func(q string, args ...any) string {
+		t.Helper()
+		var s string
+		if err := gdb.Raw(q, args...).Scan(&s).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return s
+	}
+	num := func(q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := gdb.Raw(q, args...).Scan(&n).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return n
+	}
+
+	// Unsplash: configured with a key and options, one topic with a photo.
+	exec("INSERT INTO settings(key, value) VALUES ('unsplash_api_key', 'u-key')")
+	exec("INSERT INTO settings(key, value) VALUES ('unsplash_randomize_results', 'true')")
+	exec("INSERT INTO settings(key, value) VALUES ('unsplash_auto_sync_enabled', 'true')")
+	exec("INSERT INTO settings(key, value) VALUES ('unsplash_auto_sync_interval', '180')")
+	exec("INSERT INTO albums(id, source, external_id, name, kind, sync_enabled, cover_key, updated_at) VALUES (10, 'unsplash', 'cats', 'cats', 'real', 1, '', CURRENT_TIMESTAMP)")
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (30, 'unsplash', 'u1', 'https://images.unsplash.com/u1')")
+	// Pexels: the key was cleared but a topic and its photo remain.
+	exec("INSERT INTO albums(id, source, external_id, name, kind, sync_enabled, cover_key, updated_at) VALUES (11, 'pexels', 'dogs', 'dogs', 'real', 1, '', CURRENT_TIMESTAMP)")
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (31, 'pexels', '7', 'https://images.pexels.com/7')")
+	exec("INSERT INTO images(id, source, external_id, file_path) VALUES (32, 'gallery', '', '/data/photos/u.jpg')")
+
+	if err := m.Migrate(43); err != nil {
+		t.Fatalf("migrate to 43: %v", err)
+	}
+
+	var unsplash, pexels model.Connection
+	if err := gdb.Where("source = ?", "unsplash").First(&unsplash).Error; err != nil {
+		t.Fatalf("unsplash connection: %v", err)
+	}
+	if err := gdb.Where("source = ?", "pexels").First(&pexels).Error; err != nil {
+		t.Fatalf("pexels connection: %v", err)
+	}
+	if unsplash.Name != "Unsplash" || !unsplash.Enabled {
+		t.Errorf("unsplash row: %+v", unsplash)
+	}
+	cfg := unsplash.TopicConfig()
+	if cfg.APIKey != "u-key" || !cfg.RandomizeResults || !cfg.AutoSyncEnabled || cfg.AutoSyncIntervalMinutes != 180 {
+		t.Errorf("unsplash config not carried over: %+v (config %s)", cfg, unsplash.Config)
+	}
+	if pexels.Name != "Pexels" || pexels.Enabled {
+		t.Errorf("pexels without a key must be disabled: %+v", pexels)
+	}
+	if pcfg := pexels.TopicConfig(); pcfg.APIKey != "" || pcfg.AutoSyncIntervalMinutes != 60 {
+		t.Errorf("pexels config: %+v", pcfg)
+	}
+	if got := num("SELECT connection_id FROM albums WHERE id = 10"); got != int(unsplash.ID) {
+		t.Errorf("unsplash topic reparented to %d, want %d", got, unsplash.ID)
+	}
+	if got := num("SELECT connection_id FROM images WHERE id = 30"); got != int(unsplash.ID) {
+		t.Errorf("unsplash photo reparented to %d, want %d", got, unsplash.ID)
+	}
+	if got := num("SELECT connection_id FROM albums WHERE id = 11"); got != int(pexels.ID) {
+		t.Errorf("pexels topic reparented to %d, want %d", got, pexels.ID)
+	}
+	if got := num("SELECT COUNT(*) FROM images WHERE id = 32 AND connection_id IS NULL"); got != 1 {
+		t.Errorf("gallery upload must keep a NULL connection")
+	}
+	if got := num("SELECT COUNT(*) FROM settings WHERE key LIKE 'unsplash_%' OR key LIKE 'pexels_%'"); got != 0 {
+		t.Errorf("moved settings keys left behind: %d", got)
+	}
+
+	// A second Unsplash key may hold the same topic.
+	exec("INSERT INTO connections(source, name, enabled, config) VALUES ('unsplash', 'Work', 1, '{\"api_key\":\"w-key\"}')")
+	second := num("SELECT MAX(id) FROM connections")
+	exec("INSERT INTO albums(source, external_id, name, kind, sync_enabled, cover_key, updated_at, connection_id) VALUES ('unsplash', 'cats', 'cats', 'real', 1, '', CURRENT_TIMESTAMP, ?)", second)
+	exec("INSERT INTO images(source, external_id, file_path, connection_id) VALUES ('unsplash', 'u1', 'https://images.unsplash.com/u1', ?)", second)
+
+	// Down: the first key is back in settings, its rows are detached, the
+	// second connection's rows (which would collide) are gone.
+	if err := m.Migrate(42); err != nil {
+		t.Fatalf("migrate down to 42: %v", err)
+	}
+	if got := str("SELECT value FROM settings WHERE key = 'unsplash_api_key'"); got != "u-key" {
+		t.Errorf("down: unsplash_api_key %q", got)
+	}
+	if got := str("SELECT value FROM settings WHERE key = 'unsplash_auto_sync_interval'"); got != "180" {
+		t.Errorf("down: unsplash_auto_sync_interval %q", got)
+	}
+	if got := str("SELECT value FROM settings WHERE key = 'unsplash_randomize_results'"); got != "true" {
+		t.Errorf("down: unsplash_randomize_results %q", got)
+	}
+	if got := num("SELECT COUNT(*) FROM albums WHERE source = 'unsplash'"); got != 1 {
+		t.Errorf("down: unsplash albums left: %d, want the first connection's only", got)
+	}
+	if got := num("SELECT COUNT(*) FROM images WHERE source = 'unsplash' AND connection_id IS NULL"); got != 1 {
+		t.Errorf("down: unsplash images kept and detached: %d", got)
+	}
+	if got := num("SELECT COUNT(*) FROM albums WHERE id = 11 AND connection_id IS NULL"); got != 1 {
+		t.Errorf("down: pexels topic should survive detached")
+	}
+	if got := num("SELECT COUNT(*) FROM connections WHERE source IN ('unsplash', 'pexels')"); got != 0 {
+		t.Errorf("down: topic connections left: %d", got)
+	}
+}
+
+// Without a key and without topics or photos no topic connection is made.
+func TestTopicConnectionsMigrationOnFreshInstall(t *testing.T) {
+	gdb, _ := migratedTo(t, 43)
+	var n int
+	if err := gdb.Raw("SELECT COUNT(*) FROM connections WHERE source IN ('unsplash', 'pexels')").Scan(&n).Error; err != nil {
+		t.Fatalf("connections table: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("fresh install created %d topic connections", n)
+	}
+}

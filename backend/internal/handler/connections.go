@@ -15,8 +15,9 @@ import (
 
 // ConnectionsHandler serves /api/connections: the configured instances of the
 // connection-backed sources (Immich servers, Synology accounts, Google
-// accounts), plus the per-connection actions that used to live under
-// /api/immich, /api/synology and /api/google. Secrets never leave the server:
+// accounts, Unsplash and Pexels API keys), plus the per-connection actions
+// that used to live under /api/immich, /api/synology, /api/google,
+// /api/unsplash and /api/pexels. Secrets never leave the server:
 // responses carry has_* flags, and an update keeps the stored secret when the
 // field is sent empty.
 type ConnectionsHandler struct {
@@ -80,6 +81,15 @@ func (h *ConnectionsHandler) view(c model.Connection) connectionResponse {
 		out.Connected = st.Connected()
 		// The account email is display state, not a secret.
 		out.Config = map[string]any{"email": st.Email}
+	case model.SourceUnsplash, model.SourcePexels:
+		cfg := c.TopicConfig()
+		out.Connected = cfg.APIKey != ""
+		out.Config = map[string]any{
+			"has_api_key":                cfg.APIKey != "",
+			"randomize_results":          cfg.RandomizeResults,
+			"auto_sync_enabled":          cfg.AutoSyncEnabled,
+			"auto_sync_interval_minutes": cfg.AutoSyncIntervalMinutes,
+		}
 	}
 	return out
 }
@@ -192,6 +202,24 @@ func applyConfig(c *model.Connection, in map[string]any) error {
 		// page and the OAuth app credentials are global settings.
 		c.Config = "{}"
 		return nil
+	case model.SourceUnsplash, model.SourcePexels:
+		cfg := c.TopicConfig()
+		if v, ok := str(in, "api_key"); ok && v != "" {
+			cfg.APIKey = v
+		}
+		if v, ok := boolean(in, "randomize_results"); ok {
+			cfg.RandomizeResults = v
+		}
+		if v, ok := boolean(in, "auto_sync_enabled"); ok {
+			cfg.AutoSyncEnabled = v
+		}
+		if v, ok := integer(in, "auto_sync_interval_minutes"); ok && v > 0 {
+			cfg.AutoSyncIntervalMinutes = v
+		}
+		if cfg.AutoSyncIntervalMinutes <= 0 {
+			cfg.AutoSyncIntervalMinutes = 60
+		}
+		return c.EncodeConfig(cfg)
 	}
 	return errors.New("unsupported source")
 }
@@ -211,6 +239,10 @@ func defaultName(source string) string {
 		return "Synology Photos"
 	case model.SourceGooglePhotos:
 		return "Google Photos"
+	case model.SourceUnsplash:
+		return "Unsplash"
+	case model.SourcePexels:
+		return "Pexels"
 	}
 	return source
 }
@@ -352,7 +384,8 @@ func (h *ConnectionsHandler) Delete(c echo.Context) error {
 }
 
 // Test verifies the connection's credentials against the server. For Synology
-// it logs in, taking an optional one-time code for accounts with 2FA.
+// it logs in, taking an optional one-time code for accounts with 2FA; for
+// Unsplash and Pexels it runs a one-photo search with the API key.
 // POST /api/connections/:id/test  body: {otp_code}
 func (h *ConnectionsHandler) Test(c echo.Context) error {
 	conn, ok := h.load(c)
@@ -382,6 +415,14 @@ func (h *ConnectionsHandler) Test(c echo.Context) error {
 		}
 	case model.SourceGooglePhotos:
 		return respondError(c, http.StatusBadRequest, "Google connections are authorised through /google/login")
+	case model.SourceUnsplash, model.SourcePexels:
+		svc, err := h.conns.Topic(conn.ID)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		if err := svc.TestConnection(); err != nil {
+			return respondError(c, http.StatusBadRequest, err.Error())
+		}
 	}
 	fresh, _ := h.conns.Store().Get(conn.ID)
 	return c.JSON(http.StatusOK, h.view(fresh))
@@ -493,6 +534,65 @@ func (h *ConnectionsHandler) Logout(c echo.Context) error {
 		return respondError(c, http.StatusBadRequest, "only Synology and Google connections have a session to log out of")
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// topic resolves an Unsplash or Pexels connection's service or writes the
+// error response.
+func (h *ConnectionsHandler) topic(c echo.Context) (*service.TopicSource, bool) {
+	conn, ok := h.load(c)
+	if !ok {
+		return nil, false
+	}
+	if !model.IsTopicSource(conn.Source) {
+		_ = respondError(c, http.StatusBadRequest, "not an Unsplash or Pexels connection")
+		return nil, false
+	}
+	svc, err := h.conns.Topic(conn.ID)
+	if err != nil {
+		_ = respondError(c, http.StatusInternalServerError, err.Error())
+		return nil, false
+	}
+	return svc, true
+}
+
+// Topics lists the connection's search topics (its albums, by name).
+// GET /api/connections/:id/topics
+func (h *ConnectionsHandler) Topics(c echo.Context) error {
+	svc, ok := h.topic(c)
+	if !ok {
+		return nil
+	}
+	topics, err := svc.Topics()
+	if err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string][]string{"topics": topics})
+}
+
+// SetTopics replaces the connection's topic set. Each topic becomes a synced
+// album; a removed topic's album and photos go. Nothing is imported until the
+// next sync.
+// POST /api/connections/:id/topics  body: {topics}
+func (h *ConnectionsHandler) SetTopics(c echo.Context) error {
+	svc, ok := h.topic(c)
+	if !ok {
+		return nil
+	}
+	var req struct {
+		Topics []string `json:"topics"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return respondError(c, http.StatusBadRequest, "invalid request")
+	}
+	if err := svc.SetSyncTopics(req.Topics); err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	h.conns.Updated(svc.ConnectionID())
+	topics, err := svc.Topics()
+	if err != nil {
+		return respondError(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string][]string{"topics": topics})
 }
 
 // google resolves a Google connection's service or writes the error response.

@@ -229,7 +229,8 @@ type GenerativeState struct {
 }
 
 // Connection is one configured instance of a photo provider: one Immich
-// server, one Synology account, one Google account. The source string stays
+// server, one Synology account, one Google account, one Unsplash or Pexels
+// API key. The source string stays
 // the provider type; albums and images hang off the connection, so several
 // connections of the same type can coexist. Config holds the user-entered
 // settings (credentials included) as JSON; State holds what the server learned
@@ -247,7 +248,21 @@ type Connection struct {
 }
 
 // ConnectionSources are the source types that are configured as connections.
-var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos, SourceGooglePhotos}
+var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos, SourceGooglePhotos, SourceUnsplash, SourcePexels}
+
+// TopicSources are the connection sources whose albums are search topics
+// (stock-photo search by keyword).
+var TopicSources = []string{SourceUnsplash, SourcePexels}
+
+// IsTopicSource reports whether a source is a search-topic source.
+func IsTopicSource(source string) bool {
+	for _, s := range TopicSources {
+		if s == source {
+			return true
+		}
+	}
+	return false
+}
 
 // IsConnectionSource reports whether a source type is configured through
 // connections rather than through flat settings keys.
@@ -279,6 +294,17 @@ type SynologyConfig struct {
 	SkipCert                bool   `json:"skip_cert"`
 	AutoSyncEnabled         bool   `json:"auto_sync_enabled"`
 	AutoSyncIntervalMinutes int    `json:"auto_sync_interval_minutes"`
+}
+
+// TopicConfig is Connection.Config for an Unsplash or Pexels connection: the
+// API key and how its topics are synced.
+type TopicConfig struct {
+	APIKey string `json:"api_key"`
+	// RandomizeResults samples random pages of each topic's results on every
+	// sync, so the albums rotate instead of keeping the top results.
+	RandomizeResults        bool `json:"randomize_results"`
+	AutoSyncEnabled         bool `json:"auto_sync_enabled"`
+	AutoSyncIntervalMinutes int  `json:"auto_sync_interval_minutes"`
 }
 
 // SynologyState is Connection.State for a Synology Photos connection: the
@@ -345,6 +371,14 @@ func (c *Connection) ImmichConfig() ImmichConfig {
 // SynologyConfig decodes Config for a Synology connection (zero value on error).
 func (c *Connection) SynologyConfig() SynologyConfig {
 	var cfg SynologyConfig
+	_ = c.DecodeConfig(&cfg)
+	return cfg
+}
+
+// TopicConfig decodes Config for an Unsplash or Pexels connection (zero value
+// on error).
+func (c *Connection) TopicConfig() TopicConfig {
+	var cfg TopicConfig
 	_ = c.DecodeConfig(&cfg)
 	return cfg
 }
