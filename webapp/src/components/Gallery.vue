@@ -317,7 +317,7 @@
               galleryStore.source === 'immich'
             "
           >
-            Choose the albums to sync above and click <b>Sync Now</b> to import
+            Choose the albums to sync below and click <b>Sync Now</b> to import
             photos.
           </span>
           <span
@@ -326,7 +326,7 @@
               galleryStore.source === 'pexels'
             "
           >
-            Add some search topics above and click <b>Sync Now</b> to import
+            Add some search topics below and click <b>Sync Now</b> to import
             photos.
           </span>
         </p>

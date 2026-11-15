@@ -1,8 +1,8 @@
 <template>
   <div class="pa-1 pa-sm-4">
-    <!-- Sources Card: one source at a time, picked from the dropdown. A
-         connection shows its card first and its photos below; the built-in
-         sources show their photos (Gallery) or their settings. -->
+    <!-- Sources Card: one source at a time, picked from the dropdown. Photos
+         on top, that source's settings (a connection's card, the gallery's
+         Telegram bot, the URL list, the AI keys) below. -->
     <v-card class="mb-6">
       <v-card-text>
         <SourcePicker
@@ -25,7 +25,11 @@
           key.
         </v-alert>
 
+        <!-- A connection: its photos first, its card (credentials, albums or
+             topics, sync) below, as the per-source tabs had it. -->
         <template v-if="activeConnection">
+          <Gallery />
+          <v-divider class="my-6"></v-divider>
           <component
             :is="cardComponentFor(activeConnection.source)"
             :key="activeConnection.id"
@@ -36,8 +40,6 @@
             :show-message="showMessage"
             @synced="onConnectionSynced"
           ></component>
-          <v-divider class="my-6"></v-divider>
-          <Gallery />
         </template>
 
         <template v-else>
