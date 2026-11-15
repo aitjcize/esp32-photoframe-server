@@ -23,7 +23,7 @@
       <v-card-text v-if="!source" class="pt-0">
         <v-list lines="two" density="comfortable">
           <v-list-item
-            v-for="s in CONNECTION_SOURCES"
+            v-for="s in sources || CONNECTION_SOURCES"
             :key="s"
             :title="SOURCE_LABELS[s]"
             :subtitle="SOURCE_DESCRIPTIONS[s]"
@@ -107,7 +107,7 @@
             ></v-text-field>
           </template>
 
-          <template v-else-if="source === 'google_photos'">
+          <template v-else-if="isGoogle">
             <v-alert
               v-if="!googleReady"
               type="warning"
@@ -125,7 +125,9 @@
             </v-alert>
             <div v-else class="text-body-2 text-grey mt-4">
               You will be sent to Google to sign in with the account whose
-              photos this source should offer, and back here afterwards.
+              {{ source === 'google_calendar' ? 'calendar' : 'photos' }} this
+              {{ source === 'google_calendar' ? 'connection' : 'source' }}
+              should offer, and back here afterwards.
             </div>
           </template>
 
@@ -168,7 +170,7 @@
           :loading="loading"
           @click="connect"
         >
-          {{ source === 'google_photos' ? 'Sign in with Google' : 'Connect' }}
+          {{ isGoogle ? 'Sign in with Google' : 'Connect' }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -176,9 +178,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import {
   CONNECTION_SOURCES,
+  GOOGLE_SOURCES,
   SOURCE_DESCRIPTIONS,
   SOURCE_ICONS,
   SOURCE_LABELS,
@@ -192,7 +195,10 @@ import {
 // behind.
 const props = defineProps<{
   modelValue: boolean;
-  // Whether the Google OAuth client is configured (Google Photos needs it).
+  // The providers to offer; the photo sources by default. With exactly one
+  // the provider step is skipped.
+  sources?: string[];
+  // Whether the Google OAuth client is configured (Google sign-ins need it).
   googleReady: boolean;
   // Runs before the browser leaves for Google's consent page.
   beforeGoogleConnect?: () => Promise<void>;
@@ -210,6 +216,7 @@ const store = useConnectionsStore();
 
 const source = ref<string>('');
 const label = computed(() => SOURCE_LABELS[source.value] || source.value);
+const isGoogle = computed(() => GOOGLE_SOURCES.includes(source.value));
 const name = ref('');
 const form = reactive({
   url: '',
@@ -258,6 +265,7 @@ const canConnect = computed(() => {
     case 'synology_photos':
       return !!form.url && !!form.account && !!form.password;
     case 'google_photos':
+    case 'google_calendar':
       return props.googleReady;
     case 'unsplash':
     case 'pexels':
@@ -301,7 +309,7 @@ const connect = async () => {
       await store.update(id, { name: finalName });
     }
 
-    if (source.value === 'google_photos') {
+    if (isGoogle.value) {
       await props.beforeGoogleConnect?.();
       const url = await store.googleLoginUrl(id);
       const created = store.byId(id);
@@ -360,4 +368,15 @@ const onToggle = (open: boolean) => {
   if (!open) cancel();
   else emit('update:modelValue', true);
 };
+
+// One provider only (the Calendar tab): straight to its form.
+watch(
+  () => props.modelValue,
+  (open) => {
+    if (open && !source.value && props.sources?.length === 1) {
+      choose(props.sources[0]);
+    }
+  },
+  { immediate: true }
+);
 </script>

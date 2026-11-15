@@ -90,6 +90,9 @@ export interface Device {
   firmware_version?: string;
   show_calendar?: boolean;
   calendar_id?: string;
+  // The Google Calendar connection calendar_id belongs to; null means the
+  // first connected account.
+  calendar_connection_id?: number | null;
   date_format?: string;
   source?: string;
   board_name?: string;
@@ -118,6 +121,7 @@ export const addDevice = async (params: {
   display_mode?: string;
   show_calendar?: boolean;
   calendar_id?: string;
+  calendar_connection_id?: number | null;
   date_format?: string;
   // Only needed when the frame requires a password on its own HTTP API.
   http_password?: string;
@@ -202,7 +206,8 @@ export const updateDevice = async (
   calendarId?: string,
   dateFormat?: string,
   source?: string,
-  backgroundColor?: string
+  backgroundColor?: string,
+  calendarConnectionId?: number | null
 ) => {
   const response = await api.put(`/devices/${id}`, {
     name,
@@ -224,6 +229,7 @@ export const updateDevice = async (
     date_format: dateFormat || '',
     source: source || '',
     background_color: backgroundColor || '',
+    calendar_connection_id: calendarConnectionId ?? null,
   });
   return response.data;
 };
@@ -335,21 +341,5 @@ export const revokeSession = async (id: number) => {
 // signed out and every device token must be regenerated).
 export const rotateJWTSecret = async () => {
   const response = await api.post('auth/rotate-secret');
-  return response.data;
-};
-
-// Calendar
-export const listCalendars = async () => {
-  const response = await api.get('calendar/calendars');
-  return response.data;
-};
-
-export const googleCalendarLogin = async () => {
-  const response = await api.get('auth/google-calendar/login');
-  return response.data;
-};
-
-export const googleCalendarLogout = async () => {
-  const response = await api.post('auth/google-calendar/logout');
   return response.data;
 };

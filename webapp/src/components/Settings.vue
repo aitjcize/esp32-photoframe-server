@@ -445,9 +445,16 @@
 
     <AddConnectionDialog
       v-model="showAddConnection"
-      :google-ready="!!(form.google_client_id && form.google_client_secret)"
+      :google-ready="googleClientReady"
       :before-google-connect="saveSettingsInternal"
       @created="onConnectionCreated"
+      @open-system="openSystemTab"
+    ></AddConnectionDialog>
+    <AddConnectionDialog
+      v-model="showAddCalendar"
+      :sources="[CALENDAR_SOURCE]"
+      :google-ready="googleClientReady"
+      :before-google-connect="saveSettingsInternal"
       @open-system="openSystemTab"
     ></AddConnectionDialog>
 
@@ -471,10 +478,79 @@
       <div v-else>
         <v-tabs v-model="activeMainTab" color="primary" grow>
           <v-tab value="devices">Devices</v-tab>
+          <v-tab value="calendar">Calendar</v-tab>
           <v-tab value="security">System</v-tab>
         </v-tabs>
 
         <v-window v-model="activeMainTab" :touch="false">
+          <!-- Calendar Tab: the Google accounts whose calendars frames can show -->
+          <v-window-item value="calendar">
+            <v-card-text>
+              <div class="text-caption text-grey mb-4">
+                Sign in with the Google accounts whose calendars your frames
+                should show. Each frame picks an account and one of its
+                calendars in the device dialog (<b>Devices</b> → edit →
+                <b>Show Google Calendar Events</b>).
+              </div>
+
+              <v-alert
+                v-if="!googleClientReady"
+                type="warning"
+                variant="tonal"
+                density="compact"
+                class="mb-4"
+              >
+                Enter the Google API client ID and secret under
+                <b>System → Google</b> first.
+                <template #append>
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    @click="activeMainTab = 'security'"
+                    >Open</v-btn
+                  >
+                </template>
+              </v-alert>
+
+              <v-alert
+                v-else-if="
+                  connectionsStore.loaded && calendarConnections.length === 0
+                "
+                type="info"
+                variant="tonal"
+                density="compact"
+                class="mb-4"
+              >
+                No Google account connected for calendars yet.
+              </v-alert>
+
+              <CalendarConnectionCard
+                v-for="c in calendarConnections"
+                :key="c.id"
+                :connection="c"
+                :confirm="confirmPrompt"
+                :show-message="showMessage"
+                :before-connect="saveSettingsInternal"
+                :focus="c.id === focusConnectionId"
+                @deleted="loadDevices"
+              ></CalendarConnectionCard>
+
+              <v-btn
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-plus"
+                :disabled="!googleClientReady"
+                @click="showAddCalendar = true"
+              >
+                {{
+                  calendarConnections.length
+                    ? 'Add another Google account'
+                    : 'Add Google account'
+                }}
+              </v-btn>
+            </v-card-text>
+          </v-window-item>
+
           <!-- System Tab (server + security) -->
           <v-window-item value="security">
             <v-card-text>
@@ -502,8 +578,8 @@
                 density="compact"
               >
                 <div class="text-body-2">
-                  One OAuth client serves every Google Photos account and Google
-                  Calendar. Create a project in
+                  One OAuth client serves every Google Photos and Google
+                  Calendar account. Create a project in
                   <a href="https://console.cloud.google.com/" target="_blank"
                     >Google Cloud Console</a
                   >
@@ -533,59 +609,6 @@
               <v-btn color="grey-darken-1" @click="save" class="mb-2"
                 >Save Credentials</v-btn
               >
-
-              <!-- Calendar Section -->
-              <h3 class="text-subtitle-1 font-weight-bold mt-6 mb-3">
-                Calendar
-              </h3>
-
-              <div v-if="form.google_calendar_connected === 'true'">
-                <v-alert
-                  type="success"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                  icon="mdi-check-circle"
-                >
-                  Google Calendar connected
-                </v-alert>
-
-                <v-btn
-                  color="error"
-                  variant="text"
-                  @click="logoutGoogleCalendar"
-                >
-                  Disconnect Google Calendar
-                </v-btn>
-              </div>
-
-              <div v-else>
-                <v-alert
-                  type="info"
-                  variant="tonal"
-                  class="mb-4"
-                  density="compact"
-                >
-                  Connect a Google account for Calendar integration. This can be
-                  a different account than Google Photos.
-                </v-alert>
-
-                <v-btn
-                  v-if="form.google_client_id && form.google_client_secret"
-                  color="primary"
-                  @click="connectGoogleCalendar"
-                >
-                  Authorize Google Calendar
-                </v-btn>
-                <v-alert
-                  v-else
-                  type="warning"
-                  variant="tonal"
-                  density="compact"
-                >
-                  Enter Google API credentials above first.
-                </v-alert>
-              </div>
 
               <v-divider class="my-6"></v-divider>
 
@@ -1603,11 +1626,9 @@
                             </v-col>
                           </v-row>
                           <v-tooltip
-                            :disabled="
-                              form.google_calendar_connected === 'true'
-                            "
+                            :disabled="calendarAccounts.length > 0"
                             location="top"
-                            text="Connect Google Calendar in Data Sources first"
+                            text="Add a Google account under Settings → Calendar first"
                           >
                             <template #activator="{ props }">
                               <div v-bind="props" class="d-inline-flex">
@@ -1617,28 +1638,44 @@
                                   color="primary"
                                   hide-details
                                   class="mt-2 mb-1"
-                                  :disabled="
-                                    form.google_calendar_connected !== 'true'
-                                  "
+                                  :disabled="calendarAccounts.length === 0"
                                 ></v-checkbox>
                               </div>
                             </template>
                           </v-tooltip>
-                          <v-select
+                          <template
                             v-if="
                               editingDevice.show_calendar &&
-                              form.google_calendar_connected === 'true'
+                              calendarAccounts.length > 0
                             "
-                            v-model="editingDevice.calendar_id"
-                            :items="calendars"
-                            item-title="summary"
-                            item-value="id"
-                            label="Select Calendar"
-                            variant="outlined"
-                            density="compact"
-                            class="mt-2"
-                            :loading="!calendarLoaded"
-                          ></v-select>
+                          >
+                            <v-select
+                              v-model="editingDevice.calendar_connection_id"
+                              :items="calendarAccountOptions"
+                              item-title="title"
+                              item-value="value"
+                              label="Google account"
+                              variant="outlined"
+                              density="compact"
+                              class="mt-2"
+                              @update:model-value="
+                                editingDevice.calendar_id = ''
+                              "
+                            ></v-select>
+                            <v-select
+                              v-model="editingDevice.calendar_id"
+                              :items="deviceCalendars"
+                              item-title="summary"
+                              item-value="id"
+                              label="Select Calendar"
+                              variant="outlined"
+                              density="compact"
+                              class="mt-2"
+                              :loading="deviceCalendarsLoading"
+                              :hint="deviceCalendarsHint"
+                              :persistent-hint="!!deviceCalendarsHint"
+                            ></v-select>
+                          </template>
                         </div>
 
                         <v-divider class="my-4" />
@@ -2287,7 +2324,12 @@
 import { onMounted, nextTick, reactive, ref, computed, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
-import { useConnectionsStore, type Connection } from '../stores/connections';
+import {
+  CALENDAR_SOURCE,
+  CONNECTION_SOURCES,
+  useConnectionsStore,
+  type Connection,
+} from '../stores/connections';
 import { useGalleryStore } from '../stores/gallery';
 import { useAuthStore } from '../stores/auth';
 import { useSnackbar } from '../composables/useSnackbar';
@@ -2309,14 +2351,12 @@ import {
   deleteURLSource,
   getDeviceConfig,
   updateDeviceConfig,
-  listCalendars,
-  googleCalendarLogin,
-  googleCalendarLogout,
 } from '../api';
 import Gallery from './Gallery.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import SourcePicker from './SourcePicker.vue';
 import AddConnectionDialog from './AddConnectionDialog.vue';
+import CalendarConnectionCard from './CalendarConnectionCard.vue';
 import { cardComponentFor } from './connectionCards';
 import { newFramePasswordProblem } from '../utils/framePassword';
 import { getApiError } from '../utils/errors';
@@ -2376,11 +2416,12 @@ const activeConnectionId = computed(() => {
   const m = /^conn:(\d+)$/.exec(sourceKey.value);
   return m ? Number(m[1]) : null;
 });
-const activeConnection = computed(() =>
-  activeConnectionId.value != null
-    ? connectionsStore.byId(activeConnectionId.value)
-    : undefined
-);
+const activeConnection = computed(() => {
+  if (activeConnectionId.value == null) return undefined;
+  const c = connectionsStore.byId(activeConnectionId.value);
+  // Only photo sources are viewed here; a calendar account is not one.
+  return c && CONNECTION_SOURCES.includes(c.source) ? c : undefined;
+});
 // Props only the Google card takes (its OAuth round trip).
 const activeCardProps = computed(() =>
   activeConnection.value?.source === 'google_photos'
@@ -2709,28 +2750,53 @@ const deleteURLSourceWrapper = async (id: number) => {
   }
 };
 
-// Calendar State
-const calendars = ref<any[]>([]);
-const calendarConnected = ref(false);
-const calendarLoaded = ref(false);
-
-const loadCalendars = async () => {
-  if (form.google_calendar_connected !== 'true') {
-    calendarLoaded.value = true;
+// Calendar accounts (google_calendar connections) and, in the device
+// dialog, the calendars of the account the frame uses.
+const showAddCalendar = ref(false);
+const googleClientReady = computed(
+  () => !!(form.google_client_id && form.google_client_secret)
+);
+const calendarConnections = computed(() =>
+  connectionsStore.bySource(CALENDAR_SOURCE)
+);
+const calendarAccounts = computed(() =>
+  calendarConnections.value.filter((c) => c.connected)
+);
+const calendarAccountOptions = computed(() =>
+  calendarAccounts.value.map((c) => ({
+    value: c.id,
+    title: c.config.email ? `${c.name} (${c.config.email})` : c.name,
+  }))
+);
+const deviceCalendars = ref<any[]>([]);
+const deviceCalendarsLoading = ref(false);
+const deviceCalendarsHint = ref('');
+// Only the latest request may fill the list: switching accounts while the
+// previous account's calendars are still loading must not leave those on
+// screen under the new account.
+let deviceCalendarsRequest = 0;
+const loadDeviceCalendars = async (accountId: number | null | undefined) => {
+  const request = ++deviceCalendarsRequest;
+  deviceCalendars.value = [];
+  deviceCalendarsHint.value = '';
+  if (!accountId) {
+    deviceCalendarsLoading.value = false;
     return;
   }
+  deviceCalendarsLoading.value = true;
   try {
-    const cals = await listCalendars();
-    calendars.value = cals;
-    calendarConnected.value = true;
+    const calendars = await connectionsStore.calendars(accountId);
+    if (request !== deviceCalendarsRequest) return;
+    deviceCalendars.value = calendars;
   } catch (e: any) {
-    if (e.response?.status === 403) {
-      calendarConnected.value = false;
-    } else {
-      console.error('Failed to load calendars', e);
-    }
+    if (request !== deviceCalendarsRequest) return;
+    deviceCalendarsHint.value =
+      e.response?.status === 403
+        ? 'This account was signed in without calendar access; sign in again under Settings → Calendar.'
+        : 'Could not load the calendars of this account.';
   } finally {
-    calendarLoaded.value = true;
+    if (request === deviceCalendarsRequest)
+      deviceCalendarsLoading.value = false;
   }
 };
 
@@ -3396,12 +3462,27 @@ watch(
 const availableDevices = ref<Device[]>([]);
 const deviceListLoading = ref(false);
 
-// Load calendars when the edit dialog opens (if not yet loaded)
-watch(showEditDeviceDialog, (open) => {
-  if (open && !calendarLoaded.value) {
-    loadCalendars();
+// The device dialog: a frame showing a calendar needs an account; one
+// without a stored choice gets the first connected account, which is also
+// what the server falls back to. The calendars follow the account, and a
+// calendar picked from one account is dropped when the user switches to
+// another (the select's update handler), since the new account may not be
+// able to read it.
+watch(
+  () => [
+    showEditDeviceDialog.value,
+    editingDevice.show_calendar,
+    editingDevice.calendar_connection_id,
+  ],
+  ([open, show, account]) => {
+    if (!open || !show) return;
+    if (!account && calendarAccounts.value.length > 0) {
+      editingDevice.calendar_connection_id = calendarAccounts.value[0].id;
+      return; // the watcher runs again with the account set
+    }
+    loadDeviceCalendars(account as number | null | undefined);
   }
-});
+);
 
 // Reset AI model when provider changes
 watch(
@@ -3444,6 +3525,7 @@ const openAddDeviceDialog = () => {
     background_color: 'white',
     show_calendar: false,
     calendar_id: '',
+    calendar_connection_id: null,
     date_format: '',
     source: '',
   });
@@ -3594,6 +3676,7 @@ const saveDevice = async () => {
         display_mode: deviceProcessing.scaleMode || 'cover',
         show_calendar: editingDevice.show_calendar || false,
         calendar_id: editingDevice.calendar_id || '',
+        calendar_connection_id: editingDevice.calendar_connection_id || null,
         date_format: editingDevice.date_format || '',
         http_password: deviceHttpPassword.value || undefined,
       });
@@ -3719,7 +3802,8 @@ const saveDevice = async () => {
         editingDevice.calendar_id || '',
         editingDevice.date_format || '',
         deviceSource,
-        deviceProcessing.backgroundColor || ''
+        deviceProcessing.backgroundColor || '',
+        editingDevice.calendar_connection_id || null
       );
 
       // Write-only: only send when the field was filled in. Blank leaves any
@@ -3972,7 +4056,6 @@ const form = reactive({
   show_weather: true,
   weather_lat: '',
   weather_lon: '',
-  google_calendar_connected: 'false',
   google_client_id: '',
   google_client_secret: '',
   telegram_bot_token: '',
@@ -4147,8 +4230,6 @@ onMounted(async () => {
     show_weather: store.settings.show_weather !== 'false',
     google_client_id: store.settings.google_client_id || '',
     google_client_secret: store.settings.google_client_secret || '',
-    google_calendar_connected:
-      store.settings.google_calendar_connected || 'false',
     telegram_bot_token: store.settings.telegram_bot_token || '',
     telegram_album_id: store.settings.telegram_album_id || '',
     telegram_push_enabled: store.settings.telegram_push_enabled === 'true',
@@ -4198,7 +4279,11 @@ onMounted(async () => {
     // Fresh from the OAuth callback: the connection list must not show the
     // state it cached before the redirect.
     await connectionsStore.fetch();
-    sourceKey.value = `conn:${connection}`;
+    if (connectionsStore.byId(connection)?.source === CALENDAR_SOURCE) {
+      activeMainTab.value = 'calendar';
+    } else {
+      sourceKey.value = `conn:${connection}`;
+    }
   } else {
     // A provider named by the callback (an aborted sign-in) or by an old
     // #gtab= link: show its first connection.
@@ -4244,35 +4329,6 @@ const save = async () => {
     showMessage('Settings saved successfully');
   } catch (err: any) {
     showMessage(err.message || 'Failed to save settings', true);
-  }
-};
-
-const connectGoogleCalendar = async () => {
-  try {
-    await saveSettingsInternal();
-    const res = await googleCalendarLogin();
-    window.location.href = res.url;
-  } catch (e) {
-    showMessage('Failed to connect Google Calendar: ' + e, true);
-  }
-};
-
-const logoutGoogleCalendar = async () => {
-  if (
-    !(await confirmDialog.value.open(
-      'Are you sure you want to disconnect Google Calendar?'
-    ))
-  )
-    return;
-  try {
-    await googleCalendarLogout();
-    form.google_calendar_connected = 'false';
-    calendarConnected.value = false;
-    calendars.value = [];
-    showMessage('Disconnected Google Calendar.');
-    await store.fetchSettings();
-  } catch (e) {
-    showMessage('Error disconnecting: ' + e, true);
   }
 };
 

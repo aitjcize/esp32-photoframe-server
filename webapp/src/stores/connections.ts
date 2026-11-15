@@ -2,7 +2,8 @@ import { defineStore } from 'pinia';
 import { api } from '../api';
 
 // One configured instance of a connection-backed source: an Immich server, a
-// Synology Photos account, a Google account, or an Unsplash / Pexels API key.
+// Synology Photos account, a Google account (for Photos, or for Calendar), or
+// an Unsplash / Pexels API key.
 // `config` is the server's redacted view (URLs and flags, never secrets;
 // `has_api_key` / `has_password` say whether one is stored; Google: the
 // account `email`) and `connected` is whether it can be used right now.
@@ -12,6 +13,7 @@ export interface Connection {
     | 'immich'
     | 'synology_photos'
     | 'google_photos'
+    | 'google_calendar'
     | 'unsplash'
     | 'pexels'
     | string;
@@ -22,6 +24,8 @@ export interface Connection {
   created_at: string;
 }
 
+// The photo sources that are configured as connections (the source picker
+// and the add dialog list these).
 export const CONNECTION_SOURCES = [
   'immich',
   'synology_photos',
@@ -29,6 +33,11 @@ export const CONNECTION_SOURCES = [
   'unsplash',
   'pexels',
 ];
+// A Google account whose calendar frames can show: a connection too, but
+// not a photo source; it lives on the Calendar tab.
+export const CALENDAR_SOURCE = 'google_calendar';
+// The Google sources: both sign in through /connections/:id/google/login.
+export const GOOGLE_SOURCES = ['google_photos', CALENDAR_SOURCE];
 // The connection sources whose albums are search topics typed by the user.
 export const TOPIC_SOURCES = ['unsplash', 'pexels'];
 // The connection sources that sync albums in the background (Google imports
@@ -39,6 +48,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   immich: 'Immich',
   synology_photos: 'Synology Photos',
   google_photos: 'Google Photos',
+  google_calendar: 'Google Calendar',
   unsplash: 'Unsplash',
   pexels: 'Pexels',
 };
@@ -47,6 +57,7 @@ export const SOURCE_ICONS: Record<string, string> = {
   immich: 'mdi-server',
   synology_photos: 'mdi-nas',
   google_photos: 'mdi-google',
+  google_calendar: 'mdi-calendar-account',
   unsplash: 'mdi-camera-iris',
   pexels: 'mdi-camera',
 };
@@ -56,6 +67,7 @@ export const SOURCE_DESCRIPTIONS: Record<string, string> = {
   immich: 'Sync albums and collections from an Immich server',
   synology_photos: 'Sync albums from a Synology Photos account',
   google_photos: 'Pick photos from a Google account',
+  google_calendar: "Show a Google account's calendar on your frames",
   unsplash: 'Search topics on Unsplash with your API access key',
   pexels: 'Search topics on Pexels with your API key',
 };
@@ -72,6 +84,7 @@ export function connectionSubtitle(c: Connection): string {
         ? `${cfg.account} @ ${cfg.url}`
         : cfg.url || '';
     case 'google_photos':
+    case 'google_calendar':
       return cfg.email || '';
     default:
       return '';
@@ -174,6 +187,12 @@ export const useConnectionsStore = defineStore('connections', {
     // Google: the connected accounts, i.e. the ones a picker can import into.
     googleConnected(): Connection[] {
       return this.bySource('google_photos').filter((c) => c.connected);
+    },
+
+    // Google Calendar: the calendars of one connected account.
+    async calendars(id: number): Promise<any[]> {
+      const res = await api.get(`/connections/${id}/calendars`);
+      return res.data || [];
     },
 
     async fetchCount(id: number) {
