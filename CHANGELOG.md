@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The Synology add dialog asks for a one-time code on every 2FA
+  answer.** It appeared only for DSM's "OTP required" (403); a wrong code
+  (404) or an account that must use 2FA (406) left the field hidden. All
+  three now show it, with a message that says which.
+- **A NAS that answers the login with HTTP 400** is reported with the
+  usual cause, a URL scheme that does not match the port (http:// against
+  the HTTPS port 5001), instead of a bare status code.
+
 ## v1.19.0
 
 ### Added
