@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **A frame never widens its own pool.** Whatever a frame currently draws
+  from can no longer be deleted from under it: a connection a frame is
+  bound to (or shows the calendar of, or draws albums from while on "Any
+  … connection"), a gallery album a frame is limited to, a topic a frame
+  is limited to, or an Immich or Synology album a frame is limited to
+  (unticking it in the connection card). The dashboard says which frames use it and asks
+  you to change their Image Source first; the API answers 409 with
+  `code: "in_use"` and the frames. Before, deleting a connection moved
+  its frames to every remaining connection of the provider, and deleting
+  a gallery album moved its frames to the whole gallery.
+- **Album selections are remembered per source and per connection.** A
+  frame switched from Immich (with albums A and C ticked) to Synology and
+  back finds A and C still ticked; the same across two Immich servers. The
+  server serves only from the selection of the connection the frame is on.
+  A selection for a source or connection the frame is not on does not hold
+  up a deletion, and is cleared by it.
+
 ## v1.19.1
 
 ### Fixed

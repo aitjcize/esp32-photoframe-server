@@ -179,7 +179,7 @@ The Gallery is the server's own photo store: uploads from the dashboard and phot
 
 1. Pick **Gallery** in the source picker and scroll to **Albums** below the photos. Type a name and click **Add**.
 2. Select an album chip above the photos and click **Upload to <album>** to upload into it. The folder button on a photo moves it to another album, or out of every album.
-3. Under **Settings** → **Devices**, a frame on the Gallery source shows the whole gallery (**All gallery photos**, unfiled photos included) or only the albums you tick.
+3. Under **Settings** → **Devices**, a frame on the Gallery source shows the whole gallery (**All gallery photos**, unfiled photos included) or only the albums you tick. A connection or album some frame draws from cannot be deleted until that frame's Image Source is changed; the dashboard names the frames.
 4. Deleting an album offers to keep its photos (they stay in the gallery, unfiled) or to delete them too.
 
 ### Telegram Bot (Gallery)
