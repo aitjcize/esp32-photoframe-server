@@ -240,6 +240,49 @@ func upsertAlbumAssets(db *gorm.DB, sc sourceScope, albumID uint, assets []Remot
 	return newCount, memberCount, nil
 }
 
+// refuseDisablingUsedAlbums returns an InUseError when a currently enabled
+// real album of the scope that is not in wantIDs is one some frame draws
+// from. Virtual albums are checked by the Immich caller, which manages them.
+func refuseDisablingUsedAlbums(tx *gorm.DB, sc sourceScope, wantIDs []string) error {
+	q := sc.where(tx.Model(&model.Album{})).Where("kind = ? AND sync_enabled = ?", model.AlbumKindReal, true)
+	if len(wantIDs) > 0 {
+		q = q.Where("external_id NOT IN ?", wantIDs)
+	}
+	var going []model.Album
+	if err := q.Find(&going).Error; err != nil {
+		return err
+	}
+	return refuseIfAlbumsUsed(tx, going)
+}
+
+// refuseIfAlbumsUsed is the shared check: an InUseError naming the albums
+// and the frames, or nil when no frame draws from any of them.
+func refuseIfAlbumsUsed(tx *gorm.DB, going []model.Album) error {
+	if len(going) == 0 {
+		return nil
+	}
+	ids := make([]uint, 0, len(going))
+	for _, a := range going {
+		ids = append(ids, a.ID)
+	}
+	users, err := FramesUsingAlbums(tx, ids)
+	if err != nil || len(users) == 0 {
+		return err
+	}
+	// Name only the albums those frames actually use.
+	var used []string
+	for _, a := range going {
+		u, e := FramesUsingAlbums(tx, []uint{a.ID})
+		if e != nil {
+			return e
+		}
+		if len(u) > 0 {
+			used = append(used, fmt.Sprintf("%q", a.Name))
+		}
+	}
+	return &InUseError{What: "the album " + strings.Join(used, ", "), Devices: users}
+}
+
 // countAlbums returns how many album rows exist for a source and how many of
 // them are sync-enabled. Callers use the pair to tell "the album picker has
 // never been used here" (total == 0, fall back to the legacy single-album
@@ -263,12 +306,19 @@ func countAlbums(db *gorm.DB, sc sourceScope) (total, enabled int64) {
 // all/favorites/memories) are left untouched -- the caller manages those. Shared
 // by immich/synology album selection and by topic-source topic management.
 // Images of the deselected albums are removed immediately (metadata only; a
-// re-check plus resync re-imports them), matching topic-source behavior.
+// re-check plus resync re-imports them), matching topic-source behavior. An
+// album some frame is limited to cannot be deselected (InUseError): its
+// photos would go and the frame would have nothing to show.
 func SetSyncAlbums(db *gorm.DB, sc sourceScope, albums []RemoteAlbum) error {
 	err := db.Transaction(func(tx *gorm.DB) error {
 		wantIDs := make([]string, 0, len(albums))
 		for _, a := range albums {
 			wantIDs = append(wantIDs, a.ExternalID)
+		}
+		if err := refuseDisablingUsedAlbums(tx, sc, wantIDs); err != nil {
+			return err
+		}
+		for _, a := range albums {
 			var existing model.Album
 			err := sc.where(tx.Model(&model.Album{})).Where("external_id = ?", a.ExternalID).First(&existing).Error
 			switch {

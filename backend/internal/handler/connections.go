@@ -380,6 +380,9 @@ func (h *ConnectionsHandler) Delete(c echo.Context) error {
 		if errors.Is(err, service.ErrConnectionNotFound) {
 			return respondError(c, http.StatusNotFound, "connection not found")
 		}
+		if handled, e := respondInUse(c, err); handled {
+			return e
+		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
@@ -490,6 +493,9 @@ func (h *ConnectionsHandler) SetSyncAlbums(c echo.Context) error {
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 		if err := svc.SetSyncAlbums(req.AlbumIDs, req.Favorites, req.All, req.Memories); err != nil {
+			if handled, e := respondInUse(c, err); handled {
+				return e
+			}
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 	case model.SourceSynologyPhotos:
@@ -498,6 +504,9 @@ func (h *ConnectionsHandler) SetSyncAlbums(c echo.Context) error {
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 		if err := svc.SetSyncAlbums(req.AlbumIDs); err != nil {
+			if handled, e := respondInUse(c, err); handled {
+				return e
+			}
 			if strings.Contains(err.Error(), "authentication expired") {
 				return respondError(c, http.StatusUnauthorized, "Session expired. Please reconnect to Synology.")
 			}
@@ -583,6 +592,9 @@ func (h *ConnectionsHandler) SetTopics(c echo.Context) error {
 		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 	if err := svc.SetSyncTopics(req.Topics); err != nil {
+		if handled, e := respondInUse(c, err); handled {
+			return e
+		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	h.conns.Updated(svc.ConnectionID())

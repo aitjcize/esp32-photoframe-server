@@ -244,11 +244,21 @@ func (m *ConnectionManager) Updated(id uint) {
 }
 
 // Delete stops the connection's service and removes the row, which cascades
-// to its albums and images; cached thumbnails of those images are swept.
+// to its albums and images (and with the albums, every frame's remembered
+// selection of them); cached thumbnails of those images are swept. A
+// connection some frame draws from (as its image source, through one of its
+// albums while on "any connection", or as its calendar account) is refused
+// with an InUseError: the frame would otherwise move to a wider pool without
+// anyone choosing it.
 func (m *ConnectionManager) Delete(id uint) error {
 	row, err := m.store.Get(id)
 	if err != nil {
 		return err
+	}
+	if users, err := FramesUsingConnection(m.db, row); err != nil {
+		return err
+	} else if len(users) > 0 {
+		return &InUseError{What: fmt.Sprintf("the connection %q", row.Name), Devices: users}
 	}
 	m.mu.Lock()
 	if s, ok := m.immich[id]; ok {
@@ -277,10 +287,9 @@ func (m *ConnectionManager) Delete(id uint) error {
 	if isGoogle {
 		g.Stop()
 	}
-	// Frames that showed this account's calendar fall back to the first
-	// connected account's primary calendar: the account binding goes (as the
-	// column's ON DELETE SET NULL would do) and so does the calendar id,
-	// which another account may not be able to read.
+	// Frames that remember this account (calendar switched off) lose the
+	// binding with the row (ON DELETE SET NULL); the calendar id, which
+	// another account may not be able to read, goes with it.
 	if row.Source == model.SourceGoogleCalendar {
 		if err := m.db.Model(&model.Device{}).Where("calendar_connection_id = ?", id).
 			Updates(map[string]any{"calendar_connection_id": nil, "calendar_id": ""}).Error; err != nil {

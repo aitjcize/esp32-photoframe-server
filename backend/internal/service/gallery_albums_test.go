@@ -103,8 +103,9 @@ func TestGalleryPhotoAlbumIsExclusive(t *testing.T) {
 }
 
 // Deleting an album unfiles its photos; deleting it with its photos removes
-// their rows and reports them so the files can go too. Frame bindings to the
-// album are dropped either way.
+// their rows and reports them so the files can go too. An album a frame is
+// limited to is refused until the frame is moved: the frame would otherwise
+// widen to the whole gallery.
 func TestGalleryAlbumDelete(t *testing.T) {
 	db := setupGalleryDB(t)
 	a, _ := CreateGalleryAlbum(db, "A")
@@ -115,9 +116,27 @@ func TestGalleryAlbumDelete(t *testing.T) {
 	require.NoError(t, SetGalleryPhotoAlbum(db, p1.ID, &a.ID))
 	require.NoError(t, SetGalleryPhotoAlbum(db, p2.ID, &a.ID))
 	require.NoError(t, SetGalleryPhotoAlbum(db, p3.ID, &b.ID))
-	require.NoError(t, db.Create(&model.DeviceAlbumMapping{DeviceID: 7, AlbumID: a.ID}).Error)
-	require.NoError(t, db.Create(&model.DeviceAlbumMapping{DeviceID: 7, AlbumID: b.ID}).Error)
+	hall := model.Device{Name: "Hall", Host: "10.0.0.7", Source: model.SourceGallery}
+	require.NoError(t, db.Create(&hall).Error)
+	require.NoError(t, db.Create(&model.DeviceAlbumMapping{DeviceID: hall.ID, AlbumID: a.ID}).Error)
+	require.NoError(t, db.Create(&model.DeviceAlbumMapping{DeviceID: hall.ID, AlbumID: b.ID}).Error)
+	// A frame on another source only remembers its gallery selection; it
+	// does not hold the album, and the deletion clears the memory.
+	study := model.Device{Name: "Study", Host: "10.0.0.8", Source: model.SourceImmich}
+	require.NoError(t, db.Create(&study).Error)
+	require.NoError(t, db.Create(&model.DeviceAlbumMapping{DeviceID: study.ID, AlbumID: a.ID}).Error)
 
+	_, err := DeleteGalleryAlbum(db, a.ID, false)
+	var inUse *InUseError
+	require.ErrorAs(t, err, &inUse)
+	assert.Equal(t, []string{"Hall"}, inUse.DeviceNames())
+	assert.Contains(t, err.Error(), `the album "A" is used by 1 frame: Hall`)
+	assert.ElementsMatch(t, []uint{a.ID, b.ID}, DeviceAlbumIDs(db, hall.ID, model.SourceGallery), "the refusal changes nothing")
+	_, err = DeleteGalleryAlbum(db, a.ID, true)
+	require.ErrorAs(t, err, &inUse, "with photos too")
+
+	// The frame moved off A: now it goes.
+	require.NoError(t, db.Where("device_id = ? AND album_id = ?", hall.ID, a.ID).Delete(&model.DeviceAlbumMapping{}).Error)
 	removed, err := DeleteGalleryAlbum(db, a.ID, false)
 	require.NoError(t, err)
 	assert.Empty(t, removed)
@@ -125,15 +144,16 @@ func TestGalleryAlbumDelete(t *testing.T) {
 	db.Model(&model.Image{}).Where("source = ?", model.SourceGallery).Count(&n)
 	assert.EqualValues(t, 3, n, "photos stay when the album goes")
 	assert.Empty(t, albumOf(t, db, p1.ID))
-	assert.Equal(t, []uint{b.ID}, DeviceAlbumIDs(db, 7, model.SourceGallery))
+	assert.Equal(t, []uint{b.ID}, DeviceAlbumIDs(db, hall.ID, model.SourceGallery))
+	assert.Empty(t, DeviceAlbumIDs(db, study.ID, model.SourceGallery), "the inert selection is cleared with the album")
 
+	require.NoError(t, db.Where("device_id = ?", hall.ID).Delete(&model.DeviceAlbumMapping{}).Error)
 	removed, err = DeleteGalleryAlbum(db, b.ID, true)
 	require.NoError(t, err)
 	require.Len(t, removed, 1)
 	assert.Equal(t, "/p/3.jpg", removed[0].FilePath)
 	db.Model(&model.Image{}).Where("source = ?", model.SourceGallery).Count(&n)
 	assert.EqualValues(t, 2, n)
-	assert.Empty(t, DeviceAlbumIDs(db, 7, model.SourceGallery))
 
 	_, err = DeleteGalleryAlbum(db, b.ID, false)
 	assert.ErrorIs(t, err, ErrGalleryAlbumNotFound)

@@ -93,6 +93,13 @@ func DeleteGalleryAlbum(db *gorm.DB, id uint, withPhotos bool) ([]model.Image, e
 	if err != nil {
 		return nil, err
 	}
+	// A frame limited to this album would otherwise widen to the whole
+	// gallery; its owner moves it first.
+	if users, err := FramesUsingAlbums(db, []uint{a.ID}); err != nil {
+		return nil, err
+	} else if len(users) > 0 {
+		return nil, &InUseError{What: fmt.Sprintf("the album %q", a.Name), Devices: users}
+	}
 	var removed []model.Image
 	if withPhotos {
 		if removed, err = GalleryAlbumPhotos(db, a.ID); err != nil {
@@ -109,8 +116,9 @@ func DeleteGalleryAlbum(db *gorm.DB, id uint, withPhotos bool) ([]model.Image, e
 				return e
 			}
 		}
-		// Memberships and device bindings also cascade from the album row,
-		// but not on a database opened without foreign keys; drop them here.
+		// Memberships and remembered frame selections also cascade from the
+		// album row, but not on a database opened without foreign keys; drop
+		// them here. (No frame draws from the album: see above.)
 		if e := tx.Where("album_id = ?", a.ID).Delete(&model.ImageAlbumMembership{}).Error; e != nil {
 			return e
 		}

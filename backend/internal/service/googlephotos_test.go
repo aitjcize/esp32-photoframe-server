@@ -27,7 +27,8 @@ func setupGoogleDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(
 		fmt.Sprintf("file:google_test_%d?mode=memory&cache=shared", n)), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Connection{}, &model.Image{}, &model.Album{}, &model.ImageAlbumMembership{}))
+	require.NoError(t, db.AutoMigrate(&model.Connection{}, &model.Image{}, &model.Album{}, &model.ImageAlbumMembership{},
+		&model.Device{}, &model.DeviceAlbumMapping{}))
 	return db
 }
 

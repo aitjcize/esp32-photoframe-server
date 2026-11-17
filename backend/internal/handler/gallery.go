@@ -236,6 +236,9 @@ func (h *GalleryHandler) galleryAlbumError(c echo.Context, err error) error {
 	if errors.Is(err, service.ErrGalleryAlbumNotFound) {
 		return respondError(c, http.StatusNotFound, "gallery album not found")
 	}
+	if handled, e := respondInUse(c, err); handled {
+		return e
+	}
 	if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "not found") {
 		return respondError(c, http.StatusBadRequest, err.Error())
 	}

@@ -192,6 +192,20 @@ func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories
 	addVirtual(favorites, model.ImmichVirtualFavorites, "Favorites")
 	addVirtual(memories, model.ImmichVirtualMemories, "Memories")
 
+	// An album (real or virtual) some frame is limited to stays: its photos
+	// would go and the frame would have nothing to show.
+	var going []model.Album
+	s.scope().where(s.db.Model(&model.Album{})).Where("sync_enabled = ?", true).Find(&going)
+	kept := going[:0]
+	for _, a := range going {
+		if _, ok := desired[a.ExternalID]; !ok {
+			kept = append(kept, a)
+		}
+	}
+	if err := refuseIfAlbumsUsed(s.db, kept); err != nil {
+		return err
+	}
+
 	// Upsert desired albums (enabled); disable everything else.
 	for ext, a := range desired {
 		var existing model.Album

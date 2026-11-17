@@ -770,3 +770,43 @@ func TestConnectionRollbacksKeepTheSchemaUsable(t *testing.T) {
 		t.Errorf("the immich albums bring a connection back, got %d", got)
 	}
 }
+
+// Deleting a connection on the real schema clears every frame's remembered
+// selection of its albums (device_album_mappings cascade with the albums,
+// which cascade with the connection), and unbinds the calendar and image
+// bindings that point at it; the frames themselves stay.
+func TestDeletingAConnectionClearsRememberedSelections(t *testing.T) {
+	gdb, _ := migratedTo(t, 45)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if err := gdb.Exec(q, args...).Error; err != nil {
+			t.Fatalf("exec %q: %v", q, err)
+		}
+	}
+	num := func(q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := gdb.Raw(q, args...).Scan(&n).Error; err != nil {
+			t.Fatalf("query %q: %v", q, err)
+		}
+		return n
+	}
+	exec("INSERT INTO connections(id, source, name, enabled) VALUES (1, 'immich', 'Home', 1)")
+	exec("INSERT INTO connections(id, source, name, enabled) VALUES (2, 'immich', 'Parents', 1)")
+	exec("INSERT INTO albums(id, source, external_id, name, sync_enabled, connection_id) VALUES (1, 'immich', 'a', 'A', 1, 1)")
+	exec("INSERT INTO albums(id, source, external_id, name, sync_enabled, connection_id) VALUES (2, 'immich', 'p', 'P', 1, 2)")
+	exec("INSERT INTO devices(id, name, host, source, image_connection_id) VALUES (1, 'study', '10.0.0.1', 'immich', 2)")
+	exec("INSERT INTO device_album_mappings(device_id, album_id) VALUES (1, 1), (1, 2)")
+
+	exec("DELETE FROM connections WHERE id = 1")
+	for q, want := range map[string]int{
+		"SELECT COUNT(*) FROM devices WHERE id = 1 AND image_connection_id = 2": 1,
+		"SELECT COUNT(*) FROM albums WHERE connection_id = 1":                   0,
+		"SELECT COUNT(*) FROM device_album_mappings WHERE album_id = 1":         0,
+		"SELECT COUNT(*) FROM device_album_mappings WHERE album_id = 2":         1,
+	} {
+		if got := num(q); got != want {
+			t.Errorf("%s = %d, want %d", q, got, want)
+		}
+	}
+}

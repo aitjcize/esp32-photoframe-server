@@ -206,7 +206,9 @@ func (t *TopicSource) ImportPhotos() error {
 // removed ones (with their memberships), then GCs any now-orphaned images.
 // Unlike remote-album sources (Immich/Synology), a removed topic is gone for
 // good rather than merely disabled -- there is nothing remote to re-enable, and
-// a disabled row would otherwise reappear in the topic list.
+// a disabled row would otherwise reappear in the topic list. A topic some
+// frame is limited to cannot be removed (InUseError): the frame would widen
+// to the connection's other topics.
 func (t *TopicSource) SetSyncTopics(topics []string) error {
 	seen := map[string]bool{}
 	want := make([]string, 0, len(topics))
@@ -229,6 +231,21 @@ func (t *TopicSource) SetSyncTopics(topics []string) error {
 		var stale []model.Album
 		if e := q.Find(&stale).Error; e != nil {
 			return e
+		}
+		if len(stale) > 0 {
+			ids := make([]uint, 0, len(stale))
+			names := make([]string, 0, len(stale))
+			for _, a := range stale {
+				ids = append(ids, a.ID)
+				names = append(names, fmt.Sprintf("%q", a.Name))
+			}
+			users, e := FramesUsingAlbums(tx, ids)
+			if e != nil {
+				return e
+			}
+			if len(users) > 0 {
+				return &InUseError{What: "the topic " + strings.Join(names, ", "), Devices: users}
+			}
 		}
 		for _, a := range stale {
 			// Album has no soft-delete, so this is a real DELETE and the album's

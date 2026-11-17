@@ -25,11 +25,11 @@ func DeviceAlbumIDs(db *gorm.DB, deviceID uint, source string) []uint {
 }
 
 // PickRandomDBPhotoForDevice picks a photo of source for one frame: from the
-// albums it is bound to (none: the whole pool) and from the connection it is
-// bound to (none: every connection of the source). A nil device gets the
-// whole pool. Album bindings of other connections are ignored once a frame
-// is bound to one, so a binding left over from an earlier choice cannot
-// empty its pool.
+// connection it is bound to (none: every connection of the source) and,
+// within that, from the albums it selected there (none: that whole pool). A
+// nil device gets the whole pool. Album selections are kept per connection
+// so a frame can be switched away and back; the selections of connections
+// the frame is not on play no part here.
 func PickRandomDBPhotoForDevice(
 	db *gorm.DB, source string, device *model.Device, orientationFilter string, excludeIDs []uint,
 ) (model.Image, error) {

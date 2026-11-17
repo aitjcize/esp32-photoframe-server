@@ -25,7 +25,7 @@ func setupCalendarDB(t *testing.T) *gorm.DB {
 		fmt.Sprintf("file:calendar_test_%d?mode=memory&cache=shared", n)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Connection{}, &model.Image{}, &model.Album{},
-		&model.ImageAlbumMembership{}, &model.Device{}))
+		&model.ImageAlbumMembership{}, &model.Device{}, &model.DeviceAlbumMapping{}))
 	return db
 }
 
@@ -116,10 +116,11 @@ func TestCalendarForDevice(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Deleting a calendar account unbinds the frames that showed it, so they fall
-// back to another account instead of pointing at a missing row. Deleting a
-// photo connection leaves calendar bindings alone.
-func TestDeleteCalendarConnectionUnbindsDevices(t *testing.T) {
+// A calendar account some frame shows cannot be deleted: the frame would
+// silently fall back to another account's calendar. Once the frame is moved
+// the account goes, and other frames keep theirs. Deleting a photo
+// connection leaves calendar bindings alone.
+func TestDeleteCalendarConnectionRefusedWhileFramesShowIt(t *testing.T) {
 	db := setupCalendarDB(t)
 	cfg := staticGoogleConfig{id: "cid", secret: "sec"}
 	m := NewConnectionManager(db, cfg, cfg, NewPickerService(db, t.TempDir()))
@@ -139,17 +140,28 @@ func TestDeleteCalendarConnectionUnbindsDevices(t *testing.T) {
 	require.NotNil(t, got.CalendarConnectionID)
 	assert.Equal(t, a.ID, *got.CalendarConnectionID)
 
+	err := m.Delete(a.ID)
+	var inUse *InUseError
+	require.ErrorAs(t, err, &inUse)
+	assert.Equal(t, []string{"one"}, inUse.DeviceNames())
+	assert.Contains(t, err.Error(), `the connection "A" is used by 1 frame: one`)
+	_, err = m.Calendar(a.ID)
+	assert.NoError(t, err, "the refused account is still there")
+
+	// Calendar switched off on that frame: it only remembers the account,
+	// which can go; the frame forgets the account and its calendar id.
+	require.NoError(t, db.Model(&model.Device{}).Where("id = ?", d1.ID).Update("show_calendar", false).Error)
 	require.NoError(t, m.Delete(a.ID))
 	// Fresh structs: gorm folds a loaded primary key into the next lookup.
 	var one, two model.Device
 	require.NoError(t, db.First(&one, d1.ID).Error)
-	assert.Nil(t, one.CalendarConnectionID, "the frame on the deleted account is unbound")
-	assert.Equal(t, "", one.CalendarID, "and forgets the calendar only that account could read")
+	assert.Nil(t, one.CalendarConnectionID)
+	assert.Equal(t, "", one.CalendarID)
 	require.NoError(t, db.First(&two, d2.ID).Error)
 	require.NotNil(t, two.CalendarConnectionID)
 	assert.Equal(t, b.ID, *two.CalendarConnectionID, "other frames keep their account")
 	assert.Equal(t, "team@b", two.CalendarID)
 
-	_, err := m.Calendar(a.ID)
+	_, err = m.Calendar(a.ID)
 	assert.True(t, errors.Is(err, ErrConnectionNotFound), "got %v", err)
 }

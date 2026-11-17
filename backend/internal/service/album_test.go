@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -24,7 +25,7 @@ func setupAlbumDB(t *testing.T) *gorm.DB {
 	}
 	if err := db.AutoMigrate(
 		&model.Image{}, &model.Album{},
-		&model.ImageAlbumMembership{}, &model.DeviceAlbumMapping{},
+		&model.ImageAlbumMembership{}, &model.DeviceAlbumMapping{}, &model.Device{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -132,8 +133,8 @@ func TestPickRandomDBPhotoForDeviceHonoursTheConnectionBinding(t *testing.T) {
 	_, err = PickRandomDBPhotoForDevice(db, model.SourceImmich, bound, "", []uint{imgNas.ID})
 	assert.Error(t, err, "the other connection's photos are not a fallback")
 
-	// Bound to Home with a Home album: only that album's photo. A stale
-	// binding to the NAS album is ignored, not an empty intersection.
+	// Bound to Home with a Home album: only that album's photo, even with a
+	// binding to a NAS album beside it.
 	db.Create(&model.DeviceAlbumMapping{DeviceID: 3, AlbumID: albumHome.ID})
 	db.Create(&model.DeviceAlbumMapping{DeviceID: 3, AlbumID: albumNas.ID})
 	homeFrame := &model.Device{ID: 3, ImageConnectionID: &home.ID}
@@ -142,11 +143,49 @@ func TestPickRandomDBPhotoForDeviceHonoursTheConnectionBinding(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, imgHome.ID, got.ID)
 	}
-	// Only the stale binding: the whole connection, not nothing.
+	// Only a remembered selection on the other connection: that plays no
+	// part here, so the frame gets its whole bound connection.
 	db.Create(&model.DeviceAlbumMapping{DeviceID: 4, AlbumID: albumNas.ID})
 	got, err = PickRandomDBPhotoForDevice(db, model.SourceImmich, &model.Device{ID: 4, ImageConnectionID: &home.ID}, "", nil)
 	assert.NoError(t, err)
 	assert.Equal(t, &home.ID, got.ConnectionID)
+
+	// Frames that draw from a connection: bound to it, on "any" with one of
+	// its albums selected, or showing its calendar. A remembered selection
+	// on a frame that is bound elsewhere or on another source does not count.
+	cal := model.Connection{Source: model.SourceGoogleCalendar, Name: "Cal", Enabled: true}
+	db.Create(&cal)
+	require.NoError(t, db.AutoMigrate(&model.Device{}))
+	// The picker checks above used device ids without device rows; start
+	// the frame list clean.
+	require.NoError(t, db.Where("1 = 1").Delete(&model.DeviceAlbumMapping{}).Error)
+	for _, d := range []model.Device{
+		{Name: "bound", Host: "h1", Source: model.SourceImmich, ImageConnectionID: &nas.ID},
+		{Name: "any-by-album", Host: "h2", Source: model.SourceImmich},
+		{Name: "elsewhere", Host: "h3", Source: model.SourceImmich, ImageConnectionID: &home.ID},
+		{Name: "other-source", Host: "h4", Source: model.SourceGallery},
+		{Name: "calendar", Host: "h5", ShowCalendar: true, CalendarConnectionID: &cal.ID},
+		{Name: "calendar-off", Host: "h6", CalendarConnectionID: &cal.ID},
+	} {
+		d := d
+		require.NoError(t, db.Create(&d).Error)
+		if d.Name != "bound" && d.Name != "calendar" && d.Name != "calendar-off" {
+			db.Create(&model.DeviceAlbumMapping{DeviceID: d.ID, AlbumID: albumNas.ID})
+		}
+	}
+	users, err := FramesUsingConnection(db, nas)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bound", "any-by-album"}, (&InUseError{Devices: users}).DeviceNames())
+	users, err = FramesUsingConnection(db, cal)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"calendar"}, (&InUseError{Devices: users}).DeviceNames(), "calendar switched off: only remembered")
+	users, err = FramesUsingConnection(db, home)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"elsewhere"}, (&InUseError{Devices: users}).DeviceNames(), "bound to it, no albums: the whole connection")
+	users, err = FramesUsingAlbums(db, []uint{albumNas.ID})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"any-by-album"}, (&InUseError{Devices: users}).DeviceNames())
+	assert.Equal(t, "10.0.0.4", (&InUseError{Devices: []model.Device{{Host: "10.0.0.4"}}}).DeviceNames()[0], "an unnamed frame goes by host")
 
 	// The handler's check: a binding must name a connection of the frame's
 	// source; built-in sources and 0 clear it.
@@ -175,3 +214,39 @@ func TestPickRandomDBPhotoForDeviceHonoursTheConnectionBinding(t *testing.T) {
 }
 
 func ptrUint(v uint) *uint { return &v }
+
+// Unticking an album in the connection card is refused while a frame on
+// that connection (or on "any") is limited to it; a frame bound to another
+// connection only remembers it and does not hold it. Other albums come and
+// go as before.
+func TestDeselectingAUsedAlbumIsRefused(t *testing.T) {
+	db := setupAlbumDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Connection{}, &model.Device{}))
+	nas := model.Connection{Source: model.SourceSynologyPhotos, Name: "NAS", Enabled: true}
+	other := model.Connection{Source: model.SourceSynologyPhotos, Name: "Other", Enabled: true}
+	db.Create(&nas)
+	db.Create(&other)
+	sc := sourceScope{Source: model.SourceSynologyPhotos, ConnectionID: nas.ID}
+	require.NoError(t, SetSyncAlbums(db, sc, []RemoteAlbum{{ExternalID: "1", Name: "Trips"}, {ExternalID: "2", Name: "Pets"}}))
+	var trips model.Album
+	require.NoError(t, db.Where("external_id = ?", "1").First(&trips).Error)
+	hall := model.Device{Name: "Hall", Host: "h", Source: model.SourceSynologyPhotos, ImageConnectionID: &nas.ID}
+	away := model.Device{Name: "Away", Host: "a", Source: model.SourceSynologyPhotos, ImageConnectionID: &other.ID}
+	require.NoError(t, db.Create(&hall).Error)
+	require.NoError(t, db.Create(&away).Error)
+	db.Create(&model.DeviceAlbumMapping{DeviceID: hall.ID, AlbumID: trips.ID})
+	db.Create(&model.DeviceAlbumMapping{DeviceID: away.ID, AlbumID: trips.ID})
+
+	err := SetSyncAlbums(db, sc, []RemoteAlbum{{ExternalID: "2", Name: "Pets"}})
+	var inUse *InUseError
+	require.ErrorAs(t, err, &inUse)
+	assert.Equal(t, []string{"Hall"}, inUse.DeviceNames(), "Away only remembers Trips")
+	assert.Contains(t, err.Error(), `the album "Trips" is used by 1 frame: Hall`)
+	var still model.Album
+	require.NoError(t, db.First(&still, trips.ID).Error)
+	assert.True(t, still.SyncEnabled, "the refusal changes nothing")
+
+	require.NoError(t, SetSyncAlbums(db, sc, []RemoteAlbum{{ExternalID: "1", Name: "Trips"}}), "Pets is nobody's")
+	require.NoError(t, db.Where("device_id = ?", hall.ID).Delete(&model.DeviceAlbumMapping{}).Error)
+	require.NoError(t, SetSyncAlbums(db, sc, nil), "and once Hall is on the whole NAS, Trips can go too")
+}

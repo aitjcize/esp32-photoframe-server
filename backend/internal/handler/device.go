@@ -398,6 +398,8 @@ func (h *DeviceHandler) UpdateDevice(c echo.Context) error {
 	device.ImageConnectionID = imageConn
 	device.BackgroundColor = req.BackgroundColor
 	device.CalendarConnectionID = calendarConn
+	// Album selections of other sources and connections stay as they are:
+	// they are remembered for when the frame is switched back.
 	return c.JSON(http.StatusOK, device)
 }
 
@@ -659,7 +661,6 @@ func (h *DeviceHandler) UpdateDeviceAlbums(c echo.Context) error {
 	if req.Source == "" {
 		return respondError(c, http.StatusBadRequest, "source required")
 	}
-
 	err = h.db.Transaction(func(tx *gorm.DB) error {
 		// Replace mappings for this device scoped to the given source only.
 		sub := tx.Model(&model.Album{}).Select("id").Where("source = ?", req.Source)
