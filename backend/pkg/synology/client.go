@@ -91,6 +91,12 @@ func (c *Client) Login(otpCode string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		// DSM's web server answers 400 before auth.cgi runs when the scheme
+		// does not match the port (http:// against the HTTPS port 5001), the
+		// commonest way to get here.
+		if resp.StatusCode == http.StatusBadRequest {
+			return fmt.Errorf("auth returned status: 400 — check the NAS URL's scheme and port (the HTTPS port 5001 needs https://)")
+		}
 		return fmt.Errorf("auth returned status: %d", resp.StatusCode)
 	}
 
