@@ -96,6 +96,7 @@
               density="compact"
               hide-details
             ></v-checkbox>
+            <!-- Shown once DSM asks for a code: most accounts never need it. -->
             <v-text-field
               v-if="needsOtp"
               v-model="form.otp_code"
@@ -326,12 +327,16 @@ const connect = async () => {
     reset();
   } catch (e: any) {
     const msg = e.response?.data?.error || e.message || 'Unknown error';
+    // DSM 403: a one-time code is required; 404: the code was wrong; 406:
+    // the account must use 2FA.
     if (
       source.value === 'synology_photos' &&
-      String(msg).includes('code: 403')
+      /code: (403|404|406)\b/.test(String(msg))
     ) {
       needsOtp.value = true;
-      error.value = '2FA required: enter the OTP code and connect again.';
+      error.value = String(msg).includes('code: 404')
+        ? 'The OTP code was not accepted: enter the current code and connect again.'
+        : '2FA required: enter the OTP code and connect again.';
     } else {
       error.value = 'Connection failed: ' + msg;
     }
