@@ -37,6 +37,7 @@
             v-bind="activeCardProps"
             :connection="activeConnection"
             :confirm="confirmPrompt"
+            :inform="informPrompt"
             :show-message="showMessage"
             @synced="onConnectionSynced"
             @deleted="loadDevices"
@@ -530,6 +531,7 @@
                 :key="c.id"
                 :connection="c"
                 :confirm="confirmPrompt"
+                :inform="informPrompt"
                 :show-message="showMessage"
                 :before-connect="saveSettingsInternal"
                 :focus="c.id === focusConnectionId"
@@ -2359,6 +2361,7 @@
 import { onMounted, nextTick, reactive, ref, computed, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useSettingsStore } from '../stores/settings';
+import { inUseMessage } from '../utils/inUse';
 import {
   CALENDAR_SOURCE,
   CONNECTION_SOURCES,
@@ -2474,6 +2477,9 @@ const confirmDialog = ref();
 // Passed to the connection cards so they ask through the same dialog.
 const confirmPrompt = (message: string): Promise<boolean> =>
   confirmDialog.value.open(message);
+// A notice with only OK: what could not be done and why.
+const informPrompt = (message: string, title?: string): Promise<void> =>
+  confirmDialog.value.inform(message, title);
 
 // Image Source Binding State
 const useThisServer = ref(true);
@@ -3751,7 +3757,10 @@ const editDevice = async (device: Device) => {
       // The gallery has albums without connections.
       if (source !== 'gallery' && !hasConnections(source)) return;
       try {
-        const albums = await api.get(`/albums?source=${source}&synced=true`);
+        // All albums, not only the synced ones: a frame may still be
+        // limited to an album that was later unticked (before that was
+        // refused), and the picker has to show it so it can be unticked.
+        const albums = await api.get(`/albums?source=${source}`);
         synced.value = albums.data || [];
         const res = await api.get(
           `/devices/${device.id}/albums?source=${source}`
@@ -4025,10 +4034,7 @@ const saveDevice = async () => {
         try {
           await api.put(`/devices/${editingDevice.id}/albums`, {
             source: 'immich',
-            album_ids: shownAlbumIds(
-              deviceImmichAlbumIds.value,
-              deviceImmichAlbumOptions.value
-            ),
+            album_ids: deviceImmichAlbumIds.value,
           });
         } catch (e: any) {
           showMessage(
@@ -4044,10 +4050,7 @@ const saveDevice = async () => {
         try {
           await api.put(`/devices/${editingDevice.id}/albums`, {
             source: 'synology_photos',
-            album_ids: shownAlbumIds(
-              deviceSynologyAlbumIds.value,
-              deviceSynologyAlbumOptions.value
-            ),
+            album_ids: deviceSynologyAlbumIds.value,
           });
         } catch (e: any) {
           showMessage(
@@ -4060,14 +4063,8 @@ const saveDevice = async () => {
 
       // Persist per-device topic bindings (best-effort).
       const topicBindings: Record<string, number[]> = {
-        unsplash: shownAlbumIds(
-          deviceUnsplashAlbumIds.value,
-          deviceUnsplashAlbumOptions.value
-        ),
-        pexels: shownAlbumIds(
-          devicePexelsAlbumIds.value,
-          devicePexelsAlbumOptions.value
-        ),
+        unsplash: deviceUnsplashAlbumIds.value,
+        pexels: devicePexelsAlbumIds.value,
       };
       for (const [source, album_ids] of Object.entries(topicBindings)) {
         if (!hasConnections(source)) continue;
@@ -4215,35 +4212,45 @@ const form = reactive({
 
 // Synced (persisted) albums of a connection-backed source available for
 // per-device binding. Items use the internal album row id (number) as the
-// value. A frame bound to one connection sees that connection's albums; one
+// value. A frame bound to one connection sees that connection's albums (its
+// selections on the others are kept, unseen, for when it switches back); one
 // on 'Any' sees every connection's, each name prefixed with the connection's
 // so two servers' "Family" albums can be told apart.
-const connectionAlbumOptions = (source: string, synced: any[]) => {
+const connectionAlbumOptions = (
+  source: string,
+  albums: any[],
+  selected: number[]
+) => {
   const bound =
     selectedSource.value === source ? selectedConnectionId.value : null;
   const several = !bound && connectionsStore.hasSeveral(source);
-  return (synced || [])
-    .filter((a: any) => a.sync_enabled)
+  return (albums || [])
+    .filter((a: any) => a.sync_enabled || selected.includes(a.id))
     .filter((a: any) => !bound || a.connection_id === bound)
     .map((a: any) => ({
       id: a.id,
       name:
-        several && a.connection_name
+        (several && a.connection_name
           ? `${a.connection_name} · ${a.name}`
-          : a.name,
+          : a.name) + (a.sync_enabled ? '' : ' (not synced)'),
     }));
 };
-// What is saved is what the picker showed: albums of a connection the frame
-// is no longer bound to are dropped rather than kept as hidden bindings.
-const shownAlbumIds = (ids: number[], options: { id: number }[]) => {
-  const shown = new Set(options.map((o) => o.id));
-  return ids.filter((id) => shown.has(id));
-};
+// Every source's selection is saved, shown or not: a frame switched to
+// another source or connection and back finds its albums still ticked. The
+// server only serves from the selection of the connection the frame is on.
 const deviceGalleryAlbumOptions = computed(() =>
-  connectionAlbumOptions('gallery', deviceGallerySyncedAlbums.value)
+  connectionAlbumOptions(
+    'gallery',
+    deviceGallerySyncedAlbums.value,
+    deviceGalleryAlbumIds.value
+  )
 );
 const deviceImmichAlbumOptions = computed(() =>
-  connectionAlbumOptions('immich', deviceImmichSyncedAlbums.value)
+  connectionAlbumOptions(
+    'immich',
+    deviceImmichSyncedAlbums.value,
+    deviceImmichAlbumIds.value
+  )
 );
 
 // --- Gallery albums (folders inside the local gallery) ---
@@ -4303,6 +4310,11 @@ const deleteGalleryAlbum = async (album: any, withPhotos: boolean) => {
     }
     showMessage(withPhotos ? 'Album and photos deleted.' : 'Album deleted.');
   } catch (e: any) {
+    const inUse = inUseMessage(e, `The album "${album.name}"`);
+    if (inUse) {
+      await informPrompt(inUse, 'Album in use');
+      return;
+    }
     showMessage(
       'Failed to delete album: ' + (e.response?.data?.error || e.message),
       true
@@ -4310,14 +4322,26 @@ const deleteGalleryAlbum = async (album: any, withPhotos: boolean) => {
   }
 };
 const deviceSynologyAlbumOptions = computed(() =>
-  connectionAlbumOptions('synology_photos', deviceSynologySyncedAlbums.value)
+  connectionAlbumOptions(
+    'synology_photos',
+    deviceSynologySyncedAlbums.value,
+    deviceSynologyAlbumIds.value
+  )
 );
 
 const deviceUnsplashAlbumOptions = computed(() =>
-  connectionAlbumOptions('unsplash', deviceUnsplashSyncedAlbums.value)
+  connectionAlbumOptions(
+    'unsplash',
+    deviceUnsplashSyncedAlbums.value,
+    deviceUnsplashAlbumIds.value
+  )
 );
 const devicePexelsAlbumOptions = computed(() =>
-  connectionAlbumOptions('pexels', devicePexelsSyncedAlbums.value)
+  connectionAlbumOptions(
+    'pexels',
+    devicePexelsSyncedAlbums.value,
+    devicePexelsAlbumIds.value
+  )
 );
 
 // Album search + checked-first sorting now live in <AlbumPicker>.

@@ -18,12 +18,15 @@
     >
       <slot name="prepend"></slot>
       <v-divider v-if="hasPrepend && albums.length"></v-divider>
-      <!-- Explicit "All": checked while nothing is picked; picking an album
-           turns it off, ticking it again clears the selection. -->
+      <!-- Explicit "All": checked while none of the listed albums is picked;
+           picking one turns it off, ticking it again clears the selection.
+           Only the listed albums count: the model may also hold selections
+           for albums this picker does not show (another connection's,
+           remembered for when the frame switches back), and those stay. -->
       <template v-if="allLabel">
         <v-list-item>
           <v-checkbox
-            :model-value="!modelValue.length"
+            :model-value="!anyListedSelected"
             :label="allLabel"
             :disabled="disabled"
             color="primary"
@@ -115,9 +118,22 @@ const filtered = computed(() =>
     )
 );
 
+// Values of the albums this picker lists; the model may carry others.
+const listedValues = computed(
+  () => new Set((props.albums || []).map((a: any) => valueOf(a)))
+);
+const anyListedSelected = computed(() =>
+  props.modelValue.some((v) => listedValues.value.has(v))
+);
+
 // "All" cannot be unticked directly: pick an album to narrow the selection.
+// Ticking it drops the listed albums from the selection and nothing else.
 function selectAll(checked: boolean | null) {
-  if (checked) emit('update:modelValue', []);
+  if (!checked) return;
+  emit(
+    'update:modelValue',
+    props.modelValue.filter((v) => !listedValues.value.has(v))
+  );
 }
 
 function toggle(album: any, checked: boolean | null) {

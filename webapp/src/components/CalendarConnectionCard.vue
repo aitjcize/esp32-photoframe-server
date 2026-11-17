@@ -128,6 +128,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 import { useConnectionsStore, type Connection } from '../stores/connections';
+import { inUseMessage } from '../utils/inUse';
 
 // One Google account whose calendar frames can show: sign in, see which
 // calendars it offers, disconnect or remove it.
@@ -135,6 +136,9 @@ const props = defineProps<{
   connection: Connection;
   confirm: (message: string) => Promise<boolean>;
   showMessage: (message: string, isError?: boolean) => void;
+  // A notice with only OK, for a removal the server refused because a frame
+  // is bound to it.
+  inform?: (message: string, title?: string) => Promise<void>;
   // Runs before the browser leaves for Google, so unsaved OAuth app
   // credentials are stored first.
   beforeConnect?: () => Promise<void>;
@@ -204,16 +208,22 @@ const disconnect = async () => {
 };
 
 const remove = async () => {
-  if (
-    !(await props.confirm(
-      `Remove the account "${props.connection.name}"? Frames showing its calendar fall back to another connected account.`
-    ))
-  )
+  if (!(await props.confirm(`Remove the account "${props.connection.name}"?`)))
     return;
   try {
     await store.remove(props.connection.id);
     emit('deleted', props.connection.id);
   } catch (e: any) {
+    const inUse = inUseMessage(
+      e,
+      `The account "${props.connection.name}"`,
+      'Pick another account for their calendar in the device dialog first, then try again.'
+    );
+    if (inUse) {
+      if (props.inform) await props.inform(inUse, 'Account in use');
+      else props.showMessage(inUse, true);
+      return;
+    }
     props.showMessage(
       'Failed to remove: ' + (e.response?.data?.error || e.message),
       true

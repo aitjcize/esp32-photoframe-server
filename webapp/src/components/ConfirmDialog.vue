@@ -5,10 +5,16 @@
       <v-card-text>{{ message }}</v-card-text>
       <v-card-actions>
         <v-spacer></v-spacer>
-        <v-btn color="grey-darken-1" variant="text" @click="cancel"
+        <v-btn
+          v-if="!informOnly"
+          color="grey-darken-1"
+          variant="text"
+          @click="cancel"
           >Cancel</v-btn
         >
-        <v-btn color="primary" @click="confirm">Confirm</v-btn>
+        <v-btn color="primary" @click="confirm">{{
+          informOnly ? 'OK' : 'Confirm'
+        }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -20,13 +26,26 @@ import { ref } from 'vue';
 const dialog = ref(false);
 const title = ref('Confirm');
 const message = ref('');
+// inform(): a notice with one OK button, no choice to make.
+const informOnly = ref(false);
 let resolvePromise: (value: boolean) => void;
 
 const open = (msg: string, titleText = 'Confirm Action') => {
   message.value = msg;
   title.value = titleText;
+  informOnly.value = false;
   dialog.value = true;
   return new Promise<boolean>((resolve) => {
+    resolvePromise = resolve;
+  });
+};
+
+const inform = async (msg: string, titleText = 'Notice') => {
+  message.value = msg;
+  title.value = titleText;
+  informOnly.value = true;
+  dialog.value = true;
+  await new Promise<boolean>((resolve) => {
     resolvePromise = resolve;
   });
 };
@@ -41,5 +60,5 @@ const cancel = () => {
   resolvePromise(false);
 };
 
-defineExpose({ open });
+defineExpose({ open, inform });
 </script>

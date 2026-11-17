@@ -119,12 +119,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useConnectionsStore, type Connection } from '../stores/connections';
+import { inUseMessage } from '../utils/inUse';
 import { useGalleryStore } from '../stores/gallery';
 
 const props = defineProps<{
   connection: Connection;
   confirm: (message: string) => Promise<boolean>;
   showMessage: (message: string, isError?: boolean) => void;
+  // A notice with only OK, for a removal the server refused because a frame
+  // is bound to it.
+  inform?: (message: string, title?: string) => Promise<void>;
   // Runs before the browser leaves for Google, so unsaved OAuth app
   // credentials typed above the cards are stored first.
   beforeConnect?: () => Promise<void>;
@@ -210,6 +214,12 @@ const remove = async () => {
     emit('deleted', props.connection.id);
     emit('synced', props.connection.source);
   } catch (e: any) {
+    const inUse = inUseMessage(e, `The connection "${props.connection.name}"`);
+    if (inUse) {
+      if (props.inform) await props.inform(inUse, 'Connection in use');
+      else props.showMessage(inUse, true);
+      return;
+    }
     props.showMessage(
       'Failed to delete: ' + (e.response?.data?.error || e.message),
       true

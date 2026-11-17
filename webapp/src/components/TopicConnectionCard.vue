@@ -131,6 +131,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import TopicManager from './TopicManager.vue';
+import { inUseMessage } from '../utils/inUse';
 import {
   SOURCE_LABELS,
   useConnectionsStore,
@@ -144,6 +145,9 @@ const props = defineProps<{
   // Settings' confirm dialog, so every card asks the same way.
   confirm: (message: string) => Promise<boolean>;
   showMessage: (message: string, isError?: boolean) => void;
+  // A notice with only OK, for a removal the server refused because a frame
+  // is bound to it.
+  inform?: (message: string, title?: string) => Promise<void>;
 }>();
 const emit = defineEmits<{
   // A sync was started or photos were cleared: the gallery should refresh.
@@ -224,10 +228,20 @@ const connect = async () => {
   }
 };
 
+// The server refuses to remove a connection, or a topic, a frame is bound
+// to; say which frames.
+const reportInUse = async (e: any, what: string, title: string) => {
+  const msg = inUseMessage(e, what);
+  if (!msg) return false;
+  if (props.inform) await props.inform(msg, title);
+  else props.showMessage(msg, true);
+  return true;
+};
+
 const remove = async () => {
   if (
     !(await props.confirm(
-      `Delete the connection "${props.connection.name}"? Its topics and synced photos are removed; frames using them fall back to the remaining ones.`
+      `Delete the connection "${props.connection.name}"? Its topics and synced photos are removed from this server.`
     ))
   )
     return;
@@ -236,6 +250,14 @@ const remove = async () => {
     emit('deleted', props.connection.id);
     emit('synced', props.connection.source);
   } catch (e: any) {
+    if (
+      await reportInUse(
+        e,
+        `The connection "${props.connection.name}"`,
+        'Connection in use'
+      )
+    )
+      return;
     props.showMessage(
       'Failed to delete: ' + (e.response?.data?.error || e.message),
       true
@@ -263,6 +285,15 @@ const saveTopics = async (next: string[]) => {
     dirty.value = true;
     await store.fetchCount(props.connection.id);
   } catch (e: any) {
+    if (await reportInUse(e, 'A topic you removed', 'Topic in use')) {
+      // The manager already dropped the chip; the stored set puts it back.
+      try {
+        topics.value = await store.topics(props.connection.id);
+      } catch {
+        // Leave the list as it is; the next load refreshes it.
+      }
+      return;
+    }
     props.showMessage(
       'Failed to save topics: ' + (e.response?.data?.error || e.message),
       true

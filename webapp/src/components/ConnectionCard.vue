@@ -287,6 +287,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import AlbumPicker from './AlbumPicker.vue';
+import { inUseMessage } from '../utils/inUse';
 import {
   SOURCE_LABELS,
   useConnectionsStore,
@@ -298,6 +299,9 @@ const props = defineProps<{
   // Settings' confirm dialog, so every card asks the same way.
   confirm: (message: string) => Promise<boolean>;
   showMessage: (message: string, isError?: boolean) => void;
+  // A notice with only OK, for a removal the server refused because a frame
+  // is bound to it.
+  inform?: (message: string, title?: string) => Promise<void>;
 }>();
 const emit = defineEmits<{
   // A sync was started or photos were cleared: the gallery should refresh.
@@ -423,10 +427,19 @@ const disconnect = async () => {
   }
 };
 
+// The server refuses to delete a connection a frame is bound to; say which.
+const reportInUse = async (e: any) => {
+  const msg = inUseMessage(e, `The connection "${props.connection.name}"`);
+  if (!msg) return false;
+  if (props.inform) await props.inform(msg, 'Connection in use');
+  else props.showMessage(msg, true);
+  return true;
+};
+
 const remove = async () => {
   if (
     !(await props.confirm(
-      `Delete the connection "${props.connection.name}"? Its synced photos and album selections are removed; frames using them fall back to the remaining ones.`
+      `Delete the connection "${props.connection.name}"? Its synced photos and album selections are removed from this server.`
     ))
   )
     return;
@@ -435,6 +448,7 @@ const remove = async () => {
     emit('deleted', props.connection.id);
     emit('synced', props.connection.source);
   } catch (e: any) {
+    if (await reportInUse(e)) return;
     props.showMessage(
       'Failed to delete: ' + (e.response?.data?.error || e.message),
       true
@@ -523,6 +537,24 @@ const saveSelection = async () => {
     await loadSyncedAlbums();
     await store.fetchCount(props.connection.id);
   } catch (e: any) {
+    const inUse = inUseMessage(
+      e,
+      'An album you unticked',
+      "Change those frames' album selection under Settings → Devices first, then untick it again."
+    );
+    if (inUse) {
+      if (props.inform) await props.inform(inUse, 'Album in use');
+      else props.showMessage(inUse, true);
+      // Put the tick back: the stored selection did not change.
+      suppressAutoSave = true;
+      try {
+        await loadSyncedAlbums();
+      } finally {
+        await nextTick();
+        suppressAutoSave = false;
+      }
+      return;
+    }
     props.showMessage(
       'Failed to save sync selection: ' +
         (e.response?.data?.error || e.message),
