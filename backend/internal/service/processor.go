@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"image/png"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 
+	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/photoframe"
 	_ "golang.org/x/image/bmp" // Register BMP decoder
 )
@@ -21,7 +23,34 @@ func NewProcessorService() *ProcessorService {
 	return &ProcessorService{}
 }
 
-func (s *ProcessorService) MapProcessingSettings(settings *photoframe.ProcessingSettings, palette *photoframe.Palette, grayscale bool) map[string]string {
+// ColorModel is how the converter reduces an image to what a panel shows.
+type ColorModel int
+
+const (
+	// ColorPalette quantizes and dithers to the 6-ink Spectra palette,
+	// calibrated by the device's measured palette when it reports one.
+	ColorPalette ColorModel = iota
+	// ColorGrayscale dithers to gray levels (GC16).
+	ColorGrayscale
+	// ColorOnDevice sends tone-mapped full color: the panel quantizes and
+	// dithers on its own, and would do it a second time.
+	ColorOnDevice
+)
+
+// ColorModelFor picks a known device's color model.
+func ColorModelFor(d *model.Device) ColorModel {
+	switch {
+	case d.DithersOnDevice():
+		return ColorOnDevice
+	case d.IsGrayscale():
+		return ColorGrayscale
+	}
+	return ColorPalette
+}
+
+// MapProcessingSettings maps a device's processing settings and palette to
+// converter options. For ColorOnDevice, callers must also ask for PNG output.
+func (s *ProcessorService) MapProcessingSettings(settings *photoframe.ProcessingSettings, palette *photoframe.Palette, colors ColorModel) map[string]string {
 	opts := make(map[string]string)
 
 	// Tone/dither options come from the device's stored settings. When settings
@@ -42,18 +71,20 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 			opts["scurve-highlight"] = fmt.Sprintf("%v", settings.HighlightCompress)
 			opts["scurve-midpoint"] = fmt.Sprintf("%v", settings.Midpoint)
 		}
-		if settings.ColorMethod != "" {
-			opts["color-method"] = settings.ColorMethod
-		}
-		if settings.DitherAlgorithm != "" {
-			opts["dither-algorithm"] = settings.DitherAlgorithm
-		}
-		// Both branches are needed: the CLI's default preset (balanced) has
-		// compression on, so omitting the flag does not turn it off.
-		if settings.CompressDynamicRange {
-			opts["compress-dynamic-range"] = "" // Boolean flag
-		} else {
-			opts["no-compress-dynamic-range"] = ""
+		if colors != ColorOnDevice {
+			if settings.ColorMethod != "" {
+				opts["color-method"] = settings.ColorMethod
+			}
+			if settings.DitherAlgorithm != "" {
+				opts["dither-algorithm"] = settings.DitherAlgorithm
+			}
+			// Both branches are needed: the CLI's default preset (balanced) has
+			// compression on, so omitting the flag does not turn it off.
+			if settings.CompressDynamicRange {
+				opts["compress-dynamic-range"] = "" // Boolean flag
+			} else {
+				opts["no-compress-dynamic-range"] = ""
+			}
 		}
 		// Device-synced layout (firmware >= scaleMode support); overrides the
 		// legacy per-device display_mode the caller may have set
@@ -65,7 +96,14 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		}
 	}
 
-	if grayscale {
+	switch colors {
+	case ColorOnDevice:
+		// Tone mapping above still applies; palette quantization, dithering
+		// and compression to a measured palette don't. Even with no stored
+		// settings: the CLI's defaults would compress and dither.
+		opts["no-compress-dynamic-range"] = "" // Boolean flag
+		opts["skip-dithering"] = ""            // Boolean flag
+	case ColorGrayscale:
 		// GC16: the whole gray palette (theoretical output ramp + the calibrated
 		// perceived ramp) lives in epaper-image-convert -- we never hardcode a
 		// gray ramp here. If the device reported its measured luminance endpoints
@@ -80,7 +118,10 @@ func (s *ProcessorService) MapProcessingSettings(settings *photoframe.Processing
 		} else {
 			opts["palette-preset"] = "grayscale16"
 		}
-	} else if palette != nil {
+	default:
+		if palette == nil {
+			break
+		}
 		paletteWrapper := map[string]interface{}{
 			"theoretical": map[string]interface{}{
 				"black":  map[string]int{"r": 0, "g": 0, "b": 0},
@@ -109,15 +150,25 @@ func (s *ProcessorService) ProcessImage(img image.Image, options map[string]stri
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// 2. Save input image
+	// 2. Save input image: JPEG, except lossless PNG when the output is
+	// full color (ColorOnDevice). Without dithering to hide them, JPEG
+	// artifacts around overlay text would show on the panel.
+	_, lossless := options["skip-dithering"]
 	inputPath := filepath.Join(tmpDir, "source.jpg")
+	if lossless {
+		inputPath = filepath.Join(tmpDir, "source.png")
+	}
 	f, err := os.Create(inputPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create input file: %w", err)
 	}
 
-	// Encode as JPEG
-	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 95}); err != nil {
+	if lossless {
+		err = png.Encode(f, img)
+	} else {
+		err = jpeg.Encode(f, img, &jpeg.Options{Quality: 95})
+	}
+	if err != nil {
 		f.Close()
 		return nil, nil, fmt.Errorf("failed to encode input image: %w", err)
 	}
