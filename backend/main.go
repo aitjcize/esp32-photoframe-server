@@ -172,6 +172,7 @@ func main() {
 	sourceRegistry := imagesource.NewRegistry()
 	sourceRegistry.Register(service.NewGallerySource(database, dataDir))
 	sourceRegistry.Register(service.NewImmichSource(database, connections))
+	sourceRegistry.Register(service.NewNextcloudSource(database, connections))
 	sourceRegistry.Register(service.NewGooglePhotosSource(database, dataDir))
 	sourceRegistry.Register(service.NewSynologyPhotosSource(database, connections))
 	sourceRegistry.Register(service.NewTopicSourcePlugin(database, model.SourceUnsplash))
@@ -351,6 +352,9 @@ func main() {
 	protectedApi.GET("/connections/:id/google/picker/poll/:session", connh.PickerPoll)
 	protectedApi.POST("/connections/:id/google/picker/process/:session", connh.PickerProcess)
 	protectedApi.GET("/connections/:id/google/picker/progress/:session", connh.PickerProgress)
+	// Nextcloud Memories connections: sign in through Nextcloud's Login Flow v2
+	protectedApi.POST("/connections/:id/nextcloud/login", connh.NextcloudLogin)
+	protectedApi.GET("/connections/:id/nextcloud/login", connh.NextcloudLoginStatus)
 	// Google Calendar connections: the account's calendars for the per-frame picker
 	protectedApi.GET("/connections/:id/calendars", connh.Calendars)
 	// Unsplash / Pexels connections: the search topics (each one a synced album)

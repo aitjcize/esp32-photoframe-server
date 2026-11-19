@@ -4,9 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -166,78 +163,12 @@ func (s *ImmichService) SetSyncAlbums(realIDs []string, favorites, all, memories
 		}
 	}
 
-	desired := map[string]model.Album{}
-	for _, id := range realIDs {
-		if id == "" {
-			continue
-		}
-		name := nameByID[id]
-		if name == "" {
-			name = id
-		}
-		desired[id] = model.Album{
-			Source: model.SourceImmich, ConnectionID: s.scope().connectionRef(), ExternalID: id,
-			Kind: model.AlbumKindReal, Name: name, SyncEnabled: true,
-		}
-	}
-	addVirtual := func(on bool, ext, name string) {
-		if on {
-			desired[ext] = model.Album{
-				Source: model.SourceImmich, ConnectionID: s.scope().connectionRef(), ExternalID: ext,
-				Kind: model.AlbumKindVirtual, Name: name, SyncEnabled: true,
-			}
-		}
-	}
-	addVirtual(all, model.ImmichVirtualAll, "All Photos")
-	addVirtual(favorites, model.ImmichVirtualFavorites, "Favorites")
-	addVirtual(memories, model.ImmichVirtualMemories, "Memories")
-
-	// An album (real or virtual) some frame is limited to stays: its photos
-	// would go and the frame would have nothing to show.
-	var going []model.Album
-	s.scope().where(s.db.Model(&model.Album{})).Where("sync_enabled = ?", true).Find(&going)
-	kept := going[:0]
-	for _, a := range going {
-		if _, ok := desired[a.ExternalID]; !ok {
-			kept = append(kept, a)
-		}
-	}
-	if err := refuseIfAlbumsUsed(s.db, kept); err != nil {
+	err := setSyncAlbumsWithVirtual(s.db, s.scope(), realIDs, nameByID, VirtualSelection{
+		All: all, Favorites: favorites, Memories: memories,
+	}, "Memories")
+	if err != nil {
 		return err
 	}
-
-	// Upsert desired albums (enabled); disable everything else.
-	for ext, a := range desired {
-		var existing model.Album
-		if err := s.scope().where(s.db.Model(&model.Album{})).Where("external_id = ?", ext).
-			First(&existing).Error; err != nil {
-			a.UpdatedAt = time.Now()
-			if err := s.db.Create(&a).Error; err != nil {
-				log.Printf("[immich] create album (external_id=%s, name=%q): %v", ext, a.Name, err)
-			}
-		} else {
-			if err := s.db.Model(&model.Album{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
-				"sync_enabled": true, "name": a.Name, "kind": a.Kind,
-			}).Error; err != nil {
-				log.Printf("[immich] update album %d (external_id=%s): %v", existing.ID, ext, err)
-			}
-		}
-	}
-	var rows []model.Album
-	s.scope().where(s.db.Model(&model.Album{})).Find(&rows)
-	for _, a := range rows {
-		if _, ok := desired[a.ExternalID]; !ok && a.SyncEnabled {
-			if err := s.db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false).Error; err != nil {
-				log.Printf("[immich] disable album %d (external_id=%s): %v", a.ID, a.ExternalID, err)
-			}
-		}
-	}
-
-	// Drop the deselected albums' images right away (covers virtual albums
-	// too, which the shared SetSyncAlbums doesn't manage). Metadata only; a
-	// re-check plus resync re-imports them.
-	pruneDisabledAlbumMemberships(s.db, s.scope())
-	gcOrphanImagesForSource(s.db, s.scope())
 
 	// The scheduler only re-arms on a connection change, and the picker writes
 	// album rows -- so without this nudge a selection made while the timer
@@ -426,27 +357,12 @@ func (s *ImmichService) DownloadPhoto(assetID string) ([]byte, error) {
 		return s.downloadPreviewFallback(assetID, err)
 	}
 
-	tmpDir, err := os.MkdirTemp("", "immich-convert-*")
+	out, err := convertToJPEG(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	inputPath := filepath.Join(tmpDir, "input")
-	outputPath := filepath.Join(tmpDir, "output.jpg")
-
-	if err := os.WriteFile(inputPath, data, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	// Use ImageMagick to convert any format to JPEG with EXIF auto-orientation
-	cmd := exec.Command("magick", inputPath, "-auto-orient", "-quality", "95", outputPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("ImageMagick conversion failed for asset %s: %v (output: %s), falling back to preview", assetID, err, string(output))
+		log.Printf("Immich asset %s: %v, falling back to preview", assetID, err)
 		return s.downloadPreviewFallback(assetID, err)
 	}
-
-	return os.ReadFile(outputPath)
+	return out, nil
 }
 
 // downloadPreviewFallback tries the Immich preview API as a fallback when

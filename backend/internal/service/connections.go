@@ -114,6 +114,7 @@ type ConnectionManager struct {
 
 	mu        sync.Mutex
 	immich    map[uint]*ImmichService
+	nextcloud map[uint]*NextcloudService
 	synology  map[uint]*SynologyService
 	google    map[uint]*GooglePhotosService
 	calendars map[uint]*GoogleCalendarService
@@ -141,6 +142,7 @@ func NewConnectionManager(db *gorm.DB, googleCfg, calendarCfg googlephotos.Confi
 		calendarCfg: calendarCfg,
 		picker:      picker,
 		immich:      map[uint]*ImmichService{},
+		nextcloud:   map[uint]*NextcloudService{},
 		synology:    map[uint]*SynologyService{},
 		google:      map[uint]*GooglePhotosService{},
 		calendars:   map[uint]*GoogleCalendarService{},
@@ -179,6 +181,14 @@ func (m *ConnectionManager) ensure(c model.Connection) (any, error) {
 		s := NewImmichService(m.db, m.store, c.ID)
 		s.StartAutoSync()
 		m.immich[c.ID] = s
+		return s, nil
+	case model.SourceNextcloudMemories:
+		if s, ok := m.nextcloud[c.ID]; ok {
+			return s, nil
+		}
+		s := NewNextcloudService(m.db, m.store, c.ID)
+		s.StartAutoSync()
+		m.nextcloud[c.ID] = s
 		return s, nil
 	case model.SourceSynologyPhotos:
 		if s, ok := m.synology[c.ID]; ok {
@@ -230,10 +240,13 @@ func (m *ConnectionManager) Create(c *model.Connection) error {
 // rebuilt on next use and the auto-sync timer is re-armed.
 func (m *ConnectionManager) Updated(id uint) {
 	m.mu.Lock()
-	im, sy, tp := m.immich[id], m.synology[id], m.topics[id]
+	im, nc, sy, tp := m.immich[id], m.nextcloud[id], m.synology[id], m.topics[id]
 	m.mu.Unlock()
 	if im != nil {
 		im.Reconfigure()
+	}
+	if nc != nil {
+		nc.Reconfigure()
 	}
 	if sy != nil {
 		sy.Reconfigure()
@@ -264,6 +277,10 @@ func (m *ConnectionManager) Delete(id uint) error {
 	if s, ok := m.immich[id]; ok {
 		s.Stop()
 		delete(m.immich, id)
+	}
+	if s, ok := m.nextcloud[id]; ok {
+		s.Stop()
+		delete(m.nextcloud, id)
 	}
 	if s, ok := m.synology[id]; ok {
 		s.Stop()
@@ -330,6 +347,28 @@ func (m *ConnectionManager) Immich(id uint) (*ImmichService, error) {
 		return nil, err
 	}
 	return v.(*ImmichService), nil
+}
+
+// Nextcloud returns the service for a Nextcloud Memories connection.
+func (m *ConnectionManager) Nextcloud(id uint) (*NextcloudService, error) {
+	m.mu.Lock()
+	s, ok := m.nextcloud[id]
+	m.mu.Unlock()
+	if ok {
+		return s, nil
+	}
+	c, err := m.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if c.Source != model.SourceNextcloudMemories {
+		return nil, fmt.Errorf("connection %d is %s, not nextcloud_memories", id, c.Source)
+	}
+	v, err := m.ensure(c)
+	if err != nil {
+		return nil, err
+	}
+	return v.(*NextcloudService), nil
 }
 
 // Synology returns the service for a Synology Photos connection.
@@ -548,6 +587,14 @@ func (m *ConnectionManager) ImmichForImage(img model.Image) (*ImmichService, err
 	return m.Immich(*img.ConnectionID)
 }
 
+// NextcloudForImage resolves the Nextcloud connection an image was synced from.
+func (m *ConnectionManager) NextcloudForImage(img model.Image) (*NextcloudService, error) {
+	if img.ConnectionID == nil {
+		return nil, fmt.Errorf("image %d has no connection", img.ID)
+	}
+	return m.Nextcloud(*img.ConnectionID)
+}
+
 // SynologyForImage resolves the Synology connection an image was synced from.
 func (m *ConnectionManager) SynologyForImage(img model.Image) (*SynologyService, error) {
 	if img.ConnectionID == nil {
@@ -575,6 +622,8 @@ func (m *ConnectionManager) Backend(id uint) (SyncBackend, error) {
 	switch c.Source {
 	case model.SourceImmich:
 		return m.Immich(id)
+	case model.SourceNextcloudMemories:
+		return m.Nextcloud(id)
 	case model.SourceSynologyPhotos:
 		return m.Synology(id)
 	case model.SourceGooglePhotos:
