@@ -59,6 +59,10 @@
           <span v-if="isImmich">
             Connected to Immich ({{ connection.config.url }})
           </span>
+          <span v-else-if="isNextcloud">
+            Connected to Nextcloud Memories ({{ connection.config.username }} @
+            {{ connection.config.url }})
+          </span>
           <span v-else>
             Connected to Synology Photos ({{ connection.config.account }} @
             {{ connection.config.url }})
@@ -92,6 +96,11 @@
                 Choose which Immich albums and collections to pull photos from.
                 Saving replaces the entire sync set.
               </span>
+              <span v-else-if="isNextcloud">
+                Choose which Memories albums and collections to pull photos
+                from. Albums other Nextcloud users shared with you are listed
+                too. Saving replaces the entire sync set.
+              </span>
               <span v-else>
                 Choose which Synology Photos albums to pull photos from. Albums
                 other DSM users shared with this account are listed too. Saving
@@ -108,7 +117,7 @@
               badge-text="Shared with me"
               :empty-text="`No albums found. Click &quot;Refresh albums&quot; to load them from ${sourceLabel}.`"
             >
-              <template v-if="isImmich" #prepend>
+              <template v-if="hasVirtualCollections" #prepend>
                 <v-list-item>
                   <v-checkbox
                     v-model="syncFavorites"
@@ -130,7 +139,7 @@
                 <v-list-item>
                   <v-checkbox
                     v-model="syncMemories"
-                    label="Memories (on this day)"
+                    :label="isImmich ? 'Memories (on this day)' : 'On This Day'"
                     color="primary"
                     density="compact"
                     hide-details
@@ -141,7 +150,7 @@
           </v-col>
         </v-row>
 
-        <v-row v-if="isImmich && syncMemories" class="mt-0">
+        <v-row v-if="hasVirtualCollections && syncMemories" class="mt-0">
           <v-col cols="12">
             <v-select
               v-model="memoryMode"
@@ -192,11 +201,11 @@
           >
           <v-btn color="warning" @click="clearPhotos">Clear All Photos</v-btn>
           <v-btn
-            v-if="!isImmich"
+            v-if="isSynology || isNextcloud"
             color="error"
             variant="text"
             @click="disconnect"
-            >Disconnect</v-btn
+            >{{ isNextcloud ? 'Sign out' : 'Disconnect' }}</v-btn
           >
         </div>
       </div>
@@ -222,6 +231,33 @@
             "
             :persistent-placeholder="!!connection.config.has_api_key"
           ></v-text-field>
+        </template>
+        <template v-else-if="isNextcloud">
+          <v-text-field
+            v-model="form.url"
+            label="Nextcloud URL"
+            placeholder="https://cloud.example.com"
+            variant="outlined"
+            class="mb-2"
+            hint="Changing the URL signs this connection out of the old server"
+            persistent-hint
+            :disabled="nc.waiting.value"
+          ></v-text-field>
+          <div v-if="!nc.waiting.value" class="text-body-2 text-grey mb-4">
+            <template v-if="connection.config.username">
+              Signed in as <b>{{ connection.config.username }}</b
+              >. Sign in again to switch accounts or renew access.
+            </template>
+            <template v-else>
+              Sign in on your Nextcloud and grant access; this server receives
+              an app password of its own.
+            </template>
+          </div>
+          <NextcloudSignInPanel
+            v-else
+            class="mb-4"
+            :login-url="nc.loginUrl.value"
+          ></NextcloudSignInPanel>
         </template>
         <template v-else>
           <v-text-field
@@ -267,13 +303,13 @@
           <v-btn
             color="primary"
             :disabled="!canConnect"
-            :loading="loading"
+            :loading="loading || nc.waiting.value"
             @click="connect"
           >
-            Connect
+            {{ isNextcloud ? 'Sign in with Nextcloud' : 'Connect' }}
           </v-btn>
           <v-btn
-            v-if="editingCredentials"
+            v-if="editingCredentials || nc.waiting.value"
             variant="text"
             @click="cancelEditCredentials"
             >Cancel</v-btn
@@ -290,9 +326,12 @@ import AlbumPicker from './AlbumPicker.vue';
 import { inUseMessage } from '../utils/inUse';
 import {
   SOURCE_LABELS,
+  VIRTUAL_COLLECTION_SOURCES,
   useConnectionsStore,
   type Connection,
 } from '../stores/connections';
+import { useNextcloudLogin } from '../composables/useNextcloudLogin';
+import NextcloudSignInPanel from './NextcloudSignInPanel.vue';
 
 const props = defineProps<{
   connection: Connection;
@@ -311,6 +350,16 @@ const emit = defineEmits<{
 
 const store = useConnectionsStore();
 const isImmich = computed(() => props.connection.source === 'immich');
+const isNextcloud = computed(
+  () => props.connection.source === 'nextcloud_memories'
+);
+const isSynology = computed(
+  () => props.connection.source === 'synology_photos'
+);
+// All Photos / Favorites / On This Day offered next to the albums.
+const hasVirtualCollections = computed(() =>
+  VIRTUAL_COLLECTION_SOURCES.includes(props.connection.source)
+);
 const sourceLabel = computed(
   () => SOURCE_LABELS[props.connection.source] || props.connection.source
 );
@@ -349,6 +398,7 @@ const form = reactive({
   skip_cert: false,
   otp_code: '',
 });
+const nc = useNextcloudLogin();
 const resetForm = () => {
   const cfg = props.connection.config || {};
   form.url = cfg.url || '';
@@ -363,17 +413,46 @@ const canConnect = computed(() => {
   if (isImmich.value) {
     return !!form.url && (!!form.api_key || !!cfg.has_api_key);
   }
+  if (isNextcloud.value) {
+    return !!form.url && !nc.waiting.value;
+  }
   return (
     !!form.url && !!form.account && (!!form.password || !!cfg.has_password)
   );
 });
 const cancelEditCredentials = () => {
+  nc.cancel();
   editingCredentials.value = false;
   resetForm();
 };
 
+// Nextcloud: save the URL, then sign in through Nextcloud's login flow.
+const signInNextcloud = async () => {
+  // Opened before anything is awaited, or the browser blocks it.
+  const tab = nc.openTab();
+  try {
+    await store.update(props.connection.id, {
+      config: { url: form.url },
+      enabled: true,
+    });
+    const conn = await nc.signIn(props.connection.id, tab);
+    if (!conn) return; // cancelled
+    editingCredentials.value = false;
+    resetForm();
+    props.showMessage(`Signed in as ${conn.config.username}.`);
+    await loadAll();
+  } catch (e: any) {
+    tab?.close();
+    props.showMessage(
+      'Sign-in failed: ' + (e.response?.data?.error || e.message),
+      true
+    );
+  }
+};
+
 // Save the credentials, then verify them. An empty secret keeps the stored one.
 const connect = async () => {
+  if (isNextcloud.value) return signInNextcloud();
   loading.value = true;
   try {
     const config: Record<string, any> = isImmich.value
@@ -394,7 +473,7 @@ const connect = async () => {
     await loadAll();
   } catch (e: any) {
     const err = e.response?.data?.error || e.message || 'Unknown error';
-    if (!isImmich.value && String(err).includes('code: 403')) {
+    if (isSynology.value && String(err).includes('code: 403')) {
       props.showMessage(
         '2FA Required! Please enter OTP code and Connect again.',
         true
@@ -407,18 +486,18 @@ const connect = async () => {
   }
 };
 
-// Synology only: drop the DSM session, keep the credentials.
+// Synology: drop the DSM session, keep the credentials. Nextcloud: revoke
+// the app password and forget it, keep the URL.
 const disconnect = async () => {
-  if (
-    !(await props.confirm(
-      `Disconnect ${props.connection.name}? The albums stay selected; connect again to resume syncing.`
-    ))
-  )
-    return;
+  const question = isNextcloud.value
+    ? `Sign ${props.connection.name} out of Nextcloud? Its app password is revoked. The albums stay selected; sign in again to resume syncing.`
+    : `Disconnect ${props.connection.name}? The albums stay selected; connect again to resume syncing.`;
+  if (!(await props.confirm(question))) return;
   try {
     await store.logout(props.connection.id);
     remoteAlbums.value = [];
-    props.showMessage('Disconnected.');
+    resetForm();
+    props.showMessage(isNextcloud.value ? 'Signed out.' : 'Disconnected.');
   } catch (e: any) {
     props.showMessage(
       'Error disconnecting: ' + (e.response?.data?.error || e.message),
@@ -475,7 +554,7 @@ const dirty = ref(false);
 const applySyncedState = (synced: any[]) => {
   suppressAutoSave = true;
   const enabled = synced.filter((a: any) => a.sync_enabled);
-  if (isImmich.value) {
+  if (hasVirtualCollections.value) {
     syncFavorites.value = enabled.some(
       (a: any) => a.external_id === IMMICH_FAVORITES_ID
     );

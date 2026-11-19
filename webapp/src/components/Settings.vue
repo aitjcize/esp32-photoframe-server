@@ -20,9 +20,9 @@
           density="compact"
           class="mb-4"
         >
-          No photo sources connected yet. Click <b>+</b> to add an Immich
-          server, a Synology Photos or Google account, or an Unsplash or Pexels
-          key.
+          No photo sources connected yet. Click <b>+</b> to add an Immich or
+          Nextcloud Memories server, a Synology Photos or Google account, or an
+          Unsplash or Pexels key.
         </v-alert>
 
         <!-- A connection: its photos first, its card (credentials, albums or
@@ -1458,6 +1458,28 @@
                             <div
                               v-if="
                                 useThisServer &&
+                                selectedSource === 'nextcloud_memories' &&
+                                hasConnections('nextcloud_memories')
+                              "
+                              class="mb-2 ml-8"
+                            >
+                              <div class="text-caption text-grey mb-1">
+                                Albums for this frame:
+                              </div>
+                              <AlbumPicker
+                                v-model="deviceNextcloudAlbumIds"
+                                all-label="All synced Nextcloud photos"
+                                :albums="deviceNextcloudAlbumOptions"
+                                label-field="name"
+                                :max-height="220"
+                                :disabled="!deviceConfig.auto_rotate"
+                                empty-text="No synced Nextcloud albums. Add some in Data Sources → Nextcloud Memories first."
+                              ></AlbumPicker>
+                            </div>
+
+                            <div
+                              v-if="
+                                useThisServer &&
                                 selectedSource === 'synology_photos' &&
                                 hasConnections('synology_photos')
                               "
@@ -2437,6 +2459,9 @@ const deviceGallerySyncedAlbums = ref<any[]>([]);
 // Per-device Immich album bindings (Part B)
 const deviceImmichAlbumIds = ref<number[]>([]);
 const deviceImmichSyncedAlbums = ref<any[]>([]);
+// Per-device Nextcloud Memories album bindings.
+const deviceNextcloudAlbumIds = ref<number[]>([]);
+const deviceNextcloudSyncedAlbums = ref<any[]>([]);
 // Per-device Synology album bindings (Part C)
 const deviceSynologyAlbumIds = ref<number[]>([]);
 const deviceSynologySyncedAlbums = ref<any[]>([]);
@@ -3576,7 +3601,11 @@ const applySource = () => {
   appliedSource = key;
   if (conn) {
     galleryStore.setSource(
-      conn.source as 'immich' | 'synology_photos' | 'google_photos',
+      conn.source as
+        | 'immich'
+        | 'nextcloud_memories'
+        | 'synology_photos'
+        | 'google_photos',
       conn.id
     );
   } else if (key === 'gallery') {
@@ -3725,6 +3754,7 @@ const editDevice = async (device: Device) => {
   showEditDeviceDialog.value = true;
   deviceGalleryAlbumIds.value = [];
   deviceImmichAlbumIds.value = [];
+  deviceNextcloudAlbumIds.value = [];
   deviceSynologyAlbumIds.value = [];
   deviceUnsplashAlbumIds.value = [];
   devicePexelsAlbumIds.value = [];
@@ -3748,6 +3778,11 @@ const editDevice = async (device: Device) => {
   ][] = [
     ['gallery', deviceGalleryAlbumIds, deviceGallerySyncedAlbums],
     ['immich', deviceImmichAlbumIds, deviceImmichSyncedAlbums],
+    [
+      'nextcloud_memories',
+      deviceNextcloudAlbumIds,
+      deviceNextcloudSyncedAlbums,
+    ],
     ['synology_photos', deviceSynologyAlbumIds, deviceSynologySyncedAlbums],
     ['unsplash', deviceUnsplashAlbumIds, deviceUnsplashSyncedAlbums],
     ['pexels', devicePexelsAlbumIds, devicePexelsSyncedAlbums],
@@ -4045,6 +4080,22 @@ const saveDevice = async () => {
         }
       }
 
+      // Persist per-device Nextcloud album bindings (best-effort).
+      if (hasConnections('nextcloud_memories')) {
+        try {
+          await api.put(`/devices/${editingDevice.id}/albums`, {
+            source: 'nextcloud_memories',
+            album_ids: deviceNextcloudAlbumIds.value,
+          });
+        } catch (e: any) {
+          showMessage(
+            'Device saved, but failed to save Nextcloud album bindings: ' +
+              (e.response?.data?.error || e.message),
+            true
+          );
+        }
+      }
+
       // Persist per-device Synology album bindings (best-effort).
       if (hasConnections('synology_photos')) {
         try {
@@ -4321,6 +4372,13 @@ const deleteGalleryAlbum = async (album: any, withPhotos: boolean) => {
     );
   }
 };
+const deviceNextcloudAlbumOptions = computed(() =>
+  connectionAlbumOptions(
+    'nextcloud_memories',
+    deviceNextcloudSyncedAlbums.value,
+    deviceNextcloudAlbumIds.value
+  )
+);
 const deviceSynologyAlbumOptions = computed(() =>
   connectionAlbumOptions(
     'synology_photos',

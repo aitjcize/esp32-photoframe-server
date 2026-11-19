@@ -11,6 +11,7 @@ export interface Connection {
   id: number;
   source:
     | 'immich'
+    | 'nextcloud_memories'
     | 'synology_photos'
     | 'google_photos'
     | 'google_calendar'
@@ -28,6 +29,7 @@ export interface Connection {
 // and the add dialog list these).
 export const CONNECTION_SOURCES = [
   'immich',
+  'nextcloud_memories',
   'synology_photos',
   'google_photos',
   'unsplash',
@@ -42,10 +44,26 @@ export const GOOGLE_SOURCES = ['google_photos', CALENDAR_SOURCE];
 export const TOPIC_SOURCES = ['unsplash', 'pexels'];
 // The connection sources that sync albums in the background (Google imports
 // through the picker instead and has no sync status).
-export const SYNCING_SOURCES = ['immich', 'synology_photos', ...TOPIC_SOURCES];
+export const SYNCING_SOURCES = [
+  'immich',
+  'nextcloud_memories',
+  'synology_photos',
+  ...TOPIC_SOURCES,
+];
+// The connection sources that offer library-wide collections (All Photos,
+// Favorites, On This Day) alongside their albums.
+export const VIRTUAL_COLLECTION_SOURCES = ['immich', 'nextcloud_memories'];
+// Album pickers fed by a connection's remote albums (as opposed to typed
+// topics or Google's picker).
+export const ALBUM_SOURCES = [
+  'immich',
+  'nextcloud_memories',
+  'synology_photos',
+];
 
 export const SOURCE_LABELS: Record<string, string> = {
   immich: 'Immich',
+  nextcloud_memories: 'Nextcloud Memories',
   synology_photos: 'Synology Photos',
   google_photos: 'Google Photos',
   google_calendar: 'Google Calendar',
@@ -55,6 +73,7 @@ export const SOURCE_LABELS: Record<string, string> = {
 
 export const SOURCE_ICONS: Record<string, string> = {
   immich: 'mdi-server',
+  nextcloud_memories: 'mdi-cloud',
   synology_photos: 'mdi-nas',
   google_photos: 'mdi-google',
   google_calendar: 'mdi-calendar-account',
@@ -65,6 +84,8 @@ export const SOURCE_ICONS: Record<string, string> = {
 // What adding a connection of each source gets you (the add dialog's list).
 export const SOURCE_DESCRIPTIONS: Record<string, string> = {
   immich: 'Sync albums and collections from an Immich server',
+  nextcloud_memories:
+    'Sync albums and collections from the Memories app on Nextcloud',
   synology_photos: 'Sync albums from a Synology Photos account',
   google_photos: 'Pick photos from a Google account',
   google_calendar: "Show a Google account's calendar on your frames",
@@ -82,6 +103,10 @@ export function connectionSubtitle(c: Connection): string {
     case 'synology_photos':
       return cfg.account && cfg.url
         ? `${cfg.account} @ ${cfg.url}`
+        : cfg.url || '';
+    case 'nextcloud_memories':
+      return cfg.username && cfg.url
+        ? `${cfg.username} @ ${cfg.url}`
         : cfg.url || '';
     case 'google_photos':
     case 'google_calendar':
@@ -182,6 +207,21 @@ export const useConnectionsStore = defineStore('connections', {
     async googleLoginUrl(id: number): Promise<string> {
       const res = await api.get(`/connections/${id}/google/login`);
       return res.data.url;
+    },
+
+    // Nextcloud: start Login Flow v2 for the connection's URL; returns the
+    // page where the user signs in and grants access.
+    async nextcloudLoginStart(id: number): Promise<string> {
+      const res = await api.post(`/connections/${id}/nextcloud/login`);
+      return res.data.login_url;
+    },
+
+    // Nextcloud: the sign-in's progress (idle | pending | done | failed).
+    async nextcloudLoginStatus(
+      id: number
+    ): Promise<{ state: string; login_url?: string; error?: string }> {
+      const res = await api.get(`/connections/${id}/nextcloud/login`);
+      return res.data;
     },
 
     // Google: the connected accounts, i.e. the ones a picker can import into.

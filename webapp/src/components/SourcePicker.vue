@@ -128,7 +128,8 @@ const items = computed<SourceItem[]>(() => {
     out.push({
       value: 'none',
       title: 'No connections yet',
-      subtitle: 'Use + to add Immich, Synology, Google, Unsplash or Pexels',
+      subtitle:
+        'Use + to add Immich, Nextcloud, Synology, Google, Unsplash or Pexels',
       icon: 'mdi-plus-circle-outline',
       disabled: true,
     });
