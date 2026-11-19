@@ -807,9 +807,9 @@ const layoutTemplate = `<!DOCTYPE html>
   </div>
   <div class="info-panel">
     <div class="info-header">
-      {{if .ShowDate}}
+      {{if or .ShowDate .ShowPhotoDate}}
       <div>
-        <div class="date">{{.DateStr}}</div>
+        {{if .ShowDate}}<div class="date">{{.DateStr}}</div>{{end}}
         {{if .ShowPhotoDate}}<div class="photo-date"><span class="material-symbols-outlined">photo_camera</span> {{.PhotoDateStr}}</div>{{end}}
       </div>
       {{end}}
@@ -887,10 +887,8 @@ const layoutTemplate = `<!DOCTYPE html>
   <div class="info-panel">
     {{if or .ShowDate .ShowPhotoDate (and .ShowWeather .Weather)}}
     <div class="info-header">
-      {{if .ShowDate}}
-      <div class="date">{{.DateStr}}</div>
+      {{if .ShowDate}}<div class="date">{{.DateStr}}</div>{{end}}
       {{if .ShowPhotoDate}}<div class="photo-date"><span class="material-symbols-outlined">photo_camera</span> {{.PhotoDateStr}}</div>{{end}}
-      {{end}}
       {{if and .ShowWeather .Weather}}
       <div class="weather-block">
         <span class="material-symbols-outlined weather-icon">{{.Weather.IconName}}</span>

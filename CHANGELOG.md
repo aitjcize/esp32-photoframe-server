@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Show Photo Date works without Show Date in the Photo + Info Strip and
+  Side Panel layouts.** The photo date was only drawn together with
+  today's date, so with Show Date off it was missing (and the weather moved
+  to the left), and with Photo Date as the only option the strip stayed
+  empty. Full Photo + Overlay was not affected.
+
 ### Changed
 
 - **A frame never widens its own pool.** Whatever a frame currently draws
