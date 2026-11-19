@@ -1624,8 +1624,12 @@
                               hide-details
                             ></v-checkbox>
                           </div>
+                          <!-- One format for today's date and the photo's date. -->
                           <v-select
-                            v-if="editingDevice.show_date"
+                            v-if="
+                              editingDevice.show_date ||
+                              editingDevice.show_photo_date
+                            "
                             v-model="editingDevice.date_format"
                             :items="dateFormatOptions"
                             item-title="label"
@@ -1633,7 +1637,22 @@
                             label="Date Format"
                             variant="outlined"
                             density="compact"
-                            hide-details
+                            :hint="
+                              editingDevice.show_photo_date &&
+                              !editingDevice.date_format
+                                ? 'With the default, the photo date is shown as Jan 02, 2006.'
+                                : ''
+                            "
+                            :persistent-hint="
+                              editingDevice.show_photo_date &&
+                              !editingDevice.date_format
+                            "
+                            :hide-details="
+                              !(
+                                editingDevice.show_photo_date &&
+                                !editingDevice.date_format
+                              )
+                            "
                             class="mt-3"
                           ></v-select>
                           <v-row

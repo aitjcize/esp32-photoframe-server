@@ -4,6 +4,12 @@
 
 ### Changed
 
+- **The photo date follows the frame's Date Format.** The overlay's photo
+  date was always "Jan 02, 2006"; it now uses the format chosen under
+  Overlay → Date Format (e.g. DD.MM.YYYY), which is offered whenever Show
+  Date or Show Photo Date is on. With the default format, whose
+  "Mon, Jan 02" has no year, the photo date keeps "Jan 02, 2006".
+
 - **A frame never widens its own pool.** Whatever a frame currently draws
   from can no longer be deleted from under it: a connection a frame is
   bound to (or shows the calendar of, or draws albums from while on "Any
