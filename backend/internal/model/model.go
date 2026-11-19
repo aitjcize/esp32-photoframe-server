@@ -23,6 +23,8 @@ const (
 	SourceImmich         = "immich"
 	SourceFractal        = "fractal"
 	SourceDLA            = "dla"
+	// Nextcloud with the Memories app: albums plus timeline collections.
+	SourceNextcloudMemories = "nextcloud_memories"
 	// Search-topic sources: each user topic becomes a synced album.
 	SourceUnsplash = "unsplash"
 	SourcePexels   = "pexels"
@@ -176,10 +178,16 @@ const (
 	AlbumKindReal    = "album"   // a real album from the source
 	AlbumKindVirtual = "virtual" // an Immich mode expressed as an album
 
-	// Virtual album external IDs (Immich source modes as albums).
-	ImmichVirtualAll       = "__all__"
-	ImmichVirtualFavorites = "__favorites__"
-	ImmichVirtualMemories  = "__memories__"
+	// Virtual album external IDs: a source's library-wide collections
+	// (Immich, Nextcloud Memories) expressed as albums. Albums are scoped
+	// per connection, so every connection can have its own "__all__".
+	VirtualAll       = "__all__"
+	VirtualFavorites = "__favorites__"
+	VirtualMemories  = "__memories__"
+
+	ImmichVirtualAll       = VirtualAll
+	ImmichVirtualFavorites = VirtualFavorites
+	ImmichVirtualMemories  = VirtualMemories
 )
 
 // Album is a persisted photo-source album (Immich/Synology). Real albums map
@@ -251,7 +259,7 @@ type Connection struct {
 }
 
 // ConnectionSources are the source types that are configured as connections.
-var ConnectionSources = []string{SourceImmich, SourceSynologyPhotos, SourceGooglePhotos, SourceUnsplash, SourcePexels, SourceGoogleCalendar}
+var ConnectionSources = []string{SourceImmich, SourceNextcloudMemories, SourceSynologyPhotos, SourceGooglePhotos, SourceUnsplash, SourcePexels, SourceGoogleCalendar}
 
 // TopicSources are the connection sources whose albums are search topics
 // (stock-photo search by keyword).
@@ -284,6 +292,20 @@ type ImmichConfig struct {
 	APIKey string `json:"api_key"`
 	// MemoryMode selects the "memories" lanes: "all" (every year, default) or
 	// "latest" (the most recent year only).
+	MemoryMode              string `json:"memory_mode"`
+	AutoSyncEnabled         bool   `json:"auto_sync_enabled"`
+	AutoSyncIntervalMinutes int    `json:"auto_sync_interval_minutes"`
+}
+
+// NextcloudConfig is Connection.Config for a Nextcloud Memories connection.
+// AppPassword is a Nextcloud app password (Settings → Security), used with
+// Username for HTTP Basic auth.
+type NextcloudConfig struct {
+	URL         string `json:"url"`
+	Username    string `json:"username"`
+	AppPassword string `json:"app_password"`
+	// MemoryMode selects the "on this day" years: "all" (default) or
+	// "latest" (the most recent year only), as for Immich.
 	MemoryMode              string `json:"memory_mode"`
 	AutoSyncEnabled         bool   `json:"auto_sync_enabled"`
 	AutoSyncIntervalMinutes int    `json:"auto_sync_interval_minutes"`
@@ -368,6 +390,14 @@ func (c *Connection) DecodeState(v any) error {
 // ImmichConfig decodes Config for an Immich connection (zero value on error).
 func (c *Connection) ImmichConfig() ImmichConfig {
 	var cfg ImmichConfig
+	_ = c.DecodeConfig(&cfg)
+	return cfg
+}
+
+// NextcloudConfig decodes Config for a Nextcloud Memories connection (zero
+// value on error).
+func (c *Connection) NextcloudConfig() NextcloudConfig {
+	var cfg NextcloudConfig
 	_ = c.DecodeConfig(&cfg)
 	return cfg
 }

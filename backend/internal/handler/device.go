@@ -451,48 +451,47 @@ func (h *DeviceHandler) PushToDevice(c echo.Context) error {
 			return respondError(c, http.StatusNotFound, "image not found")
 		}
 
-		if img.Source == model.SourceSynologyPhotos {
-			// The Synology photo id lives in ExternalID, matching the serving path.
-			synoID, err := strconv.Atoi(img.ExternalID)
-			if err != nil {
-				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("invalid synology photo id %q: %v", img.ExternalID, err))
+		// Library sources keep the photo on the remote server: download it
+		// from the connection it came from into a temp file.
+		var remote func() ([]byte, error)
+		switch img.Source {
+		case model.SourceSynologyPhotos:
+			remote = func() ([]byte, error) {
+				// The Synology photo id lives in ExternalID, matching the serving path.
+				synoID, err := strconv.Atoi(img.ExternalID)
+				if err != nil {
+					return nil, fmt.Errorf("invalid synology photo id %q: %v", img.ExternalID, err)
+				}
+				svc, err := h.conns.SynologyForImage(img)
+				if err != nil {
+					return nil, err
+				}
+				return svc.DownloadPhoto(synoID)
 			}
-			// Download from the connection the photo came from.
-			svc, err := h.conns.SynologyForImage(img)
-			if err != nil {
-				return respondError(c, http.StatusInternalServerError, err.Error())
+		case model.SourceImmich:
+			remote = func() ([]byte, error) {
+				svc, err := h.conns.ImmichForImage(img)
+				if err != nil {
+					return nil, err
+				}
+				return svc.DownloadPhoto(img.ExternalID)
 			}
-			data, err := svc.DownloadPhoto(synoID)
-			if err != nil {
-				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download synology photo: %v", err))
+		case model.SourceNextcloudMemories:
+			remote = func() ([]byte, error) {
+				svc, err := h.conns.NextcloudForImage(img)
+				if err != nil {
+					return nil, err
+				}
+				return svc.DownloadPhoto(img.ExternalID)
 			}
+		}
 
-			// Save to temp file
-			tmp, err := ioutil.TempFile("", "syno_push_*.jpg")
+		if remote != nil {
+			data, err := remote()
 			if err != nil {
-				return respondError(c, http.StatusInternalServerError, "failed to create temp file")
+				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download %s photo: %v", img.Source, err))
 			}
-			defer os.Remove(tmp.Name()) // Clean up
-			tempFile = tmp.Name()
-
-			if _, err := tmp.Write(data); err != nil {
-				tmp.Close()
-				return respondError(c, http.StatusInternalServerError, "failed to write temp file")
-			}
-			tmp.Close()
-			imagePath = tempFile
-		} else if img.Source == model.SourceImmich {
-			// Download from the Immich connection the photo came from.
-			svc, err := h.conns.ImmichForImage(img)
-			if err != nil {
-				return respondError(c, http.StatusInternalServerError, err.Error())
-			}
-			data, err := svc.DownloadPhoto(img.ExternalID)
-			if err != nil {
-				return respondError(c, http.StatusInternalServerError, fmt.Sprintf("failed to download immich photo: %v", err))
-			}
-
-			tmp, err := ioutil.TempFile("", "immich_push_*.jpg")
+			tmp, err := ioutil.TempFile("", "library_push_*.jpg")
 			if err != nil {
 				return respondError(c, http.StatusInternalServerError, "failed to create temp file")
 			}

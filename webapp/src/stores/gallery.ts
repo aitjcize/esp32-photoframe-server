@@ -16,6 +16,7 @@ export const useGalleryStore = defineStore('gallery', {
       | 'google_photos'
       | 'synology_photos'
       | 'immich'
+      | 'nextcloud_memories'
       | 'unsplash'
       | 'pexels'
       | 'gallery'
@@ -40,6 +41,7 @@ export const useGalleryStore = defineStore('gallery', {
         | 'google_photos'
         | 'synology_photos'
         | 'immich'
+        | 'nextcloud_memories'
         | 'unsplash'
         | 'pexels'
         | 'gallery'
@@ -237,6 +239,13 @@ export const useGalleryStore = defineStore('gallery', {
       if (this.source === 'immich') {
         this.importMessage =
           'Use the Sync button in Immich settings to add photos.';
+        setTimeout(() => (this.importMessage = ''), 5000);
+        return;
+      }
+
+      if (this.source === 'nextcloud_memories') {
+        this.importMessage =
+          'Use the Sync button in Nextcloud Memories settings to add photos.';
         setTimeout(() => (this.importMessage = ''), 5000);
         return;
       }

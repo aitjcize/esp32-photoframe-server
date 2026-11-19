@@ -68,6 +68,29 @@
             ></v-text-field>
           </template>
 
+          <template v-else-if="source === 'nextcloud_memories'">
+            <v-text-field
+              v-model="form.url"
+              label="Nextcloud URL"
+              placeholder="https://cloud.example.com"
+              variant="outlined"
+              class="mb-2 mt-4"
+              hint="The address you open Nextcloud at, including any sub-path such as /nextcloud"
+              persistent-hint
+              :disabled="nc.waiting.value"
+            ></v-text-field>
+            <div v-if="!nc.waiting.value" class="text-body-2 text-grey mt-4">
+              Your Nextcloud opens in a new tab: sign in with the account whose
+              photos this source should offer and grant access. This server
+              receives an app password of its own, which you can revoke in
+              Nextcloud under Security → Devices & sessions.
+            </div>
+            <NextcloudSignInPanel
+              v-else
+              :login-url="nc.loginUrl.value"
+            ></NextcloudSignInPanel>
+          </template>
+
           <template v-else-if="source === 'synology_photos'">
             <v-text-field
               v-model="form.url"
@@ -168,10 +191,16 @@
         <v-btn
           color="primary"
           :disabled="!canConnect"
-          :loading="loading"
+          :loading="loading || nc.waiting.value"
           @click="connect"
         >
-          {{ isGoogle ? 'Sign in with Google' : 'Connect' }}
+          {{
+            isGoogle
+              ? 'Sign in with Google'
+              : isNextcloud
+                ? 'Sign in with Nextcloud'
+                : 'Connect'
+          }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -189,6 +218,8 @@ import {
   useConnectionsStore,
   type Connection,
 } from '../stores/connections';
+import { useNextcloudLogin } from '../composables/useNextcloudLogin';
+import NextcloudSignInPanel from './NextcloudSignInPanel.vue';
 
 // Adds one connection: pick the provider, name it, enter its credentials,
 // connect. The row is created on the first Connect attempt and deleted again
@@ -227,6 +258,8 @@ const form = reactive({
   skip_cert: false,
   otp_code: '',
 });
+const nc = useNextcloudLogin();
+const isNextcloud = computed(() => source.value === 'nextcloud_memories');
 const loading = ref(false);
 const error = ref('');
 const needsOtp = ref(false);
@@ -252,6 +285,7 @@ const reset = () => {
   form.account = '';
   form.password = '';
   form.skip_cert = false;
+  nc.cancel();
   form.otp_code = '';
   error.value = '';
   needsOtp.value = false;
@@ -259,10 +293,12 @@ const reset = () => {
 };
 
 const canConnect = computed(() => {
-  if (loading.value) return false;
+  if (loading.value || nc.waiting.value) return false;
   switch (source.value) {
     case 'immich':
       return !!form.url && !!form.api_key;
+    case 'nextcloud_memories':
+      return !!form.url;
     case 'synology_photos':
       return !!form.url && !!form.account && !!form.password;
     case 'google_photos':
@@ -280,6 +316,8 @@ const configFor = (): Record<string, any> => {
   switch (source.value) {
     case 'immich':
       return { url: form.url, api_key: form.api_key };
+    case 'nextcloud_memories':
+      return { url: form.url };
     case 'synology_photos':
       return {
         url: form.url,
@@ -297,6 +335,8 @@ const configFor = (): Record<string, any> => {
 
 const connect = async () => {
   if (!canConnect.value) return;
+  // Opened before anything is awaited, or the browser blocks it.
+  const ncTab = isNextcloud.value ? nc.openTab() : null;
   loading.value = true;
   error.value = '';
   const finalName = name.value.trim() || defaultName(source.value);
@@ -320,12 +360,26 @@ const connect = async () => {
     }
 
     await store.update(id, { config: configFor() });
+
+    if (isNextcloud.value) {
+      // The wait is the user's: let them cancel it.
+      loading.value = false;
+      const conn = await nc.signIn(id, ncTab);
+      if (!conn) return; // cancelled
+      createdId.value = null;
+      emit('created', conn);
+      emit('update:modelValue', false);
+      reset();
+      return;
+    }
+
     const conn = await store.test(id, form.otp_code);
     createdId.value = null;
     emit('created', conn);
     emit('update:modelValue', false);
     reset();
   } catch (e: any) {
+    if (ncTab && !ncTab.closed && !nc.waiting.value) ncTab.close();
     const msg = e.response?.data?.error || e.message || 'Unknown error';
     // DSM 403: a one-time code is required; 404: the code was wrong; 406:
     // the account must use 2FA.

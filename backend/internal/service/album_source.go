@@ -283,6 +283,95 @@ func refuseIfAlbumsUsed(tx *gorm.DB, going []model.Album) error {
 	return &InUseError{What: "the album " + strings.Join(used, ", "), Devices: users}
 }
 
+// VirtualSelection says which library-wide collections of a source (Immich,
+// Nextcloud Memories) are picked alongside its real albums.
+type VirtualSelection struct {
+	All, Favorites, Memories bool
+}
+
+// setSyncAlbumsWithVirtual is SetSyncAlbums for sources that also offer
+// virtual albums: realIDs plus the picked virtual collections become the
+// sync-enabled set and every other album row of the scope is disabled.
+// nameByID names the real albums (falling back to the id); memoriesName is
+// what the source calls its "on this day" collection. An album (real or
+// virtual) some frame is limited to cannot be deselected (InUseError).
+// Images of the deselected albums are removed right away (metadata only; a
+// re-check plus resync re-imports them).
+func setSyncAlbumsWithVirtual(db *gorm.DB, sc sourceScope, realIDs []string, nameByID map[string]string, v VirtualSelection, memoriesName string) error {
+	desired := map[string]model.Album{}
+	for _, id := range realIDs {
+		if id == "" {
+			continue
+		}
+		name := nameByID[id]
+		if name == "" {
+			name = id
+		}
+		desired[id] = model.Album{
+			Source: sc.Source, ConnectionID: sc.connectionRef(), ExternalID: id,
+			Kind: model.AlbumKindReal, Name: name, SyncEnabled: true,
+		}
+	}
+	addVirtual := func(on bool, ext, name string) {
+		if on {
+			desired[ext] = model.Album{
+				Source: sc.Source, ConnectionID: sc.connectionRef(), ExternalID: ext,
+				Kind: model.AlbumKindVirtual, Name: name, SyncEnabled: true,
+			}
+		}
+	}
+	addVirtual(v.All, model.VirtualAll, "All Photos")
+	addVirtual(v.Favorites, model.VirtualFavorites, "Favorites")
+	addVirtual(v.Memories, model.VirtualMemories, memoriesName)
+
+	// An album (real or virtual) some frame is limited to stays: its photos
+	// would go and the frame would have nothing to show.
+	var going []model.Album
+	sc.where(db.Model(&model.Album{})).Where("sync_enabled = ?", true).Find(&going)
+	kept := going[:0]
+	for _, a := range going {
+		if _, ok := desired[a.ExternalID]; !ok {
+			kept = append(kept, a)
+		}
+	}
+	if err := refuseIfAlbumsUsed(db, kept); err != nil {
+		return err
+	}
+
+	// Upsert desired albums (enabled); disable everything else.
+	for ext, a := range desired {
+		var existing model.Album
+		if err := sc.where(db.Model(&model.Album{})).Where("external_id = ?", ext).
+			First(&existing).Error; err != nil {
+			a.UpdatedAt = time.Now()
+			if err := db.Create(&a).Error; err != nil {
+				log.Printf("[%s] create album (external_id=%s, name=%q): %v", sc.Source, ext, a.Name, err)
+			}
+		} else {
+			if err := db.Model(&model.Album{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
+				"sync_enabled": true, "name": a.Name, "kind": a.Kind,
+			}).Error; err != nil {
+				log.Printf("[%s] update album %d (external_id=%s): %v", sc.Source, existing.ID, ext, err)
+			}
+		}
+	}
+	var rows []model.Album
+	sc.where(db.Model(&model.Album{})).Find(&rows)
+	for _, a := range rows {
+		if _, ok := desired[a.ExternalID]; !ok && a.SyncEnabled {
+			if err := db.Model(&model.Album{}).Where("id = ?", a.ID).Update("sync_enabled", false).Error; err != nil {
+				log.Printf("[%s] disable album %d (external_id=%s): %v", sc.Source, a.ID, a.ExternalID, err)
+			}
+		}
+	}
+
+	// Drop the deselected albums' images right away (covers virtual albums
+	// too, which the shared SetSyncAlbums doesn't manage).
+	pruneDisabledAlbumMemberships(db, sc)
+	gcOrphanImagesForSource(db, sc)
+	return nil
+}
+
 // countAlbums returns how many album rows exist for a source and how many of
 // them are sync-enabled. Callers use the pair to tell "the album picker has
 // never been used here" (total == 0, fall back to the legacy single-album

@@ -13,6 +13,7 @@ Mix and match photo sources per device:
 | Gallery | Photos you upload from the dashboard, or send in via a [Telegram bot](https://core.telegram.org/bots). |
 | [Google Photos](https://photos.google.com/) | Pick albums & photos securely via the Picker API. |
 | [Immich](https://immich.app/) | Self-hosted photo server — sync selected albums or the All / Favorites / Memories views. |
+| [Nextcloud Memories](https://memories.gallery/) | The Memories app on your Nextcloud — sync albums (yours and ones shared with you) or the All Photos / Favorites / On This Day views. |
 | [Synology Photos](https://www.synology.com/en-us/dsm/feature/photos) | Your Synology NAS (DSM 7) — sync albums, including ones other users shared with your account. Shared Space (FotoTeam) folders are not supported yet ([#55](https://github.com/aitjcize/esp32-photoframe-server/issues/55)); Shared Space photos do sync when they are in an album. |
 | [Unsplash](https://unsplash.com/) · [Pexels](https://www.pexels.com/) | Free stock-photo search — add topics (e.g. `black and white`, `landscape`) and each becomes a synced album. |
 | URL Proxy | Display images from any image URL. |
@@ -172,6 +173,18 @@ Frames can show today's events of a Google Calendar next to the photo. Calendar 
 3. Click **Connect** to validate, then choose the albums to sync on the connection's card — or the **All Photos**, **Favorites**, or **Memories** views.
 4. Click **Sync Now** to import.
 5. Repeat with **+** for a second Immich server. Each connection keeps its own albums and schedule. In the device dialog a frame picks one server as its Image Source and then some of its albums, or **Any Immich connection** to draw from every server; the album picker then lists all their albums, prefixed with the connection name.
+
+### Nextcloud Memories Setup
+
+Requires the [Memories](https://apps.nextcloud.com/apps/memories) app on your Nextcloud, with its index built (Memories' admin page, or `occ memories:index`).
+
+1. Click **+** next to the source picker and choose **Nextcloud Memories**.
+2. Enter your **Nextcloud URL** (e.g., `https://cloud.example.com`, including any sub-path such as `/nextcloud`) and click **Sign in with Nextcloud**.
+3. Your Nextcloud's login page opens in a new tab (Nextcloud [Login Flow v2](https://docs.nextcloud.com/server/latest/developer_manual/client_apis/LoginFlow/index.html)). Sign in and grant access. You can instead scan the QR code shown in the dashboard with your phone, or copy the link into another browser. The server never sees your password: Nextcloud issues it an app password named "ESP32 PhotoFrame Server", which you can revoke under **Personal settings** → **Security** → **Devices & sessions**, or with **Sign out** on the connection's card.
+4. Once access is granted, choose the albums to sync on the connection's card — or the **All Photos**, **Favorites**, or **On This Day** views. Albums other users shared with you are listed and marked as such.
+5. Click **Sync Now** to import. HEIC photos are converted by Memories on download; videos and RAW files are skipped.
+
+As with Immich, each Nextcloud connection keeps its own albums and schedule, and a frame can draw from one connection or from **Any Nextcloud Memories connection**.
 
 ### Gallery Albums
 

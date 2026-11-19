@@ -11,6 +11,7 @@ import (
 
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/model"
 	"github.com/aitjcize/esp32-photoframe-server/backend/internal/service"
+	"github.com/aitjcize/esp32-photoframe-server/backend/pkg/nextcloud"
 )
 
 // ConnectionsHandler serves /api/connections: the configured instances of the
@@ -61,6 +62,17 @@ func (h *ConnectionsHandler) view(c model.Connection) connectionResponse {
 		out.Config = map[string]any{
 			"url":                        cfg.URL,
 			"has_api_key":                cfg.APIKey != "",
+			"memory_mode":                cfg.MemoryMode,
+			"auto_sync_enabled":          cfg.AutoSyncEnabled,
+			"auto_sync_interval_minutes": cfg.AutoSyncIntervalMinutes,
+		}
+	case model.SourceNextcloudMemories:
+		cfg := c.NextcloudConfig()
+		out.Connected = cfg.URL != "" && cfg.Username != "" && cfg.AppPassword != ""
+		out.Config = map[string]any{
+			"url":                        cfg.URL,
+			"username":                   cfg.Username,
+			"has_app_password":           cfg.AppPassword != "",
 			"memory_mode":                cfg.MemoryMode,
 			"auto_sync_enabled":          cfg.AutoSyncEnabled,
 			"auto_sync_interval_minutes": cfg.AutoSyncIntervalMinutes,
@@ -173,6 +185,33 @@ func applyConfig(c *model.Connection, in map[string]any) error {
 			cfg.AutoSyncIntervalMinutes = 60
 		}
 		return c.EncodeConfig(cfg)
+	case model.SourceNextcloudMemories:
+		cfg := c.NextcloudConfig()
+		// The user name and app password come only from Nextcloud's login
+		// flow (POST /connections/:id/nextcloud/login), never from here.
+		// They belong to the server that issued them: a new URL drops them.
+		if v, ok := str(in, "url"); ok {
+			if v = strings.TrimRight(v, "/"); v != cfg.URL {
+				cfg.URL = v
+				cfg.Username, cfg.AppPassword = "", ""
+			}
+		}
+		if v, ok := str(in, "memory_mode"); ok {
+			if v != service.ImmichMemoryModeLatest {
+				v = service.ImmichMemoryModeAll
+			}
+			cfg.MemoryMode = v
+		}
+		if v, ok := boolean(in, "auto_sync_enabled"); ok {
+			cfg.AutoSyncEnabled = v
+		}
+		if v, ok := integer(in, "auto_sync_interval_minutes"); ok && v > 0 {
+			cfg.AutoSyncIntervalMinutes = v
+		}
+		if cfg.AutoSyncIntervalMinutes <= 0 {
+			cfg.AutoSyncIntervalMinutes = 60
+		}
+		return c.EncodeConfig(cfg)
 	case model.SourceSynologyPhotos:
 		cfg := c.SynologyConfig()
 		if v, ok := str(in, "url"); ok {
@@ -235,6 +274,8 @@ func defaultName(source string) string {
 	switch source {
 	case model.SourceImmich:
 		return "Immich"
+	case model.SourceNextcloudMemories:
+		return "Nextcloud Memories"
 	case model.SourceSynologyPhotos:
 		return "Synology Photos"
 	case model.SourceGooglePhotos:
@@ -410,6 +451,14 @@ func (h *ConnectionsHandler) Test(c echo.Context) error {
 		if err := svc.TestConnection(); err != nil {
 			return respondError(c, http.StatusBadRequest, err.Error())
 		}
+	case model.SourceNextcloudMemories:
+		svc, err := h.conns.Nextcloud(conn.ID)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		if err := svc.TestConnection(); err != nil {
+			return respondError(c, http.StatusBadRequest, err.Error())
+		}
 	case model.SourceSynologyPhotos:
 		svc, err := h.conns.Synology(conn.ID)
 		if err != nil {
@@ -449,6 +498,19 @@ func (h *ConnectionsHandler) RemoteAlbums(c echo.Context) error {
 		}
 		albums, err := svc.ListAlbums()
 		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		return c.JSON(http.StatusOK, albums)
+	case model.SourceNextcloudMemories:
+		svc, err := h.conns.Nextcloud(conn.ID)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		albums, err := svc.ListAlbums()
+		if err != nil {
+			if errors.Is(err, nextcloud.ErrUnauthorized) {
+				return respondError(c, http.StatusUnauthorized, err.Error())
+			}
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 		return c.JSON(http.StatusOK, albums)
@@ -498,6 +560,17 @@ func (h *ConnectionsHandler) SetSyncAlbums(c echo.Context) error {
 			}
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
+	case model.SourceNextcloudMemories:
+		svc, err := h.conns.Nextcloud(conn.ID)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		if err := svc.SetSyncAlbums(req.AlbumIDs, req.Favorites, req.All, req.Memories); err != nil {
+			if handled, e := respondInUse(c, err); handled {
+				return e
+			}
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
 	case model.SourceSynologyPhotos:
 		svc, err := h.conns.Synology(conn.ID)
 		if err != nil {
@@ -537,10 +610,65 @@ func (h *ConnectionsHandler) Logout(c echo.Context) error {
 		if err := h.conns.GoogleLogout(conn.ID); err != nil {
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
+	case model.SourceNextcloudMemories:
+		svc, err := h.conns.Nextcloud(conn.ID)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		if err := svc.Logout(); err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
 	default:
-		return respondError(c, http.StatusBadRequest, "only Synology and Google connections have a session to log out of")
+		return respondError(c, http.StatusBadRequest, "only Synology, Nextcloud and Google connections have a session to log out of")
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// nextcloud resolves a Nextcloud Memories connection's service or writes the
+// error response.
+func (h *ConnectionsHandler) nextcloud(c echo.Context) (*service.NextcloudService, bool) {
+	conn, ok := h.load(c)
+	if !ok {
+		return nil, false
+	}
+	if conn.Source != model.SourceNextcloudMemories {
+		_ = respondError(c, http.StatusBadRequest, "not a Nextcloud Memories connection")
+		return nil, false
+	}
+	svc, err := h.conns.Nextcloud(conn.ID)
+	if err != nil {
+		_ = respondError(c, http.StatusInternalServerError, err.Error())
+		return nil, false
+	}
+	return svc, true
+}
+
+// NextcloudLogin starts Nextcloud's Login Flow v2 for the connection's URL
+// and returns the page the browser opens to sign in and grant access. The
+// server then polls Nextcloud and stores the app password it issues; the
+// dashboard follows along through NextcloudLoginStatus.
+// POST /api/connections/:id/nextcloud/login
+func (h *ConnectionsHandler) NextcloudLogin(c echo.Context) error {
+	svc, ok := h.nextcloud(c)
+	if !ok {
+		return nil
+	}
+	url, err := svc.BeginLogin()
+	if err != nil {
+		return respondError(c, http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"login_url": url})
+}
+
+// NextcloudLoginStatus reports the sign-in's progress: idle, pending, done or
+// failed (with the reason).
+// GET /api/connections/:id/nextcloud/login
+func (h *ConnectionsHandler) NextcloudLoginStatus(c echo.Context) error {
+	svc, ok := h.nextcloud(c)
+	if !ok {
+		return nil
+	}
+	return c.JSON(http.StatusOK, svc.LoginStatus())
 }
 
 // topic resolves an Unsplash or Pexels connection's service or writes the

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- **Nextcloud Memories as a photo source.** Enter your Nextcloud URL and
+  sign in through Nextcloud's own login page (Login Flow v2; in a new tab,
+  by QR code on a phone, or with a copied link in another browser): the
+  server receives an app password of its own and never sees yours. Sync
+  albums from the
+  [Memories](https://memories.gallery/) app (owned and shared with you)
+  or its All Photos, Favorites and On This Day views — the same picker,
+  auto-sync, per-frame album selection and "most recent year only" option
+  as Immich. Several Nextcloud servers or accounts can be added.
+
 ### Changed
 
 - **A frame never widens its own pool.** Whatever a frame currently draws

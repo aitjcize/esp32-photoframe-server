@@ -367,12 +367,7 @@
           <span v-else-if="galleryStore.source === 'gallery'">
             Upload photos here, or send them to your Telegram bot.
           </span>
-          <span
-            v-else-if="
-              galleryStore.source === 'synology_photos' ||
-              galleryStore.source === 'immich'
-            "
-          >
+          <span v-else-if="ALBUM_SOURCES.includes(galleryStore.source)">
             Choose the albums to sync below and click <b>Sync Now</b> to import
             photos.
           </span>
@@ -486,7 +481,11 @@
 import { onMounted, onUnmounted, ref, reactive, computed, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useGalleryStore } from '../stores/gallery';
-import { SYNCING_SOURCES, useConnectionsStore } from '../stores/connections';
+import {
+  ALBUM_SOURCES,
+  SYNCING_SOURCES,
+  useConnectionsStore,
+} from '../stores/connections';
 import { api, listDevices, pushToDevice, type Device } from '../api';
 import { useFramePasswordPrompt } from '../composables/useFramePasswordPrompt';
 import { isFrameAuthRefusal } from '../utils/frameAuth';
@@ -514,7 +513,7 @@ const galleryTitle = computed(() =>
 const startPicker = () =>
   galleryStore.startPicker(galleryStore.connectionId ?? undefined);
 
-// Album chips (only shown for Immich / Synology sources).
+// Album chips (shown for the syncing sources and the gallery).
 const albumChips = ref<any[]>([]);
 
 // Sources whose photos are grouped in albums (topic sources' synced topics

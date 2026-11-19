@@ -410,6 +410,24 @@ func (h *GalleryHandler) GetThumbnail(c echo.Context) error {
 		return err
 	}
 
+	// Case 1b': Nextcloud Memories (Proxy)
+	if item.Source == model.SourceNextcloudMemories {
+		svc, err := h.conns.NextcloudForImage(item)
+		if err != nil {
+			return respondError(c, http.StatusInternalServerError, err.Error())
+		}
+		thumbBytes, err := svc.GetThumbnail(item.ExternalID)
+		if err != nil {
+			fmt.Printf("Failed to fetch nextcloud thumbnail (file=%s): %v\n", item.ExternalID, err)
+			return respondError(c, http.StatusInternalServerError, "failed to fetch nextcloud thumbnail")
+		}
+		// Nextcloud previews may be JPEG or WebP; let the browser sniff.
+		c.Response().Header().Set("Content-Type", http.DetectContentType(thumbBytes))
+		c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+		_, err = c.Response().Write(thumbBytes)
+		return err
+	}
+
 	// Case 1c: Search-topic sources (unsplash/pexels) store a remote image
 	// URL in FilePath. Cache a generated thumbnail so the gallery doesn't refetch
 	// the full image on every load.
