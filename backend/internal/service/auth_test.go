@@ -176,3 +176,30 @@ func TestRotateSecret_PersistFailureKeepsOldSecret(t *testing.T) {
 	_, err = svc.ValidateToken(tok)
 	require.NoError(t, err, "secret must be unchanged when persistence fails")
 }
+
+// A frame's stored device token is kept on save only while it is still the
+// one GetOrGenerateDeviceToken stands in for: current secret, its own user,
+// its key still bound to that frame, and naming that frame.
+func TestAuthService_IsCurrentDeviceToken(t *testing.T) {
+	db := setupAuthDB(t)
+	svc := NewAuthService(db, "secret-a", false)
+	devA, devB := uint(7), uint(8)
+	tok, err := svc.GenerateDeviceToken(1, "admin", "frame", &devA)
+	require.NoError(t, err)
+
+	assert.True(t, svc.IsCurrentDeviceToken(tok, 1, devA))
+	assert.False(t, svc.IsCurrentDeviceToken(tok, 2, devA), "another user")
+	assert.False(t, svc.IsCurrentDeviceToken(tok, 1, devB), "another frame")
+	assert.False(t, svc.IsCurrentDeviceToken("", 1, devA))
+	assert.False(t, NewAuthService(db, "secret-b", false).IsCurrentDeviceToken(tok, 1, devA), "another secret")
+
+	// Rebinding the key to another frame leaves the token naming the old one
+	var key model.APIKey
+	require.NoError(t, db.Where("device_id = ?", devA).First(&key).Error)
+	require.NoError(t, svc.UpdateTokenDevice(1, key.ID, &devB))
+	assert.False(t, svc.IsCurrentDeviceToken(tok, 1, devA), "key no longer bound to it")
+	assert.False(t, svc.IsCurrentDeviceToken(tok, 1, devB), "token still names the old frame")
+
+	require.NoError(t, svc.RevokeToken(1, key.ID))
+	assert.False(t, svc.IsCurrentDeviceToken(tok, 1, devB), "revoked")
+}

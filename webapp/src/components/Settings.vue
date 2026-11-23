@@ -3875,9 +3875,9 @@ const saveDevice = async () => {
       }
 
       // Reconcile the schedule with firmware capability.
-      // - New firmware: send rotate_cron, plus a derived rotate_interval when
-      //   the schedule is a simple every-day interval (harmless; ignored in
-      //   favour of rotate_cron).
+      // - New firmware: send rotate_cron only. It ignores rotate_interval
+      //   next to rotate_cron and never reports it, so sending one would
+      //   make every save differ from the frame's stored settings.
       // - Old firmware: it only understands rotate_interval and silently
       //   ignores rotate_cron. Send interval-only so we don't store a phantom
       //   cron the device isn't running; refuse a schedule that can't be
@@ -3907,12 +3907,7 @@ const saveDevice = async () => {
         return;
       }
       const rotateFields = deviceSupportsCron.value
-        ? {
-            rotate_cron: deviceConfig.rotate_cron,
-            ...(legacyInterval !== null
-              ? { rotate_interval: legacyInterval }
-              : {}),
-          }
+        ? { rotate_cron: deviceConfig.rotate_cron }
         : { rotate_interval: legacyInterval };
 
       // Quiet hours only exist on pre-cron firmware; cron firmware bounds the
@@ -4103,6 +4098,9 @@ const saveDevice = async () => {
 
       if (result.push_result === 'synced') {
         showMessage('Device saved and config pushed to device.' + passwordNote);
+      } else if (result.push_result === 'unchanged') {
+        // Only server-side settings changed; the frame was not contacted.
+        showMessage('Device saved.' + passwordNote);
       } else if (result.push_result === 'auth_required') {
         // Saved server-side and delivered with the frame's next image fetch
         // (the frame's own channel, not password-gated); only the direct

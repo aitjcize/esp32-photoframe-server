@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/png"
 	"log"
+	"math"
 
 	_ "image/jpeg"
 
@@ -595,21 +596,6 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 			"http_password cannot be set through the device config; use POST /api/devices/:id/frame-password")
 	}
 
-	updates := map[string]interface{}{
-		"config_last_updated": time.Now().Unix(),
-	}
-	if len(req.Config) > 0 {
-		updates["device_config"] = string(req.Config)
-	}
-	if len(req.ProcessingSettings) > 0 {
-		updates["device_processing_settings"] = string(req.ProcessingSettings)
-	}
-	if len(req.ColorPalette) > 0 {
-		updates["device_color_palette"] = string(req.ColorPalette)
-	}
-
-	h.db.Model(&device).Updates(updates)
-
 	// If image_url points to this server, ensure a device token is included
 	if configMap != nil {
 		// Matches the unified bare "/image", the legacy "/image/<source>",
@@ -621,16 +607,68 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 			// Generate or reuse a device token
 			if userID, ok := c.Get("user_id").(uint); ok {
 				username, _ := c.Get("username").(string)
-				token, err := h.auth.GetOrGenerateDeviceToken(userID, username, device.Name, &device.ID)
+				// Keep the token the frame already holds while it is valid:
+				// a freshly signed one differs on every save, which would
+				// make every save look like a change to the frame's settings.
+				var stored struct {
+					AccessToken string `json:"access_token"`
+				}
+				_ = json.Unmarshal([]byte(device.DeviceConfig), &stored)
+				token, err := stored.AccessToken, error(nil)
+				if !h.auth.IsCurrentDeviceToken(token, userID, device.ID) {
+					token, err = h.auth.GetOrGenerateDeviceToken(userID, username, device.Name, &device.ID)
+				}
 				if err == nil {
 					configMap["access_token"] = token
 					// Re-serialize with token for DB storage
-					updated, _ := json.Marshal(configMap)
-					updates["device_config"] = string(updated)
-					h.db.Model(&device).Update("device_config", string(updated))
+					req.Config, _ = json.Marshal(configMap)
 				}
 			}
 		}
+	}
+
+	// The dialog saves the frame's settings with every edit, including edits
+	// that only concern the server (source, collage, calendar, ...). When
+	// nothing the frame holds changed, there is nothing to store, and nothing
+	// to push unless an earlier push of these same settings failed: trying an
+	// asleep frame only makes the save wait for the timeout.
+	unchanged := subsetOfStored(req.Config, device.DeviceConfig) &&
+		subsetOfStored(req.ProcessingSettings, device.DeviceProcessingSettings) &&
+		subsetOfStored(req.ColorPalette, device.DeviceColorPalette)
+	canPush := device.Host != "" && configMap != nil
+	if unchanged && (!device.ConfigUndelivered || !canPush) {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"status":              "updated",
+			"push_result":         "unchanged",
+			"config_last_updated": device.ConfigLastUpdated,
+		})
+	}
+
+	configLastUpdated := device.ConfigLastUpdated
+	stored := [3]string{device.DeviceConfig, device.DeviceProcessingSettings, device.DeviceColorPalette}
+	if !unchanged {
+		// Every stored edit gets its own version, even two in one second, so
+		// a frame reporting one never confirms the other.
+		configLastUpdated = max(time.Now().Unix(), device.ConfigLastUpdated+1)
+		// Pending from the moment it is stored, so an interrupted push
+		// still leaves it to be retried.
+		updates := map[string]interface{}{
+			"config_last_updated": configLastUpdated,
+			"config_undelivered":  true,
+		}
+		if len(req.Config) > 0 {
+			updates["device_config"] = string(req.Config)
+			stored[0] = string(req.Config)
+		}
+		if len(req.ProcessingSettings) > 0 {
+			updates["device_processing_settings"] = string(req.ProcessingSettings)
+			stored[1] = string(req.ProcessingSettings)
+		}
+		if len(req.ColorPalette) > 0 {
+			updates["device_color_palette"] = string(req.ColorPalette)
+			stored[2] = string(req.ColorPalette)
+		}
+		h.db.Model(&device).Updates(updates)
 	}
 
 	// Attempt to push directly to the device. Processing settings go FIRST:
@@ -640,15 +678,31 @@ func (h *ImageHandler) UpdateDeviceConfig(c echo.Context) error {
 	// would skip the payload). When the processing push fails, the config
 	// push is skipped too so the whole edit stays eligible for the deferred
 	// sync path.
+	//
+	// Everything stored is pushed, not just what this save carried, so
+	// anything still pending from an earlier failed push goes along and a
+	// push the frame answers confirms all of it. Settings that could not be
+	// pushed at all stay pending for the frame to pick up.
+	pushConfig, pushProcessing := configMap, req.ProcessingSettings
+	var all map[string]interface{}
+	if json.Unmarshal([]byte(stored[0]), &all) == nil && all != nil {
+		pushConfig = all
+	}
+	if p := strings.TrimSpace(stored[1]); p != "" && p != "{}" {
+		pushProcessing = json.RawMessage(p)
+	}
 	pushResult := "synced"
-	if device.Host != "" && configMap != nil {
-		pushResult = h.pushDeviceConfig(device, req.ProcessingSettings, configMap)
+	if canPush {
+		pushResult = h.pushDeviceConfig(device, pushProcessing, pushConfig)
+		if pushResult == "synced" {
+			confirmDelivered(h.db, device.ID, device.Host, configLastUpdated, stored)
+		}
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"status":              "updated",
 		"push_result":         pushResult,
-		"config_last_updated": updates["config_last_updated"],
+		"config_last_updated": configLastUpdated,
 	})
 }
 
@@ -688,6 +742,75 @@ func configPushFailure(err error) string {
 		return "auth_required"
 	}
 	return "offline"
+}
+
+// confirmDelivered clears the pending flag for exactly the settings a frame
+// was found to hold: the stored version, the three stored copies, and the
+// host it answered at. A save or host change stored meanwhile, even within
+// the same second, keeps its own pending flag.
+func confirmDelivered(db *gorm.DB, id uint, host string, version int64, stored [3]string) {
+	db.Model(&model.Device{}).
+		Where("id = ? AND host = ? AND config_last_updated = ? AND device_config = ? AND "+
+			"device_processing_settings = ? AND device_color_palette = ?",
+			id, host, version, stored[0], stored[1], stored[2]).
+		Update("config_undelivered", false)
+}
+
+// subsetOfStored reports whether every field of an edited settings object
+// already holds the same value in the stored copy. The stored copy can hold
+// more fields than an edit sends (it is pulled whole from the frame), so only
+// the edit's own fields are compared. An empty edit changes nothing.
+func subsetOfStored(edit json.RawMessage, stored string) bool {
+	if len(edit) == 0 {
+		return true
+	}
+	var e, s map[string]interface{}
+	if json.Unmarshal(edit, &e) != nil || json.Unmarshal([]byte(stored), &s) != nil {
+		return false
+	}
+	for k, v := range e {
+		sv, ok := s[k]
+		if !ok || !sameSetting(sv, v) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameSetting compares two decoded JSON values. Numbers match within half a
+// thousandth: the frame keeps floats as float32 and the dialog rounds what it
+// shows to three decimals (0.899999976 comes back as 0.9), and no setting is
+// edited at a finer step than that.
+func sameSetting(a, b interface{}) bool {
+	switch av := a.(type) {
+	case float64:
+		bv, ok := b.(float64)
+		return ok && math.Abs(av-bv) <= 0.0005
+	case map[string]interface{}:
+		bv, ok := b.(map[string]interface{})
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for k, v := range av {
+			if w, ok := bv[k]; !ok || !sameSetting(v, w) {
+				return false
+			}
+		}
+		return true
+	case []interface{}:
+		bv, ok := b.([]interface{})
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if !sameSetting(av[i], bv[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return a == b
+	}
 }
 
 // GetDeviceConfig returns the server-side device config.
@@ -807,6 +930,12 @@ func (h *ImageHandler) applyConfigSync(c echo.Context, device *model.Device, dev
 	// Server has newer config: push it down. (Nothing to push if we've never
 	// recorded a server-side edit, or the device is already current.)
 	if device.ConfigLastUpdated <= 0 || device.ConfigLastUpdated <= deviceConfigTS {
+		if device.ConfigUndelivered && deviceConfigTS > 0 {
+			// The frame reports the stored settings: they reached it after
+			// all. Unless an edit stored meanwhile is newer than what it has.
+			confirmDelivered(h.db, device.ID, device.Host, device.ConfigLastUpdated,
+				[3]string{device.DeviceConfig, device.DeviceProcessingSettings, device.DeviceColorPalette})
+		}
 		return
 	}
 	payload := buildConfigPayload(device)
@@ -843,11 +972,17 @@ func (h *ImageHandler) pullDeviceConfigAsync(device model.Device, deviceTS int64
 					"device_config":       configRaw,
 					"config_last_updated": deviceTS,
 				}
-				if proc, perr := client.FetchProcessingSettings(); perr == nil {
+				proc, perr := client.FetchProcessingSettings()
+				if perr == nil {
 					updates["device_processing_settings"] = proc
 				}
-				if palette, perr := client.FetchPalette(); perr == nil {
+				palette, lerr := client.FetchPalette()
+				if lerr == nil {
 					updates["device_color_palette"] = palette
+				}
+				// With all three fetched, the stored copy is the frame's own.
+				if perr == nil && lerr == nil {
+					updates["config_undelivered"] = false
 				}
 				release()
 				var parsed struct {

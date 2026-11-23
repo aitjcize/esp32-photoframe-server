@@ -226,6 +226,29 @@ func (s *AuthService) GetOrGenerateDeviceToken(userID uint, username string, nam
 	return s.GenerateDeviceToken(userID, username, name, deviceID)
 }
 
+// IsCurrentDeviceToken reports whether token is a device token that
+// GetOrGenerateDeviceToken would stand in for: signed with the current secret,
+// unexpired, naming deviceID (a key rebound to another frame keeps its old
+// tokens naming the old one), and issued from the user's unrevoked key for
+// deviceID. Keeping
+// such a token, rather than signing a fresh one, leaves a frame's stored config
+// unchanged when nothing else in it is.
+func (s *AuthService) IsCurrentDeviceToken(token string, userID uint, deviceID uint) bool {
+	if token == "" {
+		return false
+	}
+	claims, err := s.parseToken(token, s.secret())
+	if err != nil || claims.Subject != "device" || claims.UserID != userID || claims.KeyID == 0 ||
+		claims.DeviceID != deviceID {
+		return false
+	}
+	var apiKey model.APIKey
+	if err := s.db.First(&apiKey, claims.KeyID).Error; err != nil {
+		return false
+	}
+	return apiKey.UserID == userID && apiKey.DeviceID != nil && *apiKey.DeviceID == deviceID
+}
+
 // parseToken verifies the signature (HS256 only) with the given secret and
 // returns the claims if the token is structurally valid.
 func (s *AuthService) parseToken(tokenString string, secret []byte) (*JWTClaims, error) {

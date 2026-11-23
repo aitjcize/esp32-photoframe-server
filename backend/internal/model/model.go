@@ -119,11 +119,15 @@ type Device struct {
 	AuthRequired bool       `json:"auth_required" gorm:"default:false"`
 	AuthFailedAt *time.Time `json:"auth_failed_at"`
 	// Remote config sync fields (JSON blobs synced from/to device)
-	DeviceConfig             string    `json:"device_config" gorm:"default:'{}'"`
-	DeviceProcessingSettings string    `json:"device_processing_settings" gorm:"default:'{}'"`
-	DeviceColorPalette       string    `json:"device_color_palette" gorm:"default:'{}'"`
-	ConfigLastUpdated        int64     `json:"config_last_updated" gorm:"default:0"`
-	CreatedAt                time.Time `json:"created_at"`
+	DeviceConfig             string `json:"device_config" gorm:"default:'{}'"`
+	DeviceProcessingSettings string `json:"device_processing_settings" gorm:"default:'{}'"`
+	DeviceColorPalette       string `json:"device_color_palette" gorm:"default:'{}'"`
+	ConfigLastUpdated        int64  `json:"config_last_updated" gorm:"default:0"`
+	// ConfigUndelivered: the stored settings above have not reached the
+	// frame yet (the direct push after an edit failed, and the frame has not
+	// picked them up since). Saving them unchanged then retries the push.
+	ConfigUndelivered bool      `json:"-" gorm:"default:false"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // AfterFind reports whether a device HTTP password is stored without ever

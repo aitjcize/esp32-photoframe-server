@@ -334,8 +334,11 @@ func (s *DeviceService) UpdateDevice(id uint, name, host, orientation string, en
 	if hostChanged {
 		device.AuthRequired = false
 		device.AuthFailedAt = nil
+		// Likewise the stored settings were delivered, if at all, to the
+		// old host's frame: the next save pushes them to the new one.
+		device.ConfigUndelivered = true
 	} else {
-		omit = append(omit, "auth_required", "auth_failed_at")
+		omit = append(omit, "auth_required", "auth_failed_at", "config_undelivered")
 	}
 	if err := s.db.Omit(omit...).Save(&device).Error; err != nil {
 		return nil, err
@@ -389,16 +392,23 @@ func (s *DeviceService) RefreshDeviceFromHardware(id uint) (*model.Device, error
 		device.Orientation = parsedConfig.DisplayOrientation
 	}
 
+	fetchedAll := true
 	if procRaw, err := pfClient.FetchProcessingSettings(); err != nil {
 		log.Printf("Failed to fetch processing settings from %s: %v", device.Host, err)
+		fetchedAll = false
 	} else {
 		device.DeviceProcessingSettings = procRaw
 	}
 
 	if paletteRaw, err := pfClient.FetchPalette(); err != nil {
 		log.Printf("Failed to fetch palette from %s: %v", device.Host, err)
+		fetchedAll = false
 	} else {
 		device.DeviceColorPalette = paletteRaw
+	}
+	// Every stored setting is now the frame's own: nothing is left to deliver.
+	if fetchedAll {
+		device.ConfigUndelivered = false
 	}
 
 	// Refresh writes neither the password nor the host, nor the auth flag:

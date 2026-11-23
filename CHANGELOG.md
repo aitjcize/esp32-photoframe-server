@@ -9,6 +9,11 @@
   today's date, so with Show Date off it was missing (and the weather moved
   to the left), and with Photo Date as the only option the strip stayed
   empty. Full Photo + Overlay was not affected.
+- **Saving a frame's server-side settings no longer waits on the frame.**
+  Changing only what the server uses (image source, collage, layout,
+  calendar, weather and so on) used to push the frame's settings anyway,
+  and with the frame asleep the save hung until the push timed out. The
+  frame is now contacted only when one of its own settings changed.
 
 ### Changed
 
