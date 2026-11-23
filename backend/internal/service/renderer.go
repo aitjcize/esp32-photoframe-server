@@ -248,7 +248,7 @@ func (s *RendererService) Render(opts RenderOptions) (image.Image, error) {
 				pd = pd.In(loc)
 			}
 		}
-		photoDateStr = pd.Format("Jan 02, 2006")
+		photoDateStr = pd.Format(photoDateFormat(opts.DateFormat))
 	}
 
 	data := templateData{
@@ -432,6 +432,16 @@ func calcPhotoRatio(layout string, w, h int) float64 {
 func dateFormat(fmt string) string {
 	if fmt == "" {
 		return "Mon, Jan 02"
+	}
+	return fmt
+}
+
+// photoDateFormat returns the Go time format string for the photo's taken
+// date: the frame's date format, except that the default (today's date as
+// "Mon, Jan 02") has no year, which a photo's date needs.
+func photoDateFormat(fmt string) string {
+	if fmt == "" {
+		return "Jan 02, 2006"
 	}
 	return fmt
 }
