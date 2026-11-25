@@ -1068,9 +1068,11 @@
                             ></v-text-field>
                           </v-col>
                         </v-row>
-                        <!-- Advanced (#43), collapsed by default. Static IP /
-                             DNS render only when the firmware reports ip_mode;
-                             NTP exists everywhere. -->
+                        <!-- Advanced (#43, firmware #161), collapsed by
+                             default. Static IP / DNS render only when the
+                             firmware reports ip_mode, and the mirror switch
+                             only when it reports display_mirror; NTP exists
+                             everywhere. -->
                         <v-expansion-panels class="mt-2" variant="accordion">
                           <v-expansion-panel title="Advanced" elevation="0">
                             <v-expansion-panel-text>
@@ -1315,6 +1317,16 @@
                                   </v-card>
                                 </v-col>
                               </v-row>
+                              <v-switch
+                                v-if="deviceSupportsMirror"
+                                v-model="deviceConfig.display_mirror"
+                                label="Mirror the picture left to right"
+                                color="primary"
+                                density="compact"
+                                class="mt-4"
+                                hint="Turn on if text on the frame reads backwards, e.g. with a replacement panel that scans the other way from the one the board was built for."
+                                persistent-hint
+                              ></v-switch>
                             </v-expansion-panel-text>
                           </v-expansion-panel>
                         </v-expansion-panels>
@@ -2981,6 +2993,7 @@ const deviceConfig = reactive<Record<string, any>>({
   sleep_end_time: '07:00',
   display_orientation: 'landscape',
   display_rotation_deg: 180,
+  display_mirror: false,
   // The POSIX TZ rule the frame stores, kept verbatim (#128). It is never
   // reduced to an offset: a DST rule used to load as 0 and save as "UTC0".
   timezone: DEFAULT_TZ_RULE,
@@ -3082,6 +3095,8 @@ const deviceSupportsCron = ref(true);
 // Detected by key presence in the stored config; old firmware must render
 // (and be sent) exactly what it did before.
 const deviceSupportsStaticIp = ref(false);
+// Mirroring the panel exists only on firmware reporting display_mirror (#161)
+const deviceSupportsMirror = ref(false);
 
 // Device processing settings (synced remotely)
 const deviceProcessing = reactive({
@@ -3344,6 +3359,7 @@ const loadDeviceConfig = async (deviceId: number) => {
       display_orientation:
         cfg.display_orientation ?? deviceConfig.display_orientation,
       display_rotation_deg: cfg.display_rotation_deg ?? 180,
+      display_mirror: cfg.display_mirror === true,
       deep_sleep_enabled: cfg.deep_sleep_enabled ?? true,
       low_battery_indicator: cfg.low_battery_indicator ?? true,
       low_battery_threshold: cfg.low_battery_threshold ?? 10,
@@ -3358,6 +3374,7 @@ const loadDeviceConfig = async (deviceId: number) => {
       google_api_key: cfg.google_api_key ?? '',
     });
     deviceSupportsStaticIp.value = 'ip_mode' in cfg;
+    deviceSupportsMirror.value = 'display_mirror' in cfg;
     const startMin = cfg.sleep_schedule_start ?? 1380;
     deviceConfig.sleep_start_time = `${String(Math.floor(startMin / 60)).padStart(2, '0')}:${String(startMin % 60).padStart(2, '0')}`;
     const endMin = cfg.sleep_schedule_end ?? 420;
@@ -4003,6 +4020,10 @@ const saveDevice = async () => {
           ...sleepFields,
           display_orientation: deviceConfig.display_orientation,
           display_rotation_deg: deviceConfig.display_rotation_deg,
+          // Older firmware has no mirror setting; don't send it there (#161)
+          ...(deviceSupportsMirror.value
+            ? { display_mirror: deviceConfig.display_mirror }
+            : {}),
           timezone: deviceConfig.timezone,
           ntp_server: deviceConfig.ntp_server,
           ...networkFields,

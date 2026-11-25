@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Mirror a frame's picture.** Edit Device → General → Advanced has a
+  "Mirror the picture left to right" switch for a frame fitted with a panel
+  that scans the other way from the one its board was built for, where text
+  reads backwards (firmware #161). Shown only for firmware that has the
+  setting.
+
 ### Fixed
 
 - **Show Photo Date works without Show Date in the Photo + Info Strip and
@@ -18,8 +26,8 @@
 ### Changed
 
 - **"Advanced network settings" is now "Advanced".** The collapsed section
-  under Edit Device → General holds the frame password as well as the
-  network settings.
+  under Edit Device → General holds the frame password and the mirror
+  switch as well as the network settings.
 - **The photo date follows the frame's Date Format.** The overlay's photo
   date was always "Jan 02, 2006"; it now uses the format chosen under
   Overlay → Date Format (e.g. DD.MM.YYYY), which is offered whenever Show
