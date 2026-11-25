@@ -884,7 +884,7 @@
                   >
                     <!-- The frame refuses the server: say so up front, since
                          nothing saved here reaches it until its password is
-                         entered (the field is under Advanced network settings). -->
+                         entered (the field is under Advanced). -->
                     <v-alert
                       v-if="!isAddingDevice && editingDevice.auth_required"
                       type="warning"
@@ -1068,14 +1068,11 @@
                             ></v-text-field>
                           </v-col>
                         </v-row>
-                        <!-- Advanced network settings (#43), collapsed by
-                             default. Static IP / DNS render only when the
-                             firmware reports ip_mode; NTP exists everywhere. -->
+                        <!-- Advanced (#43), collapsed by default. Static IP /
+                             DNS render only when the firmware reports ip_mode;
+                             NTP exists everywhere. -->
                         <v-expansion-panels class="mt-2" variant="accordion">
-                          <v-expansion-panel
-                            title="Advanced network settings"
-                            elevation="0"
-                          >
+                          <v-expansion-panel title="Advanced" elevation="0">
                             <v-expansion-panel-text>
                               <v-row>
                                 <v-col cols="12" md="6">
@@ -2988,7 +2985,7 @@ const deviceConfig = reactive<Record<string, any>>({
   // reduced to an offset: a DST rule used to load as 0 and save as "UTC0".
   timezone: DEFAULT_TZ_RULE,
   ntp_server: 'pool.ntp.org',
-  // Advanced network settings (firmware #43)
+  // Advanced section (firmware #43)
   ip_mode: 'dhcp',
   static_ip: '',
   static_netmask: '255.255.255.0',

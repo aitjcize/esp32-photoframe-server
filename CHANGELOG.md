@@ -17,6 +17,9 @@
 
 ### Changed
 
+- **"Advanced network settings" is now "Advanced".** The collapsed section
+  under Edit Device → General holds the frame password as well as the
+  network settings.
 - **The photo date follows the frame's Date Format.** The overlay's photo
   date was always "Jan 02, 2006"; it now uses the format chosen under
   Overlay → Date Format (e.g. DD.MM.YYYY), which is offered whenever Show

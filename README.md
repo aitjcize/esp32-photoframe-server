@@ -240,10 +240,10 @@ Frames are configured from the dashboard — the server issues the access token 
 
 ### Frame Password
 
-A frame can require a password on its own web interface and API (firmware newer than v2.18.0; set under the frame's **Advanced network settings**). The server needs that password to reach the frame:
+A frame can require a password on its own web interface and API (firmware newer than v2.18.0; set under the frame's **Advanced** section). The server needs that password to reach the frame:
 
 - **Adding a protected frame**: in **Add Device**, tick **This frame requires a password** and enter it next to the host. Without it the frame can't be read, and the device is added with placeholder settings until you supply the password.
-- **Recording a password the frame already has**: **Edit Device** → **General** → **Advanced network settings** → **Frame password**. Saving it only tells the server what the frame has; **Forget password** drops it again.
+- **Recording a password the frame already has**: **Edit Device** → **General** → **Advanced** → **Frame password**. Saving it only tells the server what the frame has; **Forget password** drops it again.
 - **Changing it from the dashboard**: under **Password on the frame**, **Set a password on the frame** / **Change password on the frame** signs in to the frame with the stored password, sets the new one (typed twice), and stores it; **Turn off password on the frame** removes it. If the frame doesn't accept the change, nothing changes on either side. Give the new password to the Home Assistant integration and the mobile app too.
 
 When a frame starts refusing the server's password — it was turned on or changed from the frame itself — the device row shows a **Password required** chip and the dashboard asks for the password. Enter it (or choose **Not now**) and syncing and pushing resume; until then, settings saved in the dashboard reach the frame only with its next image fetch.
